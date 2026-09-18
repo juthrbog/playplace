@@ -48,7 +48,7 @@ type RemoteAccount struct {
 	ProviderID string
 	Name       string
 	Email      string
-	Status     string // provider status, e.g. ACTIVE, SUSPENDED, PENDING_CLOSURE
+	Status     string // provider state: ACTIVE, PENDING_CLOSURE, CLOSED, SUSPENDED, etc.
 	JoinedAt   time.Time
 	Tags       map[string]string
 }
@@ -118,6 +118,8 @@ type Provider interface {
 	RemoveOUTags(ctx context.Context, keys []string) error
 
 	// CloseAccount asks the provider to close the account. Idempotent.
+	// Success acknowledges the request, not completion; observe CLOSED via
+	// GetAccount or ListPlaygroundAccounts before reporting success.
 	// Returns ErrCloseQuota when the provider refuses for quota reasons.
 	CloseAccount(ctx context.Context, providerID string) error
 

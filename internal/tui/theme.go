@@ -108,8 +108,15 @@ func (t theme) status(a *core.Account, now time.Time) (glyph, label string, c co
 		return "●", "expiring !", t.warning
 	case core.StatusPending:
 		return "◇", "pending", t.warning
-	case core.StatusCreating, core.StatusClosing:
+	case core.StatusClosing:
+		if a.LastError != "" {
+			return "!", "closing !", t.danger
+		}
+		return "◌", "closing", t.busy
+	case core.StatusCreating:
 		return "◌", string(a.Status), t.busy
+	case core.StatusUnavailable:
+		return "!", "unavailable", t.danger
 	case core.StatusFailed:
 		return "×", "failed", t.danger
 	default:

@@ -527,8 +527,14 @@ func fromAccount(a orgtypes.Account, tags map[string]string) core.RemoteAccount 
 		ProviderID: aws.ToString(a.Id),
 		Name:       aws.ToString(a.Name),
 		Email:      aws.ToString(a.Email),
-		Status:     string(a.Status),
+		Status:     string(a.State),
 		Tags:       tags,
+	}
+	// State distinguishes PENDING_CLOSURE, CLOSED, and unrelated suspension.
+	// Keep a conservative fallback for older emulators: legacy SUSPENDED
+	// is ambiguous and must not be promoted to confirmed closure.
+	if r.Status == "" {
+		r.Status = string(a.Status)
 	}
 	if a.JoinedTimestamp != nil {
 		r.JoinedAt = *a.JoinedTimestamp

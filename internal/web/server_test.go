@@ -413,7 +413,7 @@ func TestAccountPageShowsHistory(t *testing.T) {
 
 func TestShowClosedSwitchInsteadOfHeaderLink(t *testing.T) {
 	ts, prov := newServer(t)
-	prov.Seed(core.RemoteAccount{ProviderID: "333333333333", Name: "gone-box", Status: "SUSPENDED", JoinedAt: t0,
+	prov.Seed(core.RemoteAccount{ProviderID: "333333333333", Name: "gone-box", Status: "CLOSED", JoinedAt: t0,
 		Tags: map[string]string{core.TagManaged: "true", core.TagOwner: "anna@example.com", core.TagExpires: t0.Format(time.RFC3339), core.TagBudget: "50"}})
 	_, body := do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
 	if strings.Contains(body, `href="/?all=1"`) {

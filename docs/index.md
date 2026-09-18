@@ -41,8 +41,10 @@ indoor playgrounds we grew up with; this is that idea moved to the cloud.
    it in their AWS access portal with the playground permission set, and a
    budget alert is set up for it.
 4. **Expire.** Three days before expiry the owner is warned. They can extend,
-   within the lifetime limit. At expiry the account is closed. Owners can
-   close early at any time.
+   within the lifetime limit. At expiry, playplace requests closure and monitors
+   AWS until closure is confirmed. Owners can request early closure too. Pending
+   closure can still incur charges; existing commitments and subscriptions may
+   outlive closure.
 
 ## Limits
 

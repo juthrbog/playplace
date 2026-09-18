@@ -19,27 +19,28 @@ import (
 // options holds every flag. Each flag can also be set with PLAYPLACE_<NAME>
 // where NAME is the flag name upper-cased with dashes turned to underscores.
 type options struct {
-	NoRefresh     bool
-	LogLevel      string
-	AWSRegion     string
-	AWSProfile    string
-	AWSEndpoint   string
-	OUName        string
-	PermissionSet string
-	EmailPattern  string
-	AlertEmail    string
-	SlackWebhook  string
-	DefaultTTL    string
-	WarnBefore    string
-	Budget        float64
-	History       string
-	HistoryFile   string
-	HistoryGroup  string
-	MaxPerOwner   int
-	MaxTTL        string
-	MaxBudget     float64
-	RequestTTL    string
-	SelfApprove   bool
+	NoRefresh       bool
+	LogLevel        string
+	AWSRegion       string
+	AWSProfile      string
+	AWSEndpoint     string
+	OUName          string
+	PermissionSet   string
+	EmailPattern    string
+	AlertEmail      string
+	SlackWebhook    string
+	DefaultTTL      string
+	WarnBefore      string
+	CloseAlertAfter string
+	Budget          float64
+	History         string
+	HistoryFile     string
+	HistoryGroup    string
+	MaxPerOwner     int
+	MaxTTL          string
+	MaxBudget       float64
+	RequestTTL      string
+	SelfApprove     bool
 }
 
 func defaultHistoryFile() string {
@@ -64,6 +65,7 @@ func (o *options) bind(cmd *cobra.Command) {
 	f.StringVar(&o.SlackWebhook, "slack-webhook", "", "Slack incoming webhook for lifecycle notifications")
 	f.StringVar(&o.DefaultTTL, "default-ttl", "14d", "lifetime of a new account")
 	f.StringVar(&o.WarnBefore, "warn-before", "3d", "how far ahead of expiry to warn owners")
+	f.StringVar(&o.CloseAlertAfter, "close-alert-after", "24h", "alert and fail reconciliation when closure remains unconfirmed this long (positive duration, e.g. 24h)")
 	f.Float64Var(&o.Budget, "default-budget", 50, "monthly budget in USD for a new account")
 	f.StringVar(&o.History, "history", "file", "where lifecycle history is kept: file, cloudwatch, or none")
 	f.StringVar(&o.HistoryFile, "history-file", defaultHistoryFile(), "JSON-lines file for --history file")
@@ -106,6 +108,9 @@ func (o *options) coreConfig() (core.Config, error) {
 	}
 	if cfg.WarnBefore, err = parseDuration(o.WarnBefore); err != nil {
 		return cfg, fmt.Errorf("warn-before: %w", err)
+	}
+	if cfg.CloseAlertAfter, err = parseInterval(o.CloseAlertAfter); err != nil {
+		return cfg, fmt.Errorf("close-alert-after: %w", err)
 	}
 	if cfg.RequestTTL, err = parseDuration(o.RequestTTL); err != nil {
 		return cfg, fmt.Errorf("request-ttl: %w", err)

@@ -1,4 +1,5 @@
-# playplace from GitLab CI: request, approve, deny, and a daily reconcile.
+---
+# playplace from GitLab CI: requests, approvals, and scheduled reconciliation.
 #
 # Requests and approvals still go through playplace's own queue (tags on the
 # Playground OU), so a request made here can be approved in the web UI or
@@ -10,10 +11,12 @@
 # Setup:
 #   1. Create an IAM role in the management account trusting GitLab's OIDC
 #      provider (see ../aws/gitlab-oidc-trust.json) with the policy in
-#      ../aws/playplace-policy.json. Put its ARN in the CI variable AWS_ROLE_ARN.
+#      ../aws/playplace-policy.json. Set CI variable AWS_ROLE_ARN to its ARN.
 #   2. Create a protected environment named `approvals` and allow only the
 #      approvers group to deploy to it. That gates the approve and deny jobs.
-#   3. Add a pipeline schedule (daily) with SCHEDULE_JOB=reconcile.
+#   3. Schedule every 15 minutes with SCHEDULE_JOB=reconcile.
+#      Alert on failed AND missed runs; pending closure can still bill.
+#      Separately deploy ../aws/playground-safeguards-scp.json before access.
 #   4. Set PLAYPLACE_PERMISSION_SET and any other PLAYPLACE_* variables you use.
 #      Ceilings (--max-ttl, --max-budget, --max-per-owner) and
 #      --allow-self-approval are not read from variables here: whoever runs a
@@ -75,11 +78,17 @@ default:
     # Pipeline variables outrank predefined ones, so GITLAB_USER_EMAIL and any
     # PLAYPLACE_* guardrail could be set from the Run pipeline form. Take the
     # operator from the signed token instead and drop the guardrail variables.
-    - unset PLAYPLACE_MAX_TTL PLAYPLACE_MAX_BUDGET PLAYPLACE_MAX_PER_OWNER PLAYPLACE_ALLOW_SELF_APPROVAL PLAYPLACE_OVERRIDE_LIMITS PLAYPLACE_OPERATOR
     - >
-      export PLAYPLACE_OPERATOR=$(printf '%s' "$GITLAB_OIDC_TOKEN" | cut -d. -f2 | tr '_-' '/+'
-      | awk '{ while (length($0) % 4) $0 = $0 "="; print }' | base64 -d | jq -r '.user_email // empty')
-    - test -n "$PLAYPLACE_OPERATOR" || { echo "could not read user_email from the job token"; exit 1; }
+      unset PLAYPLACE_MAX_TTL PLAYPLACE_MAX_BUDGET PLAYPLACE_MAX_PER_OWNER
+      PLAYPLACE_ALLOW_SELF_APPROVAL PLAYPLACE_OVERRIDE_LIMITS PLAYPLACE_OPERATOR
+    - >
+      export PLAYPLACE_OPERATOR=$(printf '%s' "$GITLAB_OIDC_TOKEN"
+      | cut -d. -f2 | tr '_-' '/+'
+      | awk '{ while (length($0) % 4) $0 = $0 "="; print }'
+      | base64 -d | jq -r '.user_email // empty')
+    - >
+      test -n "$PLAYPLACE_OPERATOR" ||
+      { echo "could not read user_email from the job token"; exit 1; }
     # Build playplace from this repo (or fetch a release binary instead).
     - go build -o /usr/local/bin/playplace ./cmd/playplace
 
@@ -92,13 +101,17 @@ request:
   script:
     - test -n "$NAME" || { echo "NAME is required"; exit 1; }
     - OWNER="${OWNER:-$PLAYPLACE_OPERATOR}"
-    - playplace request "$NAME" --owner "$OWNER" --ttl "$TTL" --budget "$BUDGET" --purpose "$PURPOSE"
-    - echo "Queued. An approver can now run the approve job, or act in the web UI or Slack."
+    - >
+      playplace request "$NAME" --owner "$OWNER" --ttl "$TTL"
+      --budget "$BUDGET" --purpose "$PURPOSE"
+    - >
+      echo "Queued. An approver can now run the approve job,
+      or act in the web UI or Slack."
 
 approve:
   stage: act
   environment:
-    name: approvals            # protected: only the approvers group may run this
+    name: approvals            # protected: only approvers may run this
     action: access
   rules:
     - if: $CI_PIPELINE_SOURCE == "web" && $JOB == "approve"
@@ -123,5 +136,6 @@ reconcile:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $SCHEDULE_JOB == "reconcile"
   script:
     # Finish creations, adopt untagged accounts, warn owners, close expired
-    # accounts, retry refused closes, and drop stale requests.
+    # accounts, monitor closures, retry refusals, and drop stale requests.
+    # Errors and closures overdue by --close-alert-after exit nonzero.
     - playplace reconcile

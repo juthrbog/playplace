@@ -43,13 +43,16 @@ set. Sign in there to reach the console or to get CLI credentials.
   Cost Explorer lags about a day. If your organization set an alert address,
   AWS Budgets emails it at 80 percent of your budget and when the forecast
   passes it.
-- **Close early.** Press **Close** when you are done. AWS suspends the
-  account at once and deletes it after 90 days. This cannot be undone.
+- **Close early.** Press **Close** when you are done. Closure is asynchronous:
+  the account stays *closing* until AWS confirms it is closed. Charges can
+  continue while closure is pending, and existing commitments or subscriptions
+  can outlive closure. Recovery during the 90-day post-closure period requires
+  AWS Support.
 - **History.** The account page lists what happened to it and who did it.
 
 ## Other ways to ask
 
 Depending on how your organization runs playplace, you may also be able to
-request from Slack, from a GitLab pipeline, or from the command line. The
-rules are the same everywhere: one owner, a lifetime, a budget, and an
-approver.
+request from a GitLab pipeline, or through the CLI or TUI with operator
+credentials. Slack can carry request notifications and approval buttons. The
+rules are the same everywhere: one owner, a lifetime, a budget, and an approver.

@@ -1,0 +1,54 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyLongLivedPurchases",
+      "Effect": "Deny",
+      "Action": [
+        "savingsplans:CreateSavingsPlan",
+        "ec2:PurchaseReservedInstancesOffering",
+        "ec2:AcceptReservedInstancesExchangeQuote",
+        "ec2:PurchaseHostReservation",
+        "ec2:PurchaseScheduledInstances",
+        "ec2:PurchaseCapacityBlock",
+        "ec2:PurchaseCapacityBlockExtension",
+        "rds:PurchaseReservedDBInstancesOffering",
+        "redshift:PurchaseReservedNodeOffering",
+        "redshift:AcceptReservedNodeExchange",
+        "elasticache:PurchaseReservedCacheNodesOffering",
+        "memorydb:PurchaseReservedNodesOffering",
+        "es:PurchaseReservedInstanceOffering",
+        "es:PurchaseReservedElasticsearchInstanceOffering",
+        "dynamodb:PurchaseReservedCapacityOfferings",
+        "mediaconnect:PurchaseOffering",
+        "medialive:PurchaseOffering",
+        "sagemaker:CreateTrainingPlan"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyMarketplacePurchases",
+      "Effect": "Deny",
+      "Action": [
+        "aws-marketplace:Subscribe",
+        "aws-marketplace:CreateAgreementRequest",
+        "aws-marketplace:AcceptAgreementRequest",
+        "aws-marketplace:AcceptAgreementApprovalRequest",
+        "aws-marketplace:AcceptAgreementPaymentRequest"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyMemberCreatedTrails",
+      "Effect": "Deny",
+      "Action": "cloudtrail:CreateTrail",
+      "Resource": "*"
+    },
+    {
+      "Sid": "KeepAccountsInOrganization",
+      "Effect": "Deny",
+      "Action": "organizations:LeaveOrganization",
+      "Resource": "*"
+    }
+  ]
+}

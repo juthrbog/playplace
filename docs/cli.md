@@ -49,9 +49,19 @@ allows it and the override is recorded in history.
 `create` is the escape hatch for operators; it records you as approver and,
 like `approve`, does not apply the per-owner limit, which is checked when a
 request is queued.
-`reconcile` runs one refresh pass and prints what changed; schedule it daily
-for the days nobody opens the UI. `serve` runs the web UI. `tui` opens the
+`reconcile` runs one refresh pass and prints what changed. Schedule it independently
+of the UI (for example, every 15 minutes) and alert on failed or missed runs.
+`serve` runs the web UI and, by default, refreshes every minute. `tui` opens the
 terminal dashboard; press `?` there for its keys.
+
+Closure is asynchronous: `closing` remains visible until AWS explicitly reports
+`CLOSED`. `unavailable` means suspension, pending activation, or an unknown state,
+not confirmed closure. `show` includes the provider state, request time, and
+closure observation time. After `--close-alert-after 24h` without confirmation,
+`reconcile` returns nonzero and attempts a one-shot lifecycle notification. It
+continues monitoring and retrying; operators must investigate rather than assume
+that submitting a close request stopped charges. See the [deployment safeguards](deploy.md)
+for the separately deployed purchase/trail SCP and existing-account checks.
 
 Who you are is taken from `PLAYPLACE_OPERATOR`, or your local user and host,
 and recorded on everything you request, approve, or change. A request you

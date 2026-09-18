@@ -751,7 +751,7 @@ func (m model) openClose() (tea.Model, tea.Cmd) {
 	svc, ctx, id, name, who := m.svc, m.ctx, a.ID, a.Name, m.opts.Operator
 	m.dialog = &dialog{
 		title:       "Close " + a.Name,
-		body:        fmt.Sprintf("Close %s (%s) owned by %s? AWS suspends the account now and deletes it after 90 days. This cannot be undone.", a.Name, a.ProviderID, a.Owner),
+		body:        fmt.Sprintf("Request closure of %s (%s) owned by %s? AWS processes closure asynchronously; charges may continue while pending. Commitments and subscriptions can outlive closure. Recovery requires AWS Support during the 90-day post-closure period.", a.Name, a.ProviderID, a.Owner),
 		buttons:     [2]string{"Close account", "Cancel"},
 		selected:    1,
 		destructive: true,
@@ -761,7 +761,7 @@ func (m model) openClose() (tea.Model, tea.Cmd) {
 				acc, err := svc.RequestClose(ctx, id, who)
 				flash := "✓ " + name + " closed"
 				if err == nil && acc.Status == core.StatusClosing {
-					flash = "✓ " + name + " tagged for closure; AWS quota refused for now"
+					flash = "✓ " + name + " awaiting confirmed AWS closure; reconciliation will monitor and retry"
 				}
 				return actionMsg{flash: flash, err: err}
 			}

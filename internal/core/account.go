@@ -15,13 +15,14 @@ import (
 type Status string
 
 const (
-	StatusPending  Status = "pending"  // requested, waiting for an approver
-	StatusCreating Status = "creating" // provider is still creating it
-	StatusActive   Status = "active"   // in the OU, usable
-	StatusExpiring Status = "expiring" // owner has been warned
-	StatusClosing  Status = "closing"  // close requested, waiting on provider quota
-	StatusClosed   Status = "closed"   // provider reports suspended or closed
-	StatusFailed   Status = "failed"   // creation failed, see LastError
+	StatusPending     Status = "pending"     // requested, waiting for an approver
+	StatusCreating    Status = "creating"    // provider is still creating it
+	StatusActive      Status = "active"      // in the OU, usable
+	StatusExpiring    Status = "expiring"    // owner has been warned
+	StatusClosing     Status = "closing"     // close requested, waiting for confirmed closure
+	StatusClosed      Status = "closed"      // provider explicitly reports CLOSED
+	StatusUnavailable Status = "unavailable" // suspended, pending activation, or unknown provider state
+	StatusFailed      Status = "failed"      // creation failed, see LastError
 )
 
 // IsOpen reports whether the account exists (or may exist) at the provider.
@@ -35,16 +36,18 @@ func (s Status) CanClose() bool { return s == StatusActive || s == StatusExpirin
 
 // Tag keys written to the provider. Together they are the whole state.
 const (
-	TagManaged        = "playplace:managed"         // "true"
-	TagOwner          = "playplace:owner"           // who is responsible
-	TagExpires        = "playplace:expires"         // RFC3339
-	TagBudget         = "playplace:budget"          // monthly USD, e.g. "50"
-	TagWarnedAt       = "playplace:warned-at"       // RFC3339, set once the owner was warned
-	TagCloseRequested = "playplace:close-requested" // RFC3339, close intent
-	TagAccess         = "playplace:access"          // principal id the owner's console access was granted to
-	TagRequestedBy    = "playplace:requested-by"    // who asked for the account
-	TagApprovedBy     = "playplace:approved-by"     // who approved it
-	TagPurpose        = "playplace:purpose"         // short free text from the request
+	TagManaged        = "playplace:managed"          // "true"
+	TagOwner          = "playplace:owner"            // who is responsible
+	TagExpires        = "playplace:expires"          // RFC3339
+	TagBudget         = "playplace:budget"           // monthly USD, e.g. "50"
+	TagWarnedAt       = "playplace:warned-at"        // RFC3339, set once the owner was warned
+	TagCloseRequested = "playplace:close-requested"  // RFC3339, close intent
+	TagClosedAt       = "playplace:closed-at"        // RFC3339, closure observed and reported
+	TagCloseAlertedAt = "playplace:close-alerted-at" // RFC3339, overdue closure warning sent
+	TagAccess         = "playplace:access"           // principal id the owner's console access was granted to
+	TagRequestedBy    = "playplace:requested-by"     // who asked for the account
+	TagApprovedBy     = "playplace:approved-by"      // who approved it
+	TagPurpose        = "playplace:purpose"          // short free text from the request
 )
 
 // Account is a playground account as derived from the provider.
@@ -61,6 +64,9 @@ type Account struct {
 	ExpiresAt        time.Time  `json:"expires_at"`
 	WarnedAt         *time.Time `json:"warned_at,omitempty"`
 	CloseRequestedAt *time.Time `json:"close_requested_at,omitempty"`
+	ClosedAt         *time.Time `json:"closed_at,omitempty"`
+	CloseAlertedAt   *time.Time `json:"close_alerted_at,omitempty"`
+	ProviderState    string     `json:"provider_state,omitempty"`
 	LastError        string     `json:"last_error,omitempty"`
 	Managed          bool       `json:"managed"`             // has our tags
 	AccessGrantedTo  string     `json:"access_to,omitempty"` // identity store principal id, empty until granted
@@ -88,6 +94,12 @@ func (a *Account) Tags() map[string]string {
 	if a.CloseRequestedAt != nil {
 		t[TagCloseRequested] = a.CloseRequestedAt.UTC().Format(time.RFC3339)
 	}
+	if a.ClosedAt != nil {
+		t[TagClosedAt] = a.ClosedAt.UTC().Format(time.RFC3339)
+	}
+	if a.CloseAlertedAt != nil {
+		t[TagCloseAlertedAt] = a.CloseAlertedAt.UTC().Format(time.RFC3339)
+	}
 	if a.AccessGrantedTo != "" {
 		t[TagAccess] = a.AccessGrantedTo
 	}
@@ -108,13 +120,14 @@ func (a *Account) Tags() map[string]string {
 // pass can adopt them.
 func FromRemote(r RemoteAccount, defaults Config, now time.Time) *Account {
 	a := &Account{
-		ID:         r.ProviderID,
-		ProviderID: r.ProviderID,
-		Name:       r.Name,
-		Email:      r.Email,
-		Owner:      r.Tags[TagOwner],
-		CreatedAt:  r.JoinedAt,
-		Managed:    r.Tags[TagManaged] == "true",
+		ID:            r.ProviderID,
+		ProviderID:    r.ProviderID,
+		Name:          r.Name,
+		Email:         r.Email,
+		Owner:         r.Tags[TagOwner],
+		CreatedAt:     r.JoinedAt,
+		Managed:       r.Tags[TagManaged] == "true",
+		ProviderState: r.Status,
 	}
 	if a.Owner == "" {
 		a.Owner = "unknown"
@@ -136,19 +149,33 @@ func FromRemote(r RemoteAccount, defaults Config, now time.Time) *Account {
 	if t, err := time.Parse(time.RFC3339, r.Tags[TagCloseRequested]); err == nil {
 		a.CloseRequestedAt = &t
 	}
+	if t, err := time.Parse(time.RFC3339, r.Tags[TagClosedAt]); err == nil {
+		a.ClosedAt = &t
+	}
+	if t, err := time.Parse(time.RFC3339, r.Tags[TagCloseAlertedAt]); err == nil {
+		a.CloseAlertedAt = &t
+	}
 	a.AccessGrantedTo = r.Tags[TagAccess]
 	a.RequestedBy = r.Tags[TagRequestedBy]
 	a.ApprovedBy = r.Tags[TagApprovedBy]
 	a.Purpose = r.Tags[TagPurpose]
 	switch {
-	case r.Status != "ACTIVE":
+	case r.Status == "CLOSED":
 		a.Status = StatusClosed
+	case r.Status == "PENDING_CLOSURE":
+		a.Status = StatusClosing
+	case r.Status != "ACTIVE":
+		a.Status = StatusUnavailable
+		a.LastError = fmt.Sprintf("provider state %q is not confirmed closure; investigate with AWS", r.Status)
 	case a.CloseRequestedAt != nil:
 		a.Status = StatusClosing
 	case a.WarnedAt != nil:
 		a.Status = StatusExpiring
 	default:
 		a.Status = StatusActive
+	}
+	if a.Status != StatusClosed && a.CloseRequestedAt != nil && defaults.CloseAlertAfter > 0 && now.Sub(*a.CloseRequestedAt) >= defaults.CloseAlertAfter {
+		a.LastError = fmt.Sprintf("closure unconfirmed since %s (provider state %q); charges may continue", a.CloseRequestedAt.UTC().Format(time.RFC3339), r.Status)
 	}
 	return a
 }
