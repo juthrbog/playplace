@@ -1,0 +1,42 @@
+# Generated for a tagged release. Review before submitting to the AUR.
+pkgname=playplace
+pkgver={{ .PackageVersion }}
+pkgrel=1
+pkgdesc='Short-lived AWS playground accounts with guardrails'
+arch=('x86_64' 'aarch64')
+url='https://github.com/juthrbog/playplace'
+license=('Apache-2.0')
+makedepends=('go>=1.27.1')
+_release_version='{{ .Version }}'
+source=("playplace-${_release_version}.tar.gz::${url}/releases/download/{{ .Tag }}/playplace_${_release_version}_source.tar.gz")
+sha256sums=('{{ index .Checksums "source" }}')
+
+build() {
+  cd "playplace-${_release_version}"
+  export CGO_ENABLED=0
+  go build -trimpath -mod=readonly -buildmode=pie \
+    -ldflags="-s -w -X playplace/internal/cli.version=${_release_version}" \
+    -o playplace ./cmd/playplace
+  ./playplace completion bash > playplace.bash
+  ./playplace completion zsh > _playplace
+  ./playplace completion fish > playplace.fish
+}
+
+check() {
+  cd "playplace-${_release_version}"
+  go test ./...
+  ./playplace --version
+}
+
+package() {
+  cd "playplace-${_release_version}"
+  install -Dm755 playplace "${pkgdir}/usr/bin/playplace"
+  install -Dm644 playplace.bash "${pkgdir}/usr/share/bash-completion/completions/playplace"
+  install -Dm644 _playplace "${pkgdir}/usr/share/zsh/site-functions/_playplace"
+  install -Dm644 playplace.fish "${pkgdir}/usr/share/fish/vendor_completions.d/playplace.fish"
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/playplace/LICENSE"
+  install -Dm644 README.md "${pkgdir}/usr/share/doc/playplace/README.md"
+  install -Dm644 DESIGN.md "${pkgdir}/usr/share/doc/playplace/DESIGN.md"
+  install -Dm644 DEVELOPMENT.md "${pkgdir}/usr/share/doc/playplace/DEVELOPMENT.md"
+  cp -r docs deploy "${pkgdir}/usr/share/doc/playplace/"
+}

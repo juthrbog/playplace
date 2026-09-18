@@ -5,7 +5,7 @@ Build, test, and work on playplace locally. For service usage, see
 
 ## Build
 
-Needs Go and [Task](https://taskfile.dev), configured in [mise.toml](mise.toml).
+Go, [Task](https://taskfile.dev), and GoReleaser are configured in [mise.toml](mise.toml).
 With [mise](https://mise.jdx.dev/) installed and activated in your shell:
 
     mise trust
@@ -14,6 +14,25 @@ With [mise](https://mise.jdx.dev/) installed and activated in your shell:
     task build   # writes bin/playplace
     task test
     task --list  # everything else
+
+## Release builds
+
+CI builds, vets, and runs race tests on Linux, macOS, and Windows. A separate
+Linux job builds and smoke-tests distribution snapshots. Shell completions and
+`playplace --version` are safe to generate/check without AWS credentials.
+
+    task completions        # write .generated/completions/
+    task release:check      # generated views, tests, vet, GoReleaser checks
+    task release:snapshot   # local archives and package recipes; never publish
+
+Snapshot validation also needs bash, tar, and Ruby. GoReleaser's source archive
+uses committed files; use the intended commit or a disposable local copy for
+pre-commit source-package checks. Generated views are committed so source
+packages do not need templ at build time; `scripts/check-generated.sh` checks
+that they match the version pinned in `go.mod`.
+
+See [Releasing](docs/releasing.md) for the workflow, Homebrew credentials, and
+manual AUR steps. Do not push a version tag unless you intend to publish.
 
 ## Documentation site
 
@@ -41,6 +60,9 @@ notes live in [DESIGN.md](DESIGN.md).
     internal/audit/         history sinks: local file and CloudWatch Logs
     internal/web/           templ views, htmx handlers, OIDC sign-in, Slack adapter
     deploy/                 IAM policy, GitLab pipeline, deployment notes
+    scripts/                offline completions, generated-view and archive checks
+    tools/package-release/  checksum-verified Homebrew and AUR recipe generation
+    .github/workflows/      cross-platform CI and tag-triggered releases
 
 ## Testing the flows locally
 

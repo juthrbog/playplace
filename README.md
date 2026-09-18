@@ -119,6 +119,23 @@ See [deployment instructions](deploy/README.md) and the
 
 ## Running your own instance
 
+### Release packages and Homebrew
+
+Release automation is prepared; this setup does **not** publish a release or
+install a formula in the tap. Until the first release, build from source below.
+Once a stable release has published the formula, installation will be:
+
+```sh
+brew install juthrbog/tap/playplace
+playplace --version
+```
+
+Releases will provide Linux, macOS, and Windows archives for amd64 and arm64,
+SHA-256 checksums, and shell completions. Source-based AUR recipes are generated
+as release assets; AUR submission remains manual. Installation does not start
+any service or make AWS changes. See [Releasing](docs/releasing.md) for validation,
+tap credentials, and the publication process.
+
 ### Build from source
 
 [Go and Task](mise.toml) are configured through [mise](https://mise.jdx.dev/).
@@ -181,6 +198,11 @@ before using playplace with real accounts.
 | [Deployment](deploy/README.md) | IAM, hosting, GitLab, and billing safeguards |
 | [Design](DESIGN.md) | Architecture, lifecycle rules, and interface decisions |
 | [Development](DEVELOPMENT.md) | Build setup, local testing, and contributor workflows |
+| [Releasing](docs/releasing.md) | CI, release snapshots, Homebrew, and AUR packaging |
 
 To browse the documentation site locally, install [uv](https://docs.astral.sh/uv/)
 and run `task docs` (http://localhost:8000). `task docs:build` builds it into `site/`.
+
+## License
+
+[Apache License 2.0](LICENSE).

@@ -1,0 +1,13 @@
+pkgbase = playplace
+	pkgdesc = Short-lived AWS playground accounts with guardrails
+	pkgver = {{ .PackageVersion }}
+	pkgrel = 1
+	url = https://github.com/juthrbog/playplace
+	arch = x86_64
+	arch = aarch64
+	license = Apache-2.0
+	makedepends = go>=1.27.1
+	source = playplace-{{ .Version }}.tar.gz::https://github.com/juthrbog/playplace/releases/download/{{ .Tag }}/playplace_{{ .Version }}_source.tar.gz
+	sha256sums = {{ index .Checksums "source" }}
+
+pkgname = playplace
