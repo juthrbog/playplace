@@ -36,7 +36,7 @@ func seeded(t *testing.T) (*core.Service, *fake.Provider) {
 	prov.Seed(core.RemoteAccount{ProviderID: "628790588465", Name: "dev-alpha", Email: "dev-alpha@example.com", JoinedAt: t0.Add(-5 * 24 * time.Hour), Tags: tags("alex", 3*24*time.Hour, "25", nil)})
 	prov.Seed(core.RemoteAccount{ProviderID: "794137730641", Name: "legacy-box", Email: "l@example.com", JoinedAt: t0.Add(-4 * 24 * time.Hour), Tags: tags("sam", 20*time.Hour, "50", map[string]string{core.TagWarnedAt: t0.Format(time.RFC3339)})})
 	prov.Seed(core.RemoteAccount{ProviderID: "111111111111", Name: "ml-scratch", Email: "m@example.com", JoinedAt: t0.Add(-3 * 24 * time.Hour), Tags: tags("anna", 21*24*time.Hour, "1000", nil)})
-	prov.Seed(core.RemoteAccount{ProviderID: "222222222222", Name: "old-one", Email: "o@example.com", Status: "SUSPENDED", JoinedAt: t0.Add(-2 * 24 * time.Hour), Tags: tags("sam", -48*time.Hour, "200", nil)})
+	prov.Seed(core.RemoteAccount{ProviderID: "222222222222", Name: "old-one", Email: "o@example.com", Status: "CLOSED", JoinedAt: t0.Add(-2 * 24 * time.Hour), Tags: tags("sam", -48*time.Hour, "200", nil)})
 	prov.FailNext = "EMAIL_ALREADY_EXISTS"
 	cfg := core.DefaultConfig()
 	cfg.InventoryTTL = 0
@@ -199,10 +199,13 @@ func TestCloseDialogWritesIntentAndCloses(t *testing.T) {
 		t.Fatalf("x should open a destructive dialog with Cancel selected: %+v", m.dialog)
 	}
 	out := plain(m.content())
-	for _, want := range []string{"Close ml-scratch", "111111111111", "cannot be undone"} {
+	for _, want := range []string{"Close ml-scratch", "111111111111", "asynchronously"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dialog missing %q", want)
 		}
+	}
+	if !strings.Contains(m.dialog.body, "charges may continue") {
+		t.Fatal("close dialog must warn about continuing charges")
 	}
 	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter}) // inside grace: ignored
 	if m.dialog == nil {

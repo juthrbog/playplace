@@ -73,7 +73,7 @@ provider, audit sinks, worker, CLI, TUI, and the deploy files.
 - [x] **Docs:** `costs` is cached hourly, not live; duration defaults read
   `14d` not `14`; `--no-worker` and the `0 = no limit` values are listed;
   intervals need a unit.
-- [x] **TUI approve dialog defaulted to Approve.** The README rule is that
+- [x] **TUI approve dialog defaulted to Approve.** The [design rule](DESIGN.md#rules) is that
   dialogs default to the safe button, and approval creates an account that
   cannot be closed for four days. It defaults to Cancel now (test).
 - [x] **TUI went stale in silence.** After the first good load, a failed poll

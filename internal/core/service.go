@@ -17,6 +17,7 @@ import (
 type Config struct {
 	DefaultTTL       time.Duration // how long a new account lives
 	WarnBefore       time.Duration // how far ahead of expiry to warn the owner
+	CloseAlertAfter  time.Duration // unconfirmed closure age that makes reconciliation fail
 	DefaultBudgetUSD float64       // monthly budget when none is given
 	EmailPattern     string        // e.g. "aws+pp-{name}@example.com"
 	AlertEmail       string        // recipient for provider budget alerts
@@ -38,6 +39,7 @@ func DefaultConfig() Config {
 	return Config{
 		DefaultTTL:       14 * 24 * time.Hour,
 		WarnBefore:       3 * 24 * time.Hour,
+		CloseAlertAfter:  24 * time.Hour,
 		DefaultBudgetUSD: 50,
 		EmailPattern:     "aws+pp-{name}@example.com",
 		InventoryTTL:     30 * time.Second,
@@ -622,6 +624,10 @@ func (s *Service) RequestClose(ctx context.Context, id string, by string) (*Acco
 }
 
 func (s *Service) tryClose(ctx context.Context, a *Account) (*Account, error) {
+	// A successful CloseAccount response only acknowledges an asynchronous
+	// request. Never report closed until a fresh provider read confirms it.
+	a.Status = StatusClosing
+	s.Invalidate()
 	if err := s.revokeAccess(ctx, a); err != nil {
 		// Revocation failing must not leave an expired account open; AWS
 		// suspends the account anyway, which ends console access.
@@ -635,12 +641,64 @@ func (s *Service) tryClose(ctx context.Context, a *Account) (*Account, error) {
 	if err != nil {
 		return a, fmt.Errorf("close %s: %w", a.Name, err)
 	}
-	a.Status = StatusClosed
-	s.Invalidate()
-	s.audit(ctx, "closed", a, ActorSystem, "", fmt.Sprintf("%s (%s) was closed at AWS", a.Name, a.ProviderID), nil)
-	s.notify(ctx, a, "Playground account closed",
-		fmt.Sprintf("Account %s (%s) owned by %s has been closed.", a.Name, a.ProviderID, a.Owner))
+	r, err := s.provider.GetAccount(ctx, a.ProviderID)
+	if err != nil {
+		return a, fmt.Errorf("verify closure of %s: %w", a.Name, err)
+	}
+	requestedAt := a.CloseRequestedAt
+	a = FromRemote(r, s.cfg, s.Now())
+	if a.CloseRequestedAt == nil {
+		a.CloseRequestedAt = requestedAt // tolerate an eventually consistent tag read
+	}
+	if a.Status == StatusClosed {
+		return a, s.confirmClosed(ctx, a)
+	}
+	if a.Status == StatusUnavailable {
+		return a, fmt.Errorf("verify closure of %s: %s", a.Name, a.LastError)
+	}
+	// Even an eventually consistent ACTIVE response is not permission to
+	// extend or grant access again: the durable close intent still applies.
+	a.Status = StatusClosing
 	return a, nil
+}
+
+// confirmClosed records observation, not acceptance of the close request.
+// The marker prevents repeated notifications across refreshes and restarts.
+func (s *Service) confirmClosed(ctx context.Context, a *Account) error {
+	if a.ClosedAt != nil {
+		return nil
+	}
+	now := s.Now().UTC()
+	if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagClosedAt: now.Format(time.RFC3339)}); err != nil {
+		return fmt.Errorf("record confirmed closure of %s: %w", a.Name, err)
+	}
+	a.ClosedAt = &now
+	s.Invalidate()
+	s.audit(ctx, "closed", a, ActorSystem, "", fmt.Sprintf("AWS reports %s (%s) CLOSED", a.Name, a.ProviderID), nil)
+	s.notify(ctx, a, "Playground account closed",
+		fmt.Sprintf("AWS reports account %s (%s) owned by %s CLOSED. Prior usage, commitments, subscriptions, and central logging may still incur charges.", a.Name, a.ProviderID, a.Owner))
+	return nil
+}
+
+// checkClosureDelay keeps cron failing and the worker logging until closure
+// is observed. The notification is one-shot; tags keep it so across restarts.
+func (s *Service) checkClosureDelay(ctx context.Context, a *Account) error {
+	if a.Status == StatusClosed || a.CloseRequestedAt == nil || s.cfg.CloseAlertAfter <= 0 || s.Now().Sub(*a.CloseRequestedAt) < s.cfg.CloseAlertAfter {
+		return nil
+	}
+	msg := fmt.Sprintf("closure of %s (%s) unconfirmed since %s (provider state %q); charges may continue; investigate AWS closure restrictions and run reconcile again",
+		a.Name, a.ProviderID, a.CloseRequestedAt.UTC().Format(time.RFC3339), a.ProviderState)
+	s.log.Error("closure overdue", "account", a.Name, "account_id", a.ProviderID, "since", *a.CloseRequestedAt, "provider_state", a.ProviderState)
+	if a.CloseAlertedAt == nil {
+		now := s.Now().UTC()
+		if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagCloseAlertedAt: now.Format(time.RFC3339)}); err != nil {
+			return errors.Join(errors.New(msg), fmt.Errorf("record closure alert: %w", err))
+		}
+		a.CloseAlertedAt = &now
+		s.audit(ctx, "closure-overdue", a, ActorSystem, "", msg, nil)
+		s.notify(ctx, a, "Playground account closure overdue", msg)
+	}
+	return errors.New(msg)
 }
 
 // Summary reports what a Refresh changed.
@@ -650,13 +708,14 @@ type Summary struct {
 	Granted  []string // owners given console access
 	Warned   []string // owners warned about expiry
 	Closed   []string // closed at the provider
-	Deferred []string // close wanted but quota refused
+	Deferred []string // closure is not yet confirmed (quota, processing, or failure)
+	Overdue  []string // unconfirmed closures older than CloseAlertAfter
 	Expired  []string // pending requests dropped for lack of approval
 }
 
 // Empty reports whether nothing changed.
 func (s Summary) Empty() bool {
-	return len(s.Placed)+len(s.Adopted)+len(s.Granted)+len(s.Warned)+len(s.Closed)+len(s.Deferred)+len(s.Expired) == 0
+	return len(s.Placed)+len(s.Adopted)+len(s.Granted)+len(s.Warned)+len(s.Closed)+len(s.Deferred)+len(s.Overdue)+len(s.Expired) == 0
 }
 
 func (s Summary) String() string {
@@ -671,7 +730,8 @@ func (s Summary) String() string {
 	add("granted access", s.Granted)
 	add("warned", s.Warned)
 	add("closed", s.Closed)
-	add("deferred", s.Deferred)
+	add("awaiting closure", s.Deferred)
+	add("closure overdue", s.Overdue)
 	add("expired requests", s.Expired)
 	return strings.Join(parts, "; ")
 }
@@ -724,10 +784,55 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 	}
 
 	for _, r := range remote {
-		if r.Status != "ACTIVE" {
+		a := FromRemote(r, s.cfg, now)
+		if a.Status == StatusClosed {
+			if a.CloseRequestedAt != nil && a.ClosedAt == nil {
+				if err := s.confirmClosed(ctx, a); err != nil {
+					errs = append(errs, err)
+				} else {
+					sum.Closed = append(sum.Closed, a.Name)
+				}
+			}
 			continue
 		}
-		a := FromRemote(r, s.cfg, now)
+		// Keep processing requested closures even when AWS is no longer
+		// ACTIVE. PENDING_CLOSURE is not CLOSED; SUSPENDED is not either.
+		if a.CloseRequestedAt != nil || r.Status == "PENDING_CLOSURE" {
+			if a.CloseRequestedAt == nil {
+				// Observe externally initiated closure without resetting its
+				// monitoring clock on every reconciliation.
+				a.CloseRequestedAt = &now
+				if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagCloseRequested: now.UTC().Format(time.RFC3339)}); err != nil {
+					errs = append(errs, fmt.Errorf("track closure of %s: %w", a.Name, err))
+					continue
+				}
+			}
+			if r.Status == "ACTIVE" {
+				a, err = s.tryClose(ctx, a)
+			} else {
+				err = s.revokeAccess(ctx, a)
+				if a.Status == StatusUnavailable {
+					err = errors.Join(err, fmt.Errorf("closure of %s: %s", a.Name, a.LastError))
+				}
+			}
+			if err != nil {
+				errs = append(errs, err)
+			}
+			if a.Status == StatusClosed {
+				sum.Closed = append(sum.Closed, a.Name)
+			} else {
+				sum.Deferred = append(sum.Deferred, a.Name)
+				if err := s.checkClosureDelay(ctx, a); err != nil {
+					sum.Overdue = append(sum.Overdue, a.Name)
+					errs = append(errs, err)
+				}
+			}
+			continue
+		}
+		if r.Status != "ACTIVE" {
+			errs = append(errs, fmt.Errorf("account %s: %s", a.Name, a.LastError))
+			continue
+		}
 
 		// 2. Adopt accounts in the OU that lack our tags.
 		if !a.Managed {
@@ -745,7 +850,7 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 
 		// 3. Owners without console access yet (a grant failed earlier, or the
 		//    account was adopted with a resolvable owner).
-		if a.Status != StatusClosing && a.AccessGrantedTo == "" && s.provider.AccessEnabled() {
+		if a.ExpiresAt.After(now) && a.AccessGrantedTo == "" && s.provider.AccessEnabled() {
 			if err := s.grantAccess(ctx, a); err != nil {
 				if !errors.Is(err, ErrUserNotFound) {
 					errs = append(errs, fmt.Errorf("grant %s: %w", a.Name, err))
@@ -753,19 +858,6 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 			} else {
 				sum.Granted = append(sum.Granted, a.Name)
 			}
-		}
-
-		// 4. Close intent left over from a quota refusal.
-		if a.Status == StatusClosing {
-			a, err = s.tryClose(ctx, a)
-			if err != nil {
-				errs = append(errs, err)
-			} else if a.Status == StatusClosed {
-				sum.Closed = append(sum.Closed, a.Name)
-			} else {
-				sum.Deferred = append(sum.Deferred, a.Name)
-			}
-			continue
 		}
 
 		// 5. Expiry: close when past due, warn when close.

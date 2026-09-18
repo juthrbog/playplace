@@ -44,7 +44,7 @@ templ layout(pg page, title string) {
 				.pill { display:inline-block; padding:.1rem .5rem; border-radius:999px; font-size:.8rem; border:1px solid var(--line); }
 				.pill.active { color:var(--ok); border-color:var(--ok); }
 				.pill.creating, .pill.pending, .pill.closing { color:var(--warn); border-color:var(--warn); }
-				.pill.expiring, .pill.failed { color:var(--bad); border-color:var(--bad); }
+				.pill.expiring, .pill.failed, .pill.unavailable { color:var(--bad); border-color:var(--bad); }
 				.pill.closed { color:var(--muted); }
 				form.inline { display:inline; }
 				button { font:inherit; padding:.3rem .7rem; border:1px solid var(--line); background:#fff; border-radius:6px; cursor:pointer; }
@@ -252,7 +252,7 @@ templ accountsTable(pg page, rows []accountRow) {
 				}
 				<span class="muted" style="font-weight:normal">({ fmt.Sprint(len(rows)) })</span>
 			</h3>
-			<label class="switch" title="include accounts AWS has suspended or closed">
+			<label class="switch" title="include accounts AWS explicitly reports CLOSED">
 				<input id="show-closed" type="checkbox" name="all" value="1" checked?={ pg.ShowAll } hx-get="/accounts" hx-target="#accounts" hx-swap="outerHTML" hx-trigger="change"/>
 				<span class="track"></span>
 				Show closed
@@ -286,7 +286,12 @@ templ accountTR(r accountRow) {
 	<tr>
 		<td><a href={ templ.SafeURL("/accounts/" + r.Account.ID) }>{ r.Account.Name }</a></td>
 		<td>{ r.Account.Owner }</td>
-		<td>@statusPill(r.Account.Status)</td>
+		<td>
+			@statusPill(r.Account.Status)
+			if r.Account.LastError != "" {
+				<div class="error">{ r.Account.LastError }</div>
+			}
+		</td>
 		<td><code>{ r.Account.ProviderID }</code></td>
 		<td title={ r.Account.ExpiresAt.Format(time.RFC3339) }>
 			if r.Account.Status == core.StatusActive || r.Account.Status == core.StatusExpiring || r.Account.Status == core.StatusClosing {
@@ -311,7 +316,7 @@ templ accountTR(r accountRow) {
 				</form>
 			}
 			if r.Account.Status.CanClose() {
-				<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/close" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-confirm={ "Close " + r.Account.Name + "? This cannot be undone at AWS." }>
+				<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/close" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-confirm={ "Request closure of " + r.Account.Name + "? AWS processes closure asynchronously. Charges may continue while pending, and commitments or subscriptions can outlive closure." }>
 					<button type="submit" class="danger">Close</button>
 				</form>
 			}

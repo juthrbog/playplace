@@ -44,4 +44,7 @@ They can request an account for someone else by filling in the owner field,
 and they can run **Sync with AWS**, which finishes creations that have
 landed, warns owners nearing expiry, closes expired accounts, and retries
 closes AWS refused. The same pass runs on its own every minute while the
-server is up.
+server is up. Closure is not instantaneous: `closing` stays visible until AWS
+reports `CLOSED`. An unconfirmed closure older than `--close-alert-after` (default
+24 hours) generates an overdue warning and makes reconciliation fail, so the
+operator can investigate. `unavailable` is not proof of closure.

@@ -24,7 +24,11 @@ func TestFromRemoteDerivesStatusFromTags(t *testing.T) {
 		{"active", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp, TagBudget: "25"}, "ACTIVE"), StatusActive, true, "alex", 25},
 		{"expiring", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp, TagWarnedAt: t0.Format(time.RFC3339)}, "ACTIVE"), StatusExpiring, true, "alex", 50},
 		{"closing", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp, TagCloseRequested: t0.Format(time.RFC3339)}, "ACTIVE"), StatusClosing, true, "alex", 50},
-		{"closed", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, "SUSPENDED"), StatusClosed, true, "alex", 50},
+		{"closed", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, "CLOSED"), StatusClosed, true, "alex", 50},
+		{"pending closure", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, "PENDING_CLOSURE"), StatusClosing, true, "alex", 50},
+		{"suspended", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, "SUSPENDED"), StatusUnavailable, true, "alex", 50},
+		{"pending activation", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, "PENDING_ACTIVATION"), StatusUnavailable, true, "alex", 50},
+		{"unknown state", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, ""), StatusUnavailable, true, "alex", 50},
 		{"untagged", base(map[string]string{}, "ACTIVE"), StatusActive, false, "unknown", 50},
 		{"owner only", base(map[string]string{TagOwner: "sam"}, "ACTIVE"), StatusActive, false, "sam", 50},
 	}
@@ -41,11 +45,14 @@ func TestFromRemoteDerivesStatusFromTags(t *testing.T) {
 
 func TestTagsRoundTrip(t *testing.T) {
 	warned := t0.Add(-time.Hour)
-	a := &Account{Owner: "alex", ExpiresAt: t0.Add(72 * time.Hour), BudgetUSD: 12.5, WarnedAt: &warned}
+	a := &Account{Owner: "alex", ExpiresAt: t0.Add(72 * time.Hour), BudgetUSD: 12.5, WarnedAt: &warned, ClosedAt: &warned, CloseAlertedAt: &warned}
 	tags := a.Tags()
 	back := FromRemote(RemoteAccount{ProviderID: "1", Status: "ACTIVE", Tags: tags}, DefaultConfig(), t0)
 	if back.Owner != "alex" || !back.ExpiresAt.Equal(a.ExpiresAt) || back.BudgetUSD != 12.5 || back.WarnedAt == nil || back.Status != StatusExpiring {
 		t.Fatalf("round trip lost data: %+v", back)
+	}
+	if back.ClosedAt == nil || back.CloseAlertedAt == nil || !back.ClosedAt.Equal(warned) || !back.CloseAlertedAt.Equal(warned) {
+		t.Fatalf("lost closure monitoring tags: %+v", back)
 	}
 	if _, ok := tags[TagCloseRequested]; ok {
 		t.Fatal("no close-requested tag expected")

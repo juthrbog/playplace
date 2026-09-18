@@ -5,7 +5,7 @@ becomes `PLAYPLACE_EMAIL_PATTERN`, and so on. Secrets belong in the
 environment.
 
 Lifetimes take a bare number of days, `Nd`, or a Go duration such as `72h`.
-Intervals and waits (`--every`, `create --timeout`) need a unit, such as
+Intervals and waits (`--every`, `--close-alert-after`, `create --timeout`) need a unit, such as
 `30s` or `5m`.
 
 ## Accounts
@@ -17,6 +17,7 @@ Intervals and waits (`--every`, `create --timeout`) need a unit, such as
 | `--default-ttl` | `14d` | lifetime when a request does not say |
 | `--default-budget` | `50` | monthly budget in USD when a request does not say |
 | `--warn-before` | `3d` | how far ahead of expiry to warn the owner |
+| `--close-alert-after` | `24h` | positive duration before unconfirmed closure triggers an alert and reconciliation error; checked on each refresh |
 | `--alert-email` | | recipient for AWS Budgets alerts |
 
 ## Requests and limits

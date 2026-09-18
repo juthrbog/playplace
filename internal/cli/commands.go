@@ -351,6 +351,9 @@ func showCmd(opts *options) *cobra.Command {
 				return err
 			}
 			fmt.Printf("name:        %s\nowner:       %s\nstatus:      %s\naccount id:  %s\n", acc.Name, acc.Owner, acc.Status, acc.ProviderID)
+			if acc.ProviderState != "" {
+				fmt.Printf("AWS state:   %s\n", acc.ProviderState)
+			}
 			if acc.RequestID != "" {
 				fmt.Printf("request id:  %s\n", acc.RequestID)
 			}
@@ -363,6 +366,9 @@ func showCmd(opts *options) *cobra.Command {
 			}
 			if acc.CloseRequestedAt != nil {
 				fmt.Printf("close asked: %s\n", acc.CloseRequestedAt.Format(time.RFC3339))
+			}
+			if acc.ClosedAt != nil {
+				fmt.Printf("closed seen: %s\n", acc.ClosedAt.Format(time.RFC3339))
 			}
 			if acc.LastError != "" {
 				fmt.Printf("failure:     %s\n", acc.LastError)
@@ -455,7 +461,7 @@ func closeCmd(opts *options) *cobra.Command {
 			}
 			fmt.Printf("%s is %s\n", acc.Name, acc.Status)
 			if acc.Status == core.StatusClosing {
-				fmt.Println("AWS refused for quota; the close intent is tagged and a later command or `playplace reconcile` retries it")
+				fmt.Println("Closure is not yet confirmed. The close intent is tagged; `playplace reconcile` monitors progress and retries when needed. Charges may continue until AWS reports CLOSED.")
 			}
 			return nil
 		}),

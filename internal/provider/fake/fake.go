@@ -25,6 +25,7 @@ type Provider struct {
 	PollsToDone int    // creation succeeds after this many CreateStatus calls (0 = immediately)
 	FailNext    string // if set, the next RequestAccount fails at the provider with this reason
 	QuotaHit    bool   // CloseAccount returns ErrCloseQuota while true
+	AsyncClose  bool   // CloseAccount transitions to PENDING_CLOSURE instead of CLOSED
 	DailyCost   float64
 	CostCalls   int // how many times Costs was called, for tests that watch spend on Cost Explorer
 
@@ -343,7 +344,10 @@ func (p *Provider) CloseAccount(_ context.Context, id string) error {
 	if p.QuotaHit {
 		return core.ErrCloseQuota
 	}
-	a.Status = "SUSPENDED"
+	a.Status = "CLOSED"
+	if p.AsyncClose {
+		a.Status = "PENDING_CLOSURE"
+	}
 	p.Closed = append(p.Closed, id)
 	return nil
 }
