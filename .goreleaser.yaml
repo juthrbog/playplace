@@ -1,0 +1,73 @@
+---
+version: 2
+project_name: playplace
+
+before:
+  hooks:
+    - bash scripts/completions.sh
+
+builds:
+  - id: playplace
+    main: ./cmd/playplace
+    binary: playplace
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X playplace/internal/cli.version={{ .Version }}
+
+archives:
+  - id: playplace
+    ids: [playplace]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - DESIGN.md
+      - DEVELOPMENT.md
+      - docs/*.md
+      - docs/assets/*
+      - docs/stylesheets/*
+      - deploy/README.md
+      - deploy/aws/*.json
+      - deploy/gitlab/.gitlab-ci.yml
+      - deploy/gitlab/*.md
+      - deploy/local/*
+      - src: .generated/completions/*
+        dst: completions
+        strip_parent: true
+
+source:
+  enabled: true
+  name_template: "{{ .ProjectName }}_{{ .Version }}_source"
+  prefix_template: "{{ .ProjectName }}-{{ .Version }}/"
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ .Version }}-SNAPSHOT-{{ .ShortCommit }}"
+
+release:
+  github:
+    owner: juthrbog
+    name: playplace
+  # Attach and verify package recipes before making the release public.
+  draft: true
+  prerelease: auto
+
+changelog:
+  use: git

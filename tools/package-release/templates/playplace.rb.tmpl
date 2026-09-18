@@ -1,0 +1,55 @@
+# Generated from the release's SHA-256 checksums. Do not edit manually.
+class Playplace < Formula
+  desc "Short-lived AWS playground accounts with guardrails"
+  homepage "https://github.com/juthrbog/playplace"
+  version "{{ .Version }}"
+  license "Apache-2.0"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/juthrbog/playplace/releases/download/{{ .Tag }}/playplace_{{ .Version }}_darwin_arm64.tar.gz"
+      sha256 "{{ index .Checksums "darwin_arm64" }}"
+    end
+    on_intel do
+      url "https://github.com/juthrbog/playplace/releases/download/{{ .Tag }}/playplace_{{ .Version }}_darwin_amd64.tar.gz"
+      sha256 "{{ index .Checksums "darwin_amd64" }}"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/juthrbog/playplace/releases/download/{{ .Tag }}/playplace_{{ .Version }}_linux_arm64.tar.gz"
+      sha256 "{{ index .Checksums "linux_arm64" }}"
+    end
+    on_intel do
+      url "https://github.com/juthrbog/playplace/releases/download/{{ .Tag }}/playplace_{{ .Version }}_linux_amd64.tar.gz"
+      sha256 "{{ index .Checksums "linux_amd64" }}"
+    end
+  end
+
+  def install
+    bin.install "playplace"
+    bash_completion.install "completions/playplace.bash" => "playplace"
+    zsh_completion.install "completions/_playplace"
+    fish_completion.install "completions/playplace.fish"
+    doc.install "README.md", "DESIGN.md", "DEVELOPMENT.md", "docs", "deploy"
+  end
+
+  def caveats
+    <<~EOS
+      playplace uses AWS management-account credentials for lifecycle commands.
+      Review the deployment guide and deploy the Playground SCP before use.
+      No service is started and no AWS resources are changed by installation.
+      Configure OIDC before exposing `playplace serve`; without it every
+      visitor is an admin.
+    EOS
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/playplace --version")
+    # Offline checks only: never initialize, list, or reconcile real accounts.
+    assert_match "reconcile", shell_output("#{bin}/playplace --help")
+    assert_match "oidc", shell_output("#{bin}/playplace serve --help")
+    assert_match "playplace", shell_output("#{bin}/playplace completion bash")
+  end
+end

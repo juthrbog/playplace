@@ -1,12 +1,15 @@
+---
 version: "3"
 
 vars:
   TEMPL:
-    sh: echo "$(go env GOBIN)"; [ -n "$(go env GOBIN)" ] || echo "$(go env GOPATH)/bin"
+    sh: >-
+      echo "$(go env GOBIN)";
+      [ -n "$(go env GOBIN)" ] || echo "$(go env GOPATH)/bin"
   TEMPL_VERSION:
     sh: go list -m -f '{{"{{"}}.Version{{"}}"}}' github.com/a-h/templ
   ZENSICAL_VERSION: "0.0.62"
-  # Local development against LocalStack. Flags are also readable as PLAYPLACE_* env vars.
+  # LocalStack development. Flags also accept PLAYPLACE_* environment values.
   LS_FLAGS: --aws-endpoint http://localhost:4566 --aws-region us-east-1
 
 env:
@@ -18,6 +21,27 @@ tasks:
   default:
     cmds:
       - task --list
+
+  completions:
+    desc: Generate bash, zsh, and fish completions (offline)
+    cmds:
+      - bash scripts/completions.sh
+
+  release:check:
+    desc: Validate release inputs without publishing (requires GoReleaser)
+    cmds:
+      - bash scripts/check-generated.sh
+      - go test -race ./...
+      - go vet ./...
+      - goreleaser check
+
+  release:snapshot:
+    desc: Build and smoke-test local release packages; never publish
+    deps: [release:check]
+    cmds:
+      - goreleaser release --snapshot --clean
+      - go run ./tools/package-release -dist dist
+      - bash scripts/check-release.sh
 
   tools:
     desc: Install templ at the version pinned in go.mod
@@ -59,7 +83,7 @@ tasks:
       - test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
 
   docs:
-    desc: Serve the documentation site locally with live reload (http://localhost:8000)
+    desc: Serve docs with live reload at http://localhost:8000
     cmds:
       - uvx --from zensical=={{.ZENSICAL_VERSION}} zensical serve {{.CLI_ARGS}}
 
@@ -69,10 +93,12 @@ tasks:
       - uvx --from zensical=={{.ZENSICAL_VERSION}} zensical build
 
   localstack:up:
-    desc: Start LocalStack (reads LOCALSTACK_AUTH_TOKEN from .env) and wait for health
+    desc: Start LocalStack using .env and wait for health
     cmds:
       - docker compose up -d
-      - until curl -sf http://localhost:4566/_localstack/health >/dev/null; do sleep 1; done
+      - >-
+        until curl -sf http://localhost:4566/_localstack/health >/dev/null;
+        do sleep 1; done
       - echo ready
 
   localstack:down:
@@ -81,29 +107,35 @@ tasks:
       - docker compose --profile auth down
 
   localstack:seed:
-    desc: Seed LocalStack Identity Center with a permission set and the three Dex users
+    desc: Seed LocalStack Identity Center with a permission set and Dex users
     cmds:
       - ./deploy/local/seed-localstack.sh
 
   auth:up:
-    desc: Start Dex, a local OIDC provider with admin@, lead@, dev@example.com (password "password")
+    desc: >-
+      Start Dex with admin@, lead@, dev@example.com (password "password")
     cmds:
       - docker compose --profile auth up -d dex
-      - until curl -sf http://localhost:5556/dex/.well-known/openid-configuration >/dev/null; do sleep 1; done
+      - >-
+        until curl -sf
+        http://localhost:5556/dex/.well-known/openid-configuration >/dev/null;
+        do sleep 1; done
       - echo ready
 
   serve:auth:
-    desc: Run the web UI with Dex sign-in (admin@ is admin, lead@ approves, dev@ is an engineer)
+    desc: Run the web UI with Dex sign-in and admin, approver, engineer roles
     deps: [build]
     cmds:
       - >-
         ./bin/playplace {{.LS_FLAGS}} serve --base-url http://localhost:8080
-        --oidc-issuer http://localhost:5556/dex --oidc-client-id playplace --oidc-client-secret playplace-local
-        --oidc-redirect-url http://localhost:8080/auth/callback --allowed-domain example.com
+        --oidc-issuer http://localhost:5556/dex --oidc-client-id playplace
+        --oidc-client-secret playplace-local
+        --oidc-redirect-url http://localhost:8080/auth/callback
+        --allowed-domain example.com
         --admins admin@example.com --approvers lead@example.com {{.CLI_ARGS}}
 
   serve:
-    desc: Run web UI against LocalStack with no sign-in (every visitor is an admin)
+    desc: Run web UI against LocalStack without sign-in (everyone is admin)
     deps: [build]
     cmds:
       - ./bin/playplace {{.LS_FLAGS}} --allow-self-approval serve {{.CLI_ARGS}}

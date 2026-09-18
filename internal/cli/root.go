@@ -62,6 +62,7 @@ func New() *cobra.Command {
 	opts := &options{}
 	root := &cobra.Command{
 		Use:           "playplace",
+		Version:       buildVersion(),
 		Short:         "Create, watch, and close engineer playground cloud accounts",
 		Long:          "playplace keeps no database. The playground OU and the tags on each account are the state.",
 		SilenceUsage:  true,

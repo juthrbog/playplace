@@ -5,3 +5,8 @@
 /.playwright-mcp/
 /site/
 /.agents/
+
+# Release snapshots, generated completions, and temporary tap checkout
+/dist/
+/.generated/
+/.homebrew-tap/

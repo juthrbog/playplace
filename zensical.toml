@@ -13,6 +13,7 @@ nav = [
   { "Command line" = "cli.md" },
   { "Configuration" = "configuration.md" },
   { "Deploying" = "deploy.md" },
+  { "Releasing" = "releasing.md" },
 ]
 
 [project.theme]
