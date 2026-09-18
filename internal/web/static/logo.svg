@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="playplace">
+  <defs>
+    <clipPath id="cloud">
+      <circle cx="84" cy="136" r="50"/>
+      <circle cx="136" cy="108" r="62"/>
+      <circle cx="190" cy="140" r="46"/>
+      <rect x="40" y="136" width="196" height="62" rx="28"/>
+    </clipPath>
+  </defs>
+  <!-- cloud outline: the same shapes, grown by the stroke width -->
+  <g fill="#8FB8E8">
+    <circle cx="84" cy="136" r="57"/>
+    <circle cx="136" cy="108" r="69"/>
+    <circle cx="190" cy="140" r="53"/>
+    <rect x="33" y="136" width="210" height="69" rx="34"/>
+  </g>
+  <g fill="#FFFFFF">
+    <circle cx="84" cy="136" r="50"/>
+    <circle cx="136" cy="108" r="62"/>
+    <circle cx="190" cy="140" r="46"/>
+    <rect x="40" y="136" width="196" height="62" rx="28"/>
+  </g>
+  <g clip-path="url(#cloud)">
+    <!-- tube slide: body, a highlight along the top, ring seams between segments -->
+    <path d="M222 58 C 206 96, 188 130, 156 144" fill="none" stroke="#E63946" stroke-width="24" stroke-linecap="butt"/>
+    <path d="M222 58 C 206 96, 188 130, 156 144" fill="none" stroke="#FF98A0" stroke-width="6" stroke-linecap="butt" opacity=".85" transform="translate(-3 -3)"/>
+    <g stroke="#A81E2B" stroke-width="3" stroke-linecap="round" opacity=".8">
+      <line x1="203.8" y1="118.3" x2="184.3" y2="104.4"/><line x1="192.7" y1="132.0" x2="175.1" y2="115.6"/><line x1="179.0" y1="144.3" x2="164.6" y2="125.1"/>
+    </g>
+    <!-- the tube starts above the cloud, so the clip cuts it at the outline and it comes out from under the edge; a shadow just inside sells it -->
+    <line x1="211.5" y1="106.7" x2="190.9" y2="94.3" stroke="#7A1420" stroke-width="6" stroke-linecap="butt" opacity=".35"/>
+        <!-- open mouth at the bottom -->
+        <ellipse cx="156" cy="144" rx="7" ry="13" transform="rotate(156.4 156 144)" fill="#7A1420" stroke="#FF98A0" stroke-width="3"/>
+    <!-- ball pit, two rows, clipped by the cloud; one ball has just landed under the mouth -->
+    <g>
+      <circle cx="74" cy="160" r="15" fill="#2DBE6C"/><circle cx="106" cy="160" r="15" fill="#FFC531"/><circle cx="138" cy="160" r="15" fill="#2E86DE"/><circle cx="170" cy="160" r="15" fill="#6C4DF2"/><circle cx="202" cy="160" r="15" fill="#FFC531"/>
+      <circle cx="58" cy="186" r="15" fill="#FFC531"/><circle cx="90" cy="186" r="15" fill="#2E86DE"/><circle cx="122" cy="186" r="15" fill="#E63946"/><circle cx="154" cy="186" r="15" fill="#2DBE6C"/><circle cx="186" cy="186" r="15" fill="#2E86DE"/><circle cx="218" cy="186" r="15" fill="#E63946"/>
+    </g>
+    <g fill="#FFFFFF" opacity=".75">
+      <circle cx="69" cy="155" r="4"/><circle cx="101" cy="155" r="4"/><circle cx="133" cy="155" r="4"/><circle cx="165" cy="155" r="4"/><circle cx="197" cy="155" r="4"/>
+      <circle cx="53" cy="181" r="4"/><circle cx="85" cy="181" r="4"/><circle cx="117" cy="181" r="4"/><circle cx="149" cy="181" r="4"/><circle cx="181" cy="181" r="4"/><circle cx="213" cy="181" r="4"/>
+    </g>
+  </g>
+</svg>

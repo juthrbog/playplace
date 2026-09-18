@@ -1,0 +1,127 @@
+# playplace from GitLab CI: request, approve, deny, and a daily reconcile.
+#
+# Requests and approvals still go through playplace's own queue (tags on the
+# Playground OU), so a request made here can be approved in the web UI or
+# Slack, and the other way round. GitLab adds three things: a place to run
+# playplace without handing out management credentials, protected-environment
+# gating so only approvers can run `approve` and `deny`, and a schedule for
+# `reconcile` when nobody is around.
+#
+# Setup:
+#   1. Create an IAM role in the management account trusting GitLab's OIDC
+#      provider (see ../aws/gitlab-oidc-trust.json) with the policy in
+#      ../aws/playplace-policy.json. Put its ARN in the CI variable AWS_ROLE_ARN.
+#   2. Create a protected environment named `approvals` and allow only the
+#      approvers group to deploy to it. That gates the approve and deny jobs.
+#   3. Add a pipeline schedule (daily) with SCHEDULE_JOB=reconcile.
+#   4. Set PLAYPLACE_PERMISSION_SET and any other PLAYPLACE_* variables you use.
+#      Ceilings (--max-ttl, --max-budget, --max-per-owner) and
+#      --allow-self-approval are not read from variables here: whoever runs a
+#      pipeline can add any variable to it, so they are unset below and the
+#      tool's defaults apply. To change them, pass flags on the script lines.
+#      PLAYPLACE_PERMISSION_SET and PLAYPLACE_EMAIL_PATTERN stay variables so
+#      the file needs no site-specific values; a pipeline variable can still
+#      override them, so pin them as flags too if that matters to you.
+#
+# Use: CI/CD > Pipelines > Run pipeline, pick the job in JOB and fill the
+# fields. The email in the job's OIDC token, which GitLab mints and the user
+# cannot set, is recorded as requester or approver.
+
+variables:
+  JOB:
+    description: "What to do: request, approve, deny"
+    value: "request"
+    options: ["request", "approve", "deny"]
+  NAME:
+    description: "Account name (lowercase, digits, dashes)"
+    value: ""
+  OWNER:
+    description: "Owner email (Identity Center user). Defaults to you."
+    value: ""
+  TTL:
+    description: "Lifetime, e.g. 7d or 14d"
+    value: "14d"
+  BUDGET:
+    description: "Monthly budget in USD"
+    value: "50"
+  PURPOSE:
+    description: "One line on what the account is for"
+    value: ""
+  REASON:
+    description: "Reason when denying"
+    value: ""
+  PLAYPLACE_VERSION: "latest"
+  AWS_REGION: "us-east-1"
+
+default:
+  image: golang:1.27
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: https://gitlab.com
+  before_script:
+    # Exchange the GitLab OIDC token for management-account credentials.
+    - apt-get update -qq && apt-get install -y -qq jq awscli >/dev/null
+    - >
+      CREDS=$(aws sts assume-role-with-web-identity
+      --role-arn "$AWS_ROLE_ARN"
+      --role-session-name "playplace-${CI_JOB_ID}"
+      --web-identity-token "$GITLAB_OIDC_TOKEN"
+      --duration-seconds 3600
+      --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]'
+      --output text)
+    - export AWS_ACCESS_KEY_ID=$(echo "$CREDS" | cut -f1)
+    - export AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | cut -f2)
+    - export AWS_SESSION_TOKEN=$(echo "$CREDS" | cut -f3)
+    # Pipeline variables outrank predefined ones, so GITLAB_USER_EMAIL and any
+    # PLAYPLACE_* guardrail could be set from the Run pipeline form. Take the
+    # operator from the signed token instead and drop the guardrail variables.
+    - unset PLAYPLACE_MAX_TTL PLAYPLACE_MAX_BUDGET PLAYPLACE_MAX_PER_OWNER PLAYPLACE_ALLOW_SELF_APPROVAL PLAYPLACE_OVERRIDE_LIMITS PLAYPLACE_OPERATOR
+    - >
+      export PLAYPLACE_OPERATOR=$(printf '%s' "$GITLAB_OIDC_TOKEN" | cut -d. -f2 | tr '_-' '/+'
+      | awk '{ while (length($0) % 4) $0 = $0 "="; print }' | base64 -d | jq -r '.user_email // empty')
+    - test -n "$PLAYPLACE_OPERATOR" || { echo "could not read user_email from the job token"; exit 1; }
+    # Build playplace from this repo (or fetch a release binary instead).
+    - go build -o /usr/local/bin/playplace ./cmd/playplace
+
+stages: [act, maintain]
+
+request:
+  stage: act
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && $JOB == "request"
+  script:
+    - test -n "$NAME" || { echo "NAME is required"; exit 1; }
+    - OWNER="${OWNER:-$PLAYPLACE_OPERATOR}"
+    - playplace request "$NAME" --owner "$OWNER" --ttl "$TTL" --budget "$BUDGET" --purpose "$PURPOSE"
+    - echo "Queued. An approver can now run the approve job, or act in the web UI or Slack."
+
+approve:
+  stage: act
+  environment:
+    name: approvals            # protected: only the approvers group may run this
+    action: access
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && $JOB == "approve"
+  script:
+    - test -n "$NAME" || { echo "NAME is required"; exit 1; }
+    - playplace approve "$NAME"
+
+deny:
+  stage: act
+  environment:
+    name: approvals
+    action: access
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && $JOB == "deny"
+  script:
+    - test -n "$NAME" || { echo "NAME is required"; exit 1; }
+    - playplace deny "$NAME" --reason "$REASON"
+
+reconcile:
+  stage: maintain
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $SCHEDULE_JOB == "reconcile"
+  script:
+    # Finish creations, adopt untagged accounts, warn owners, close expired
+    # accounts, retry refused closes, and drop stale requests.
+    - playplace reconcile

@@ -1,0 +1,407 @@
+package web
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"playplace/internal/core"
+)
+
+templ layout(pg page, title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ title } · playplace</title>
+			<link rel="icon" href={ asset("favicon.svg") } type="image/svg+xml"/>
+			<link rel="icon" href={ asset("favicon.ico") } sizes="32x32"/>
+			<link rel="apple-touch-icon" href={ asset("apple-touch-icon.png") }/>
+			<meta name="htmx-config" content='{"allowEval":false,"selfRequestsOnly":true}'/>
+			<script src="/static/htmx.min.js"></script>
+			<script src="/static/app.js"></script>
+			<style>
+				:root { --fg:#1c1c1c; --muted:#6b6b6b; --line:#e3e3e3; --bg:#fafafa; --ok:#1f7a3a; --warn:#b26a00; --bad:#b3261e; }
+				body { font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--fg); background:var(--bg); margin:0; }
+				header { display:flex; align-items:baseline; gap:1rem; padding:1rem 1.5rem; border-bottom:1px solid var(--line); background:#fff; }
+				header h1 { margin:0; font-size:1.1rem; display:flex; align-items:center; gap:.5rem; }
+				header h1 img { width:28px; height:28px; }
+				header a { color:var(--muted); text-decoration:none; }
+				main { padding:1.5rem; max-width:1100px; }
+				table { border-collapse:collapse; width:100%; background:#fff; }
+				th, td { text-align:left; padding:.5rem .75rem; border-bottom:1px solid var(--line); white-space:nowrap; vertical-align:top; }
+				.scroll { overflow-x:auto; }
+				/* Pending rows carry long emails and free text; let those wrap and keep the buttons together. */
+				.pending td.wrap { white-space:normal; overflow-wrap:anywhere; min-width:7rem; }
+				/* Buttons wrap onto a second row before the table is forced to scroll. */
+				.pending td.actions { white-space:normal; text-align:right; min-width:12rem; }
+				.pending td.actions form, .pending td.actions > button { display:inline-block; margin:.1rem 0 .1rem .25rem; }
+				.pending .via { display:block; font-size:.8rem; }
+				th { font-weight:600; color:var(--muted); font-size:.8rem; text-transform:uppercase; letter-spacing:.04em; }
+				tr:hover td { background:#f3f3f3; }
+				code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+				.pill { display:inline-block; padding:.1rem .5rem; border-radius:999px; font-size:.8rem; border:1px solid var(--line); }
+				.pill.active { color:var(--ok); border-color:var(--ok); }
+				.pill.creating, .pill.pending, .pill.closing { color:var(--warn); border-color:var(--warn); }
+				.pill.expiring, .pill.failed { color:var(--bad); border-color:var(--bad); }
+				.pill.closed { color:var(--muted); }
+				form.inline { display:inline; }
+				button { font:inherit; padding:.3rem .7rem; border:1px solid var(--line); background:#fff; border-radius:6px; cursor:pointer; }
+				button:hover { background:#f0f0f0; }
+				button.danger { color:var(--bad); }
+				input { font:inherit; padding:.4rem .5rem; border:1px solid var(--line); border-radius:6px; }
+				.card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:1rem 1.25rem; margin-bottom:1.25rem; }
+				.grid { display:grid; grid-template-columns: 10rem 1fr; gap:.35rem 1rem; }
+				.grid dt { color:var(--muted); }
+				.grid dd { margin:0; }
+				.row { display:flex; gap:.75rem; flex-wrap:wrap; align-items:end; }
+				.row label { display:flex; flex-direction:column; font-size:.8rem; color:var(--muted); gap:.2rem; }
+				.muted { color:var(--muted); }
+				.error { color:var(--bad); }
+				.bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; min-width:6rem; }
+				.bar span { display:block; height:100%; background:var(--ok); }
+				.bar.over span { background:var(--bad); }
+				.toolbar { display:flex; justify-content:space-between; align-items:center; margin:0 0 .5rem; }
+				.toolbar h3 { margin:0; font-size:1rem; }
+				.switch { display:inline-flex; align-items:center; gap:.5rem; cursor:pointer; color:var(--muted); font-size:.9rem; user-select:none; }
+				.switch input { position:absolute; opacity:0; width:0; height:0; }
+				.switch .track { width:2.2rem; height:1.2rem; border-radius:999px; background:var(--line); position:relative; transition:background .15s; }
+				.switch .track::after { content:""; position:absolute; top:.15rem; left:.15rem; width:.9rem; height:.9rem; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.2); transition:left .15s; }
+				.switch input:checked + .track { background:var(--ok); }
+				.switch input:checked + .track::after { left:1.15rem; }
+				.switch input:focus-visible + .track { outline:2px solid var(--ok); outline-offset:2px; }
+			</style>
+		</head>
+		<body>
+			<header>
+				<h1><img src={ asset("logo.svg") } alt=""/><a href="/">playplace</a></h1>
+				if pg.Viewer.Admin {
+					<form class="inline" hx-post="/refresh" hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" style="margin-left:auto">
+						<button type="submit" title="poll creations, sweep expiry, retry closes">Sync with AWS</button>
+					</form>
+				} else {
+					<span style="margin-left:auto"></span>
+				}
+				<span id="notice" class="muted"></span>
+				if pg.SignIn {
+					<span class="muted">{ pg.Viewer.Email }
+						if pg.Viewer.Admin {
+							<span class="pill">admin</span>
+						}
+					</span>
+					<form class="inline" method="post" action="/auth/logout"><button type="submit">Sign out</button></form>
+				}
+			</header>
+			<main>
+				{ children... }
+			</main>
+		</body>
+	</html>
+}
+
+type accountRow struct {
+	Account *core.Account
+	Spend   float64 // month to date
+}
+
+templ indexPage(pg page, rows []accountRow, errMsg string) {
+	@layout(pg, "Accounts") {
+		<div class="card">
+			<form hx-post="/requests" hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" data-reset-on-success>
+				<div class="row">
+					<label>name<input name="name" required pattern="[a-z0-9][a-z0-9\-]{1,48}[a-z0-9]" placeholder="dev-alex"/></label>
+					if pg.Viewer.Admin {
+						<label>owner<input name="owner" placeholder="owner email" value={ ownerDefault(pg.Viewer) }/></label>
+					} else {
+						<label>owner<input value={ pg.Viewer.Email } disabled title="requests are always in your name"/></label>
+					}
+					if pg.Viewer.Admin {
+						<label>days<input name="ttl" type="number" min="1" placeholder={ dayCount(pg.Limits.DefaultTTL) } style="width:5rem" title={ "up to " + dayCount(pg.Limits.MaxTTL) + " unless overridden" }/></label>
+						<label>budget $<input name="budget" type="number" min="1" placeholder={ fmt.Sprintf("%.0f", pg.Limits.DefaultBudgetUSD) } style="width:6rem" title={ fmt.Sprintf("up to $%.0f unless overridden", pg.Limits.MaxBudgetUSD) }/></label>
+					} else {
+						<label>days<input name="ttl" type="number" min="1" max={ dayCount(pg.Limits.MaxTTL) } placeholder={ dayCount(pg.Limits.DefaultTTL) } style="width:5rem" title={ "up to " + dayCount(pg.Limits.MaxTTL) }/></label>
+						<label>budget $<input name="budget" type="number" min="1" max={ fmt.Sprintf("%.0f", pg.Limits.MaxBudgetUSD) } placeholder={ fmt.Sprintf("%.0f", pg.Limits.DefaultBudgetUSD) } style="width:6rem" title={ fmt.Sprintf("up to $%.0f", pg.Limits.MaxBudgetUSD) }/></label>
+					}
+					<label>purpose<input name="purpose" placeholder="what you will try" size="24" maxlength={ fmt.Sprint(core.MaxPurpose) } pattern={ tagPattern } title="letters, numbers, spaces, and _ . : / = + - @"/></label>
+					if pg.Viewer.Admin {
+						<label title="admins may exceed the ceilings; recorded on the request">override limits<input type="checkbox" name="override"/></label>
+					}
+					<button type="submit">Request</button>
+				</div>
+				<div id="form-error" class="error"></div>
+				<p class="muted" style="margin:.5rem 0 0">{ limitsNote(pg) }</p>
+			</form>
+		</div>
+		if errMsg != "" {
+			<p class="error">{ errMsg }</p>
+		}
+		@pendingCard(pg)
+		@accountsTable(pg, rows)
+		<p class="muted">
+			if pg.SignIn && !pg.Viewer.Admin {
+				You see the accounts you own. 
+			}
+			Spend is month to date from Cost Explorer and lags about a day.
+		</p>
+	}
+}
+
+templ pendingCard(pg page) {
+	<div id="pending" class="card" hx-swap-oob="true">
+		<h3 style="margin-top:0" id="pending-title">
+			if pg.Viewer.Approver {
+				Pending approvals
+			} else {
+				Your pending requests
+			}
+			<span class="muted" style="font-weight:normal">({ fmt.Sprint(len(pg.Pending)) })</span>
+		</h3>
+		if len(pg.Pending) == 0 {
+			<p class="muted" style="margin:0">Nothing waiting.</p>
+		} else {
+			<div class="scroll">
+				<table class="pending">
+					<thead><tr><th>Name</th><th>Owner</th><th>Requested by</th><th>TTL</th><th>Budget</th><th>Purpose</th><th>When</th><th></th></tr></thead>
+					<tbody>
+						for _, q := range pg.Pending {
+							@pendingRow(pg, q)
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	</div>
+}
+
+templ pendingRow(pg page, q core.Request) {
+	<tr id={ "req-" + q.Name }>
+		<td>{ q.Name }</td>
+		<td class="wrap">@breakable(q.Owner)</td>
+		<td class="wrap">@breakable(q.RequestedBy) <span class="muted via">via { q.Via }</span></td>
+		<td>{ fmt.Sprintf("%dd", int(q.TTL.Hours()/24)) }</td>
+		<td>{ fmt.Sprintf("$%.0f", q.BudgetUSD) }</td>
+		<td class="wrap">
+			{ q.Purpose }
+			if q.OverrideLimits {
+				<span class="pill" title="an admin allowed values above the ceilings">limits overridden</span>
+			}
+		</td>
+		<td title={ q.RequestedAt.Format(time.RFC3339) }>{ q.RequestedAt.Format("Jan 2 15:04") }</td>
+		<td class="actions">
+			if canApprove(pg, q) {
+				<form class="inline" hx-post={ "/requests/" + q.Name + "/approve" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
+					<button type="submit">Approve</button>
+				</form>
+				<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-prompt="Reason for denying (sent to the requester)">
+					<button type="submit" class="danger">Deny</button>
+				</form>
+			} else if pg.Viewer.Approver {
+				<span class="muted" title="you requested this; another approver must act">yours</span>
+			}
+			if pg.Viewer.Admin {
+				<button hx-get={ "/requests/" + q.Name + "/edit" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML" title="change owner, days, budget, or purpose before approving">Edit</button>
+			}
+			if canWithdraw(pg.Viewer, q) {
+				<form class="inline" hx-post={ "/requests/" + q.Name + "/withdraw" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-confirm={ "Withdraw the request for " + q.Name + "?" }>
+					<button type="submit">Withdraw</button>
+				</form>
+			}
+		</td>
+	</tr>
+}
+
+// breakable renders an identity with a break opportunity after the @, so a
+// narrow column splits "name@" / "host" instead of mid-word.
+templ breakable(s string) {
+	if user, host, ok := strings.Cut(s, "@"); ok {
+		{ user + "@" }<wbr/>{ host }
+	} else {
+		{ s }
+	}
+}
+
+templ pendingEditRow(pg page, q core.Request) {
+	<tr id={ "req-" + q.Name }>
+		<td>{ q.Name }</td>
+		<td colspan="6">
+			<form hx-post={ "/requests/" + q.Name + "/edit" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
+				<div class="row">
+					<label>owner<input name="owner" value={ q.Owner } size="24"/></label>
+					<label>days<input name="ttl" type="number" min="1" value={ fmt.Sprintf("%d", int(q.TTL.Hours()/24)) } style="width:5rem"/></label>
+					<label>budget $<input name="budget" type="number" min="1" value={ fmt.Sprintf("%.0f", q.BudgetUSD) } style="width:6rem"/></label>
+					<label>purpose<input name="purpose" value={ q.Purpose } size="28" maxlength={ fmt.Sprint(core.MaxPurpose) } pattern={ tagPattern } title="letters, numbers, spaces, and _ . : / = + - @"/></label>
+					<label title="allow values above the ceilings">override limits<input type="checkbox" name="override" checked?={ q.OverrideLimits }/></label>
+					<button type="submit">Save</button>
+					<button type="button" hx-get={ "/requests/" + q.Name + "/row" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML">Cancel</button>
+				</div>
+			</form>
+		</td>
+		<td></td>
+	</tr>
+}
+
+templ accountsTable(pg page, rows []accountRow) {
+	<div id="accounts" hx-get={ tableURL(pg.ShowAll) } hx-trigger="every 15s" hx-swap="outerHTML">
+		<div class="toolbar">
+			<h3>
+				if pg.SignIn && !pg.Viewer.Admin {
+					Your accounts
+				} else {
+					Accounts
+				}
+				<span class="muted" style="font-weight:normal">({ fmt.Sprint(len(rows)) })</span>
+			</h3>
+			<label class="switch" title="include accounts AWS has suspended or closed">
+				<input id="show-closed" type="checkbox" name="all" value="1" checked?={ pg.ShowAll } hx-get="/accounts" hx-target="#accounts" hx-swap="outerHTML" hx-trigger="change"/>
+				<span class="track"></span>
+				Show closed
+			</label>
+		</div>
+		<div class="scroll">
+		<table>
+			<thead>
+				<tr><th>Name</th><th>Owner</th><th>Status</th><th>Account</th><th>Expires</th><th>Spend / Budget</th><th></th></tr>
+			</thead>
+			<tbody>
+				if len(rows) == 0 {
+					<tr><td colspan="7" class="muted">
+						if pg.ShowAll {
+							No accounts.
+						} else {
+							No open accounts.
+						}
+					</td></tr>
+				}
+				for _, r := range rows {
+					@accountTR(r)
+				}
+			</tbody>
+		</table>
+		</div>
+	</div>
+}
+
+templ accountTR(r accountRow) {
+	<tr>
+		<td><a href={ templ.SafeURL("/accounts/" + r.Account.ID) }>{ r.Account.Name }</a></td>
+		<td>{ r.Account.Owner }</td>
+		<td>@statusPill(r.Account.Status)</td>
+		<td><code>{ r.Account.ProviderID }</code></td>
+		<td title={ r.Account.ExpiresAt.Format(time.RFC3339) }>
+			if r.Account.Status == core.StatusActive || r.Account.Status == core.StatusExpiring || r.Account.Status == core.StatusClosing {
+				{ expiresIn(r.Account.ExpiresAt) }
+			} else if !r.Account.ExpiresAt.IsZero() && r.Account.Status != core.StatusFailed && r.Account.Status != core.StatusClosed {
+				<span class="muted" title="once created">{ expiresIn(r.Account.ExpiresAt) }</span>
+			} else {
+				<span class="muted">—</span>
+			}
+		</td>
+		<td>
+			<div class="bar" class={ templ.KV("over", r.Spend > r.Account.BudgetUSD) } title={ fmt.Sprintf("$%.2f of $%.0f", r.Spend, r.Account.BudgetUSD) }>
+				<span style={ barWidth(r.Spend, r.Account.BudgetUSD) }></span>
+			</div>
+			<small class="muted">{ fmt.Sprintf("$%.2f / $%.0f", r.Spend, r.Account.BudgetUSD) }</small>
+		</td>
+		<td>
+			if r.Account.Status.CanExtend() {
+				<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/extend" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
+					<input type="hidden" name="by" value="7d"/>
+					<button type="submit" title="extend by 7 days">+7d</button>
+				</form>
+			}
+			if r.Account.Status.CanClose() {
+				<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/close" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-confirm={ "Close " + r.Account.Name + "? This cannot be undone at AWS." }>
+					<button type="submit" class="danger">Close</button>
+				</form>
+			}
+		</td>
+	</tr>
+}
+
+templ statusPill(s core.Status) {
+	<span class={ "pill", string(s) }>{ string(s) }</span>
+}
+
+templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float64, hasHistory bool, events []core.AuditEvent) {
+	@layout(pg, a.Name) {
+		<div class="card">
+			<h2 style="margin-top:0">{ a.Name } @statusPill(a.Status)</h2>
+			<dl class="grid">
+				<dt>owner</dt><dd>{ a.Owner }</dd>
+				<dt>account id</dt><dd><code>{ a.ProviderID }</code></dd>
+				if a.RequestID != "" {
+					<dt>request id</dt><dd><code>{ a.RequestID }</code></dd>
+				}
+				<dt>root email</dt><dd>{ a.Email }</dd>
+				<dt>budget</dt><dd>{ fmt.Sprintf("$%.2f / month", a.BudgetUSD) }</dd>
+				<dt>spend, 30 days</dt><dd>{ fmt.Sprintf("$%.2f", total) }</dd>
+				<dt>created</dt><dd>{ a.CreatedAt.Format("2006-01-02 15:04 MST") }</dd>
+				if a.ProviderID != "" {
+					<dt>expires</dt><dd>{ a.ExpiresAt.Format("2006-01-02 15:04 MST") } <span class="muted">({ expiresIn(a.ExpiresAt) })</span></dd>
+				}
+				if a.WarnedAt != nil {
+					<dt>owner warned</dt><dd>{ a.WarnedAt.Format("2006-01-02 15:04 MST") }</dd>
+				}
+				if a.CloseRequestedAt != nil {
+					<dt>close requested</dt><dd>{ a.CloseRequestedAt.Format("2006-01-02 15:04 MST") }</dd>
+				}
+				if a.LastError != "" {
+					<dt>failure</dt><dd class="error">{ a.LastError }</dd>
+				}
+				if !a.Managed {
+					<dt>note</dt><dd class="muted">not yet tagged by playplace; the next sync adopts it</dd>
+				}
+			</dl>
+		</div>
+		if hasHistory {
+			<div class="card">
+				<h3 style="margin-top:0">History</h3>
+				if len(events) == 0 {
+					<p class="muted">Nothing recorded yet.</p>
+				} else {
+					<table>
+						<thead><tr><th>When</th><th>Event</th><th>By</th><th>What happened</th></tr></thead>
+						<tbody>
+							for _, e := range events {
+								<tr>
+									<td title={ e.At.Format(time.RFC3339) }>{ e.At.Local().Format("Jan 2 15:04") }</td>
+									<td><span class="pill">{ e.Event }</span></td>
+									<td>{ e.Actor }
+										if e.Via != "" {
+											<span class="muted">via { e.Via }</span>
+										}
+									</td>
+									<td style="white-space:normal">{ e.Message }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</div>
+		}
+		<div class="card">
+			<h3 style="margin-top:0">Daily spend</h3>
+			if len(costs) == 0 {
+				<p class="muted">No cost data yet.</p>
+			} else {
+				<table>
+					<thead><tr><th>Date</th><th>USD</th></tr></thead>
+					<tbody>
+						for i := len(costs) - 1; i >= 0; i-- {
+							<tr><td>{ costs[i].Date.Format("2006-01-02") }</td><td>{ fmt.Sprintf("%.2f", costs[i].AmountUSD) }</td></tr>
+						}
+					</tbody>
+				</table>
+			}
+		</div>
+	}
+}
+
+templ noticeFragment(msg string) {
+	<span id="notice" class="muted" hx-swap-oob="true">{ msg }</span>
+}
+
+templ errorFragment(msg string) {
+	<div id="form-error" class="error" hx-swap-oob="true">{ msg }</div>
+}

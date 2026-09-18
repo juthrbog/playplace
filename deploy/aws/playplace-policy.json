@@ -1,0 +1,92 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OrganizationsRead",
+      "Effect": "Allow",
+      "Action": [
+        "organizations:DescribeOrganization",
+        "organizations:DescribeAccount",
+        "organizations:DescribeCreateAccountStatus",
+        "organizations:ListRoots",
+        "organizations:ListOrganizationalUnitsForParent",
+        "organizations:ListAccountsForParent",
+        "organizations:ListParents",
+        "organizations:ListCreateAccountStatus",
+        "organizations:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "OrganizationsLifecycle",
+      "Effect": "Allow",
+      "Action": [
+        "organizations:CreateAccount",
+        "organizations:MoveAccount",
+        "organizations:CloseAccount",
+        "organizations:TagResource",
+        "organizations:UntagResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "OrganizationsBootstrapOptional",
+      "Effect": "Allow",
+      "Action": [
+        "organizations:CreateOrganization",
+        "organizations:CreateOrganizationalUnit"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "OrganizationsBootstrapServiceRoleOptional",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/organizations.amazonaws.com/*",
+      "Condition": {"StringEquals": {"iam:AWSServiceName": "organizations.amazonaws.com"}}
+    },
+    {
+      "Sid": "BudgetsPerAccount",
+      "Effect": "Allow",
+      "Action": [
+        "budgets:ViewBudget",
+        "budgets:ModifyBudget"
+      ],
+      "Resource": "arn:aws:budgets::*:budget/playplace-*"
+    },
+    {
+      "Sid": "HistoryLogGroupOptional",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutRetentionPolicy",
+        "logs:PutLogEvents",
+        "logs:FilterLogEvents"
+      ],
+      "Resource": "arn:aws:logs:*:*:log-group:/playplace/history*"
+    },
+    {
+      "Sid": "CostExplorerRead",
+      "Effect": "Allow",
+      "Action": ["ce:GetCostAndUsage"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityCenterAccess",
+      "Effect": "Allow",
+      "Action": [
+        "sso:ListInstances",
+        "sso:ListPermissionSets",
+        "sso:DescribePermissionSet",
+        "sso:CreateAccountAssignment",
+        "sso:DeleteAccountAssignment",
+        "sso:DescribeAccountAssignmentCreationStatus",
+        "sso:DescribeAccountAssignmentDeletionStatus",
+        "identitystore:GetUserId",
+        "identitystore:DescribeUser"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

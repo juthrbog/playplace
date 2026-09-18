@@ -1,0 +1,32 @@
+# Dex: a local OpenID Connect provider for testing sign-in and roles.
+# Three users, all with password "password":
+#   admin@example.com  -> --admins     (fleet view, sync, may approve)
+#   lead@example.com   -> --approvers  (approve and deny only)
+#   dev@example.com    -> engineer     (own accounts only)
+issuer: http://localhost:5556/dex
+storage:
+  type: memory
+web:
+  http: 0.0.0.0:5556
+oauth2:
+  skipApprovalScreen: true
+staticClients:
+  - id: playplace
+    secret: playplace-local
+    name: playplace
+    redirectURIs:
+      - http://localhost:8080/auth/callback
+enablePasswordDB: true
+staticPasswords:
+  - email: admin@example.com
+    hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+    username: admin
+    userID: "08a8684b-db88-4b73-90a9-3cd1661f5466"
+  - email: lead@example.com
+    hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+    username: lead
+    userID: "41331323-6f44-45e6-b3b9-2c4b60c02be5"
+  - email: dev@example.com
+    hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+    username: dev
+    userID: "c2f1a9d0-3e6b-4d8a-9f4e-7b1c2d3e4f50"

@@ -1,0 +1,122 @@
+version: "3"
+
+vars:
+  TEMPL:
+    sh: echo "$(go env GOBIN)"; [ -n "$(go env GOBIN)" ] || echo "$(go env GOPATH)/bin"
+  TEMPL_VERSION:
+    sh: go list -m -f '{{"{{"}}.Version{{"}}"}}' github.com/a-h/templ
+  ZENSICAL_VERSION: "0.0.62"
+  # Local development against LocalStack. Flags are also readable as PLAYPLACE_* env vars.
+  LS_FLAGS: --aws-endpoint http://localhost:4566 --aws-region us-east-1
+
+env:
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  AWS_EC2_METADATA_DISABLED: "true"
+
+tasks:
+  default:
+    cmds:
+      - task --list
+
+  tools:
+    desc: Install templ at the version pinned in go.mod
+    cmds:
+      - go install github.com/a-h/templ/cmd/templ@{{.TEMPL_VERSION}}
+
+  generate:
+    desc: Generate Go from templ views
+    sources:
+      - internal/web/*.templ
+    generates:
+      - internal/web/*_templ.go
+    cmds:
+      - "{{.TEMPL}}/templ generate ./internal/web"
+
+  build:
+    desc: Build bin/playplace
+    deps: [generate]
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - bin/playplace
+    cmds:
+      - go build -o bin/playplace ./cmd/playplace
+
+  test:
+    desc: Run tests
+    deps: [generate]
+    cmds:
+      - go test ./...
+
+  vet:
+    desc: Run go vet and gofmt check
+    deps: [generate]
+    cmds:
+      - go vet ./...
+      - test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+
+  docs:
+    desc: Serve the documentation site locally with live reload (http://localhost:8000)
+    cmds:
+      - uvx --from zensical=={{.ZENSICAL_VERSION}} zensical serve {{.CLI_ARGS}}
+
+  docs:build:
+    desc: Build the documentation site into ./site
+    cmds:
+      - uvx --from zensical=={{.ZENSICAL_VERSION}} zensical build
+
+  localstack:up:
+    desc: Start LocalStack (reads LOCALSTACK_AUTH_TOKEN from .env) and wait for health
+    cmds:
+      - docker compose up -d
+      - until curl -sf http://localhost:4566/_localstack/health >/dev/null; do sleep 1; done
+      - echo ready
+
+  localstack:down:
+    desc: Stop LocalStack and Dex
+    cmds:
+      - docker compose --profile auth down
+
+  localstack:seed:
+    desc: Seed LocalStack Identity Center with a permission set and the three Dex users
+    cmds:
+      - ./deploy/local/seed-localstack.sh
+
+  auth:up:
+    desc: Start Dex, a local OIDC provider with admin@, lead@, dev@example.com (password "password")
+    cmds:
+      - docker compose --profile auth up -d dex
+      - until curl -sf http://localhost:5556/dex/.well-known/openid-configuration >/dev/null; do sleep 1; done
+      - echo ready
+
+  serve:auth:
+    desc: Run the web UI with Dex sign-in (admin@ is admin, lead@ approves, dev@ is an engineer)
+    deps: [build]
+    cmds:
+      - >-
+        ./bin/playplace {{.LS_FLAGS}} serve --base-url http://localhost:8080
+        --oidc-issuer http://localhost:5556/dex --oidc-client-id playplace --oidc-client-secret playplace-local
+        --oidc-redirect-url http://localhost:8080/auth/callback --allowed-domain example.com
+        --admins admin@example.com --approvers lead@example.com {{.CLI_ARGS}}
+
+  serve:
+    desc: Run web UI against LocalStack with no sign-in (every visitor is an admin)
+    deps: [build]
+    cmds:
+      - ./bin/playplace {{.LS_FLAGS}} --allow-self-approval serve {{.CLI_ARGS}}
+
+  tui:
+    desc: Run the terminal UI against LocalStack
+    deps: [build]
+    interactive: true
+    cmds:
+      - ./bin/playplace {{.LS_FLAGS}} tui
+
+  cli:
+    desc: Run any playplace command against LocalStack, e.g. `task cli -- list`
+    deps: [build]
+    cmds:
+      - ./bin/playplace {{.LS_FLAGS}} {{.CLI_ARGS}}

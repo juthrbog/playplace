@@ -1,0 +1,141 @@
+/* playplace docs theme overrides.
+   Read surface: one family, a comfortable measure, restrained color that
+   matches the product UI (purple primary, green for success), and browser
+   surfaces themed from the same palette. */
+
+:root > * {
+  /* primary: the product's purple, light and dark variants */
+  --md-primary-fg-color:        #5b3fe6;
+  --md-primary-fg-color--light: #8a7cff;
+  --md-primary-fg-color--dark:  #3f2bb3;
+  --md-accent-fg-color:         #5b3fe6;
+  --md-accent-fg-color--transparent: rgba(91, 63, 230, 0.10);
+  --pp-selection: rgba(91, 63, 230, 0.22);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:        #8a7cff;
+  --md-primary-fg-color--light: #a99dff;
+  --md-primary-fg-color--dark:  #5b3fe6;
+  --md-accent-fg-color:         #a99dff;
+  --md-accent-fg-color--transparent: rgba(169, 157, 255, 0.14);
+  --pp-selection: rgba(138, 124, 255, 0.30);
+  /* light text on dark: a touch more leading and tracking */
+  --md-typeset-line-height: 1.7;
+}
+
+/* Header stays neutral; the primary color marks links, focus, and the
+   current nav item rather than painting the whole bar. */
+.md-header {
+  background-color: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+  box-shadow: 0 1px 0 var(--md-default-fg-color--lightest);
+}
+.md-header__button.md-logo svg { fill: var(--md-primary-fg-color); }
+.md-header__title { font-weight: 600; letter-spacing: -0.01em; }
+.md-search__form { background-color: var(--md-default-fg-color--lightest); }
+
+/* Reading measure: prose and lists at ~70ch; tables and code keep the width. */
+.md-content__inner > .md-typeset > :is(p, ul, ol, blockquote, .admonition, details),
+.md-typeset > :is(p, ul, ol, blockquote) {
+  max-width: 70ch;
+}
+.md-typeset { line-height: var(--md-typeset-line-height, 1.65); }
+.md-typeset p { margin-block: 0 1.1em; }
+
+/* Headings: balanced wrapping, more air above than below, tighter tracking. */
+.md-typeset h1, .md-typeset h2, .md-typeset h3 {
+  text-wrap: balance;
+  letter-spacing: -0.02em;
+  color: var(--md-default-fg-color);
+}
+.md-typeset h1 { font-weight: 700; margin-bottom: 1.2rem; }
+.md-typeset h2 { font-weight: 650; margin: 2.4em 0 0.6em; }
+.md-typeset h3 { font-weight: 600; margin: 1.8em 0 0.5em; }
+.md-typeset h2 + p, .md-typeset h3 + p { margin-top: 0; }
+
+/* Links: underlined in text so color is not the only cue. */
+.md-typeset a {
+  color: var(--md-primary-fg-color);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+  text-decoration-color: color-mix(in srgb, var(--md-primary-fg-color) 45%, transparent);
+}
+.md-typeset a:hover { text-decoration-color: currentColor; }
+
+/* Tables: quiet header, tabular numerals, no zebra noise. */
+.md-typeset table:not([class]) {
+  font-size: 0.72rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 6px;
+}
+.md-typeset table:not([class]) th {
+  background-color: var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color--light);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.6rem;
+}
+.md-typeset table:not([class]) td { font-variant-numeric: tabular-nums; vertical-align: top; }
+
+/* Code: inline code sits on a tint of the primary, not gray. */
+.md-typeset code {
+  background-color: var(--md-accent-fg-color--transparent);
+  color: var(--md-default-fg-color);
+  border-radius: 4px;
+  padding: 0.05em 0.35em;
+}
+.md-typeset pre > code { background-color: transparent; padding: 0; }
+.md-typeset .highlight, .md-typeset pre { border-radius: 8px; }
+
+/* Numbered steps on the overview read as a sequence. */
+.md-typeset ol > li { padding-left: 0.2em; }
+.md-typeset ol > li::marker { color: var(--md-primary-fg-color); font-weight: 600; }
+
+/* Navigation: the current item carries the primary color; the rest is quiet. */
+.md-nav__link--active, .md-nav__item .md-nav__link--active { color: var(--md-primary-fg-color); font-weight: 600; }
+.md-nav__title { color: var(--md-default-fg-color--light); }
+
+/* Browser surfaces themed from the palette. */
+::selection { background: var(--pp-selection); }
+:focus-visible { outline: 2px solid var(--md-primary-fg-color); outline-offset: 2px; }
+html { accent-color: var(--md-primary-fg-color); scrollbar-color: var(--md-default-fg-color--lighter) transparent; }
+.md-typeset kbd { border-radius: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+
+/* Home page: the hero banner and the three entry cards. Selectors carry
+   the .md-typeset prefix so they outrank the theme's own list rules. */
+.md-typeset img.pp-banner {
+  display: block;
+  width: 100%;
+  max-width: 900px;
+  border-radius: 18px;
+  margin: 0.2rem 0 1.6rem;
+}
+.md-typeset div.pp-cards > ul {
+  list-style: none;
+  padding: 0;
+  margin: 1.2rem 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.8rem;
+  max-width: none;
+}
+.md-typeset div.pp-cards > ul > li {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 12px;
+  background: var(--md-accent-fg-color--transparent);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.md-typeset div.pp-cards > ul > li > p { margin: 0; }
+.md-typeset div.pp-cards strong { display: block; font-size: 0.85rem; margin-bottom: 0.3rem; }
+.md-typeset div.pp-cards a { text-decoration: none; }
+.md-typeset div.pp-cards a:hover { text-decoration: underline; }

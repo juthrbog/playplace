@@ -1,0 +1,15 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GitLabOIDC",
+      "Effect": "Allow",
+      "Principal": {"Federated": "arn:aws:iam::MANAGEMENT_ACCOUNT_ID:oidc-provider/gitlab.com"},
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {"gitlab.com:aud": "https://gitlab.com"},
+        "StringLike": {"gitlab.com:sub": "project_path:YOUR_GROUP/playplace:ref_type:branch:ref:main"}
+      }
+    }
+  ]
+}

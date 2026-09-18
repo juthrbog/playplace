@@ -1,0 +1,26 @@
+services:
+  localstack:
+    image: localstack/localstack-pro:latest
+    container_name: playplace-localstack
+    ports:
+      - "127.0.0.1:4566:4566"
+    environment:
+      - LOCALSTACK_AUTH_TOKEN=${LOCALSTACK_AUTH_TOKEN:?set LOCALSTACK_AUTH_TOKEN}
+      - SERVICES=organizations,budgets,ce,sts,iam,sso-admin,identitystore,logs
+      - DEBUG=0
+      - PERSISTENCE=1
+    volumes:
+      - "./volume:/var/lib/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+
+  # Local OpenID Connect provider for testing sign-in and roles.
+  # Start with: docker compose --profile auth up -d
+  dex:
+    image: ghcr.io/dexidp/dex:latest
+    container_name: playplace-dex
+    profiles: ["auth"]
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    ports:
+      - "127.0.0.1:5556:5556"
+    volumes:
+      - "./deploy/local/dex.yaml:/etc/dex/config.yaml:ro"

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="playplace">
+  <rect width="256" height="256" rx="56" fill="#DDEBFA"/>
+  <defs>
+    <clipPath id="cloud">
+      <circle cx="84" cy="136" r="50"/>
+      <circle cx="136" cy="108" r="62"/>
+      <circle cx="190" cy="140" r="46"/>
+      <rect x="40" y="136" width="196" height="62" rx="28"/>
+    </clipPath>
+  </defs>
+  <g fill="#6FA3DF">
+    <circle cx="84" cy="136" r="60"/>
+    <circle cx="136" cy="108" r="72"/>
+    <circle cx="190" cy="140" r="56"/>
+    <rect x="30" y="136" width="216" height="72" rx="36"/>
+  </g>
+  <g fill="#FFFFFF">
+    <circle cx="84" cy="136" r="50"/>
+    <circle cx="136" cy="108" r="62"/>
+    <circle cx="190" cy="140" r="46"/>
+    <rect x="40" y="136" width="196" height="62" rx="28"/>
+  </g>
+  <g clip-path="url(#cloud)">
+    <!-- the same slide as the mark, heavier and without seams so it survives 16 px -->
+    <path d="M222 58 C 206 96, 188 130, 156 144" fill="none" stroke="#E63946" stroke-width="30" stroke-linecap="butt"/>
+    <path d="M222 58 C 206 96, 188 130, 156 144" fill="none" stroke="#FF98A0" stroke-width="7" stroke-linecap="butt" opacity=".85" transform="translate(-4 -4)"/>
+    <ellipse cx="156" cy="144" rx="9" ry="16" transform="rotate(156.4 156 144)" fill="#7A1420" stroke="#FF98A0" stroke-width="4"/>
+    <circle cx="90" cy="152" r="24" fill="#FFC531"/><circle cx="138" cy="152" r="24" fill="#2E86DE"/><circle cx="186" cy="152" r="24" fill="#2DBE6C"/>
+    <circle cx="66" cy="192" r="24" fill="#2E86DE"/><circle cx="114" cy="192" r="24" fill="#E63946"/><circle cx="162" cy="192" r="24" fill="#FFC531"/><circle cx="210" cy="192" r="24" fill="#6C4DF2"/>
+  </g>
+</svg>
