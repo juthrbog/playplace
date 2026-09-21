@@ -85,6 +85,14 @@ Deploy infrastructure separately, using management-account credentials:
    an account to proceed without its budget. Already-issued access is not revoked
    solely because a budget health check fails.
 
+The initial **account ready** notification waits for observed protection, successful
+managed owner access when enabled, and no active budget restriction. It can arrive
+on a later reconciliation after setup or access retries. New creations and newly
+adopted accounts receive this initial handoff once; already-managed accounts do not
+receive retroactive notices on upgrade. Later budget recovery keeps its separate
+health notifications. Delivery is best-effort: the handoff is recorded before sending,
+so a crash or delivery failure can lose the notice rather than repeat it.
+
 The execution policy permits only the designated SCP, but its account ARN
 pattern covers members of the organization. Narrow that account list if your
 infrastructure maintains one; playplace additionally validates direct Playground

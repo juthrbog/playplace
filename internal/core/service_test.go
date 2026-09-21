@@ -375,8 +375,8 @@ func TestRefreshPlacesAndGrantsExactlyOnce(t *testing.T) {
 	}
 	h.prov.Settle()
 	sum, err := h.svc.Refresh(ctx)
-	if err != nil || len(sum.Placed) != 1 || len(sum.Granted) != 0 {
-		t.Fatalf("place should grant inside place(), not again in the grant step: %+v %v", sum, err)
+	if err != nil || len(sum.Placed) != 1 || len(sum.Granted) != 1 {
+		t.Fatalf("refresh should report physical placement and the new grant: %+v %v", sum, err)
 	}
 	a, _ := h.svc.Resolve(ctx, "unwaited")
 	if g := h.prov.Grants[a.ProviderID]; len(g) != 1 {
@@ -779,7 +779,7 @@ func TestLifecycleIsWrittenToHistory(t *testing.T) {
 	h.svc.Extend(ctx, a.ID, a.ExpiresAt.Add(48*time.Hour), "anna@example.com", false)
 	h.svc.RequestClose(ctx, a.ID, "anna@example.com")
 
-	want := []string{"requested", "edited", "approved", "budget-protection", "placed", "extended", "close-requested", "closed"}
+	want := []string{"requested", "edited", "approved", "placed", "budget-protection", "extended", "close-requested", "closed"}
 	got := rec.kinds()
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("events = %v, want %v", got, want)
