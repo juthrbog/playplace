@@ -194,73 +194,36 @@ func (p *Provider) reconcileBudgetAction(ctx context.Context, info core.OrgInfo,
 		_, err := p.budgets.UpdateBudgetAction(ctx, &budgets.UpdateBudgetActionInput{AccountId: account, BudgetName: name, ActionId: a.ActionId, Subscribers: subs})
 		return r, err
 	}
-	if spec.Recovery != nil {
-		c := spec.Recovery
-		if c.ActionID != r.ActionID || c.Limit != spec.LimitUSD {
-			return r, errors.New("budget recovery does not match the action and approved limit")
-		}
-		if c.Period != spec.Now.UTC().Format("2006-01") {
-			// Never undo an action in a new period with last month's approval.
-			r.RecoveryDone = true
-		} else {
-			r.State = "recovering"
-			execute := func(kind bt.ExecutionType) (core.BudgetProtection, error) {
-				_, err := p.budgets.ExecuteBudgetAction(ctx, &budgets.ExecuteBudgetActionInput{AccountId: account, BudgetName: name, ActionId: a.ActionId, ExecutionType: kind})
-				return r, err
-			}
-			if c.Phase == "reverse" {
-				switch a.Status {
-				case bt.ActionStatusExecutionSuccess, bt.ActionStatusReverseFailure:
-					return execute(bt.ExecutionTypeReverseBudgetAction)
-				case bt.ActionStatusReverseSuccess:
-					r.RecoveryPhase = "reset"
-					return r, nil
-				case bt.ActionStatusReverseInProgress, bt.ActionStatusExecutionInProgress:
-					return r, nil
-				case bt.ActionStatusStandby:
-					if !attached {
-						r.RecoveryDone = true
-					} else {
-						return r, nil
-					}
-				default:
-					return r, fmt.Errorf("cannot reverse budget action in state %s", a.Status)
-				}
-			} else {
-				switch a.Status {
-				case bt.ActionStatusReverseSuccess, bt.ActionStatusResetFailure:
-					return execute(bt.ExecutionTypeResetBudgetAction)
-				case bt.ActionStatusResetInProgress:
-					return r, nil
-				case bt.ActionStatusStandby:
-					if attached {
-						return r, nil
-					}
-					r.RecoveryDone = true
-				case bt.ActionStatusExecutionSuccess, bt.ActionStatusExecutionInProgress, bt.ActionStatusExecutionFailure, bt.ActionStatusPending:
-					// It was rearmed and evaluated again. Never reverse it again.
-					r.RecoveryDone = true
-				default:
-					return r, fmt.Errorf("cannot reset budget action in state %s", a.Status)
-				}
-			}
-		}
-	}
-	switch a.Status {
-	case bt.ActionStatusStandby:
-		if attached {
-			return r, errors.New("restriction attached while action is in STANDBY; verify ownership/propagation")
-		}
-		r.State, r.Configured = "ready", true
-	case bt.ActionStatusExecutionSuccess:
-		if !attached {
-			return r, errors.New("budget action completed but restriction attachment is missing")
-		}
-		r.State, r.Configured = "restricted", true
-	case bt.ActionStatusExecutionInProgress:
-		r.State = "restricting"
-	default:
-		return r, fmt.Errorf("budget action %s needs attention (state %s)", r.ActionID, a.Status)
-	}
+	// Recovery decisions and phase persistence belong to core. Configuration
+	// changes above return without an observation until a subsequent pass.
+	r.Action = &core.BudgetActionObservation{Status: string(a.Status), RestrictionAttached: attached}
 	return r, nil
+}
+
+func (p *Provider) ExecuteBudgetAction(ctx context.Context, id string, spec core.BudgetSpec, actionID string, operation core.BudgetActionOperation) error {
+	if operation != core.BudgetActionReverse && operation != core.BudgetActionReset {
+		return errors.New("unsupported budget action operation")
+	}
+	if err := spec.Validate(); err != nil {
+		return err
+	}
+	info, err := p.EnsureOrganization(ctx)
+	if err != nil {
+		return err
+	}
+	if err := p.validateBudgetTarget(ctx, info, id, spec); err != nil {
+		return err
+	}
+	a, err := p.findBudgetAction(ctx, info, id, spec)
+	if err != nil {
+		return err
+	}
+	if a == nil || actionID == "" || aws.ToString(a.ActionId) != actionID {
+		return errors.New("budget recovery does not match the owned action")
+	}
+	_, err = p.budgets.ExecuteBudgetAction(ctx, &budgets.ExecuteBudgetActionInput{
+		AccountId: aws.String(info.ManagementAccountID), BudgetName: budgetName(id),
+		ActionId: a.ActionId, ExecutionType: bt.ExecutionType(operation),
+	})
+	return err
 }

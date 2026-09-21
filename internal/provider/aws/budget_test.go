@@ -160,46 +160,62 @@ func TestBudgetRecoveryTransitions(t *testing.T) {
 		{bt.ActionStatusExecutionFailure, "reset", "", "", false, true, false, true},
 		{bt.ActionStatusReverseFailure, "reverse", "REVERSE_BUDGET_ACTION", "", true, false, false, false},
 		{bt.ActionStatusResetFailure, "reset", "RESET_BUDGET_ACTION", "", false, false, false, false},
+		{bt.ActionStatus(""), "reverse", "", "", false, false, false, true},
+		{bt.ActionStatus("UNKNOWN"), "reset", "", "", false, false, false, true},
+		{bt.ActionStatusStandby, "reverse", "", "", true, false, false, false},
+		{bt.ActionStatusStandby, "reset", "", "", true, false, false, false},
+		{bt.ActionStatusExecutionInProgress, "reverse", "", "", false, false, false, false},
+		{bt.ActionStatusExecutionInProgress, "reset", "", "", false, true, false, false},
+		{bt.ActionStatusPending, "reset", "", "", false, true, false, true},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.status)+"/"+tc.phase, func(t *testing.T) {
-			spec := budgetSpec()
-			action := budgetAction(spec, tc.status)
-			spec.Recovery = &core.BudgetRecovery{ActionID: aws.ToString(action.ActionId), Phase: tc.phase, Period: "2026-09", Limit: 100, Spend: 60}
-			var mu sync.Mutex
-			executions := 0
-			p := budgetHTTP(t, func(name string, in map[string]any) (any, int) {
-				switch name {
-				case "DescribeBudgetActionsForBudget":
-					return map[string]any{"Actions": []bt.Action{action}}, 200
-				case "ListTagsForResource":
-					return map[string]any{"ResourceTags": []bt.ResourceTag{{Key: aws.String(core.TagManaged), Value: aws.String("true")}, {Key: aws.String("playplace:account"), Value: aws.String(budgetTestID)}}}, 200
-				case "ListPoliciesForTarget":
-					policies := []map[string]any{{"Id": "p-FullAWSAccess"}, {"Id": "p-purchases"}}
-					if tc.attached {
-						policies = append(policies, map[string]any{"Id": spec.PolicyID})
-					}
-					return map[string]any{"Policies": policies}, 200
-				case "ExecuteBudgetAction":
-					mu.Lock()
-					executions++
-					mu.Unlock()
-					if in["ExecutionType"] != tc.execute || in["AccountId"] != budgetTestInfo.ManagementAccountID || in["ActionId"] != aws.ToString(action.ActionId) {
-						t.Errorf("unexpected execution: %v", in)
-					}
-					return map[string]any{}, 200
-				default:
-					return unexpectedBudgetAPI(t, name)
-				}
+			h := newRecoveryFlow(t)
+			h.change(func(r *recoveryRemote) {
+				r.limit, r.tags[core.TagBudget] = 100, "100.00"
+				r.action.Status, r.attached = tc.status, tc.attached
+				r.tags[core.TagBudgetRecovery] = (core.BudgetRecovery{ActionID: aws.ToString(r.action.ActionId), Phase: tc.phase, Period: "2026-09", Limit: 100, Spend: 60}).Encode()
 			})
-			r, err := p.reconcileBudgetAction(context.Background(), budgetTestInfo, budgetTestID, spec)
-			if (err != nil) != tc.wantError || r.Configured != tc.configured || r.RecoveryDone != tc.done || r.RecoveryPhase != tc.next {
-				t.Fatalf("result %+v err %v", r, err)
+			_, err := h.svc.Refresh(context.Background())
+			if (err != nil) != (!tc.configured || tc.wantError) {
+				t.Fatalf("unexpected reconciliation result: %v", err)
 			}
-			mu.Lock()
-			defer mu.Unlock()
-			if (executions == 1) != (tc.execute != "") {
-				t.Fatalf("execution count %d", executions)
+			r := h.snapshot()
+			if (r.tags[core.TagBudgetHealth] == "error") != tc.wantError {
+				t.Fatalf("wrong health: %v", r.tags)
+			}
+			intent, err := core.DecodeBudgetRecovery(r.tags[core.TagBudgetRecovery])
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Completion accompanied by an error deliberately retains approval.
+			if (intent == nil) != (tc.done && !tc.wantError) {
+				t.Fatalf("wrong durable intent: %+v", intent)
+			}
+			if intent != nil {
+				want := tc.phase
+				if tc.next != "" {
+					want = tc.next
+				}
+				if intent.Phase != want {
+					t.Fatalf("phase=%s want=%s", intent.Phase, want)
+				}
+			}
+			wantMutation := ""
+			switch tc.execute {
+			case "REVERSE_BUDGET_ACTION":
+				wantMutation = "reverse"
+			case "RESET_BUDGET_ACTION":
+				wantMutation = "reset"
+			}
+			if tc.next != "" {
+				wantMutation = "persist-" + tc.next
+			}
+			if tc.done && !tc.wantError {
+				wantMutation = "clear"
+			}
+			if strings.Join(r.mutations, ",") != wantMutation {
+				t.Fatalf("mutations=%v want=%s", r.mutations, wantMutation)
 			}
 		})
 	}
@@ -236,15 +252,12 @@ func TestCreateBudgetActionIsScopedAndObservedLater(t *testing.T) {
 }
 
 func TestBudgetActionDriftAndOwnership(t *testing.T) {
-	for _, mode := range []string{"unowned", "duplicate", "wrong-target", "orphan", "new-period"} {
+	for _, mode := range []string{"unowned", "duplicate", "wrong-target", "orphan"} {
 		t.Run(mode, func(t *testing.T) {
 			spec := budgetSpec()
 			action := budgetAction(spec, bt.ActionStatusExecutionSuccess)
 			if mode == "wrong-target" {
 				action.Definition.ScpActionDefinition.TargetIds = []string{"999999999999"}
-			}
-			if mode == "new-period" {
-				spec.Recovery = &core.BudgetRecovery{ActionID: aws.ToString(action.ActionId), Phase: "reverse", Period: "2026-08", Limit: 100, Spend: 60}
 			}
 			p := budgetHTTP(t, func(name string, in map[string]any) (any, int) {
 				switch name {
@@ -269,12 +282,7 @@ func TestBudgetActionDriftAndOwnership(t *testing.T) {
 					return unexpectedBudgetAPI(t, name)
 				}
 			})
-			r, err := p.reconcileBudgetAction(context.Background(), budgetTestInfo, budgetTestID, spec)
-			if mode == "new-period" {
-				if err != nil || !r.RecoveryDone || r.State != "restricted" {
-					t.Fatalf("old approval crossed months: %+v %v", r, err)
-				}
-			} else if err == nil {
+			if _, err := p.reconcileBudgetAction(context.Background(), budgetTestInfo, budgetTestID, spec); err == nil {
 				t.Fatal("unsafe action accepted")
 			}
 		})

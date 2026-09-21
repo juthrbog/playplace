@@ -64,6 +64,19 @@ notes live in [DESIGN.md](DESIGN.md).
     tools/package-release/  checksum-verified Homebrew and AUR recipe generation
     .github/workflows/      cross-platform CI and tag-triggered releases
 
+## Offline budget recovery tests
+
+    go test -race ./internal/core ./internal/provider/aws ./internal/provider/fake
+
+The AWS recovery-flow tests enter through `SetBudget` and `Refresh`, using the real
+AWS adapter against loopback HTTP with durable mock Organizations tags. They cover
+approval-before-update, pre-update spend surviving recalculation, failed reset-phase
+writes, restarts, reverse/reset failure retries, re-execution and monthly rollover.
+The transition cases assert observable health, persisted intent and submitted AWS
+mutations rather than calling the private recovery implementation. The fake adapter
+keeps automatic remote progress for lightweight lifecycle tests, but does not decide
+recovery eligibility or phases. No AWS credentials or live accounts are used.
+
 ## Testing the flows locally
 
 The `task cli`, `task tui`, and `task serve*` workflows run against LocalStack Pro
