@@ -25,6 +25,7 @@ removes it.
     playplace list [--all] [--owner EMAIL]
     playplace show ACCOUNT
     playplace extend ACCOUNT --by DAYS | --until YYYY-MM-DD [--override-limits]
+    playplace budget ACCOUNT --amount USD --reason TEXT [--override-limits]
     playplace close ACCOUNT [-y]
     playplace costs [ACCOUNT] [--days N]
     playplace history [ACCOUNT] [--owner EMAIL] [--since DAYS] [--limit N]
@@ -36,6 +37,12 @@ bills per call; a failed pull shows as `unavailable`, never as `$0.00`.
 `extend` refuses an expiry that
 would give the account a lifetime past `--max-ttl`; `--override-limits`
 allows it and the override is recorded in history.
+
+`budget` changes an existing account's recurring monthly limit. In enforcement
+mode, an increase above reported spend can reverse the specific restriction and
+reset its action, rearming enforcement for the new amount. This is asynchronous:
+“change saved; reconciliation pending” means the intent is durable. `list` and
+`show` include protection health. See [Budget protection](budgets.md).
 
 ## Operators
 
@@ -50,7 +57,8 @@ allows it and the override is recorded in history.
 like `approve`, does not apply the per-owner limit, which is checked when a
 request is queued.
 `reconcile` runs one refresh pass and prints what changed. Schedule it independently
-of the UI (for example, every 15 minutes) and alert on failed or missed runs.
+with external serialization against other writers (for example, every 15 minutes
+when no service worker is running) and alert on failed or missed runs.
 `serve` runs the web UI and, by default, refreshes every minute. `tui` opens the
 terminal dashboard; press `?` there for its keys.
 

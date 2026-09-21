@@ -85,6 +85,7 @@ func New() *cobra.Command {
 		listCmd(opts),
 		showCmd(opts),
 		extendCmd(opts),
+		budgetCmd(opts),
 		closeCmd(opts),
 		costsCmd(opts),
 		historyCmd(opts),
@@ -106,6 +107,12 @@ func newApp(ctx context.Context, opts *options) (*app, error) {
 	cfg, err := opts.coreConfig()
 	if err != nil {
 		return nil, err
+	}
+	if cfg.BudgetPolicyID == "" {
+		log.Warn("budgets are alerts-only; resource creation is not restricted")
+		if cfg.AlertEmail == "" {
+			log.Warn("budget notifications disabled: configure --alert-email")
+		}
 	}
 	prov, err := awsprovider.New(ctx, opts.awsConfig())
 	if err != nil {

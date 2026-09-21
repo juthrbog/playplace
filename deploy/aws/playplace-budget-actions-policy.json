@@ -1,0 +1,43 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadBudgetActions",
+      "Effect": "Allow",
+      "Action": "budgets:DescribeBudgetActionsForBudget",
+      "Resource": "arn:aws:budgets::MANAGEMENT_ACCOUNT_ID:budget/playplace-*"
+    },
+    {
+      "Sid": "ManageOwnedBudgetActions",
+      "Effect": "Allow",
+      "Action": [
+        "budgets:CreateBudgetAction",
+        "budgets:UpdateBudgetAction",
+        "budgets:ExecuteBudgetAction",
+        "budgets:ListTagsForResource",
+        "budgets:TagResource"
+      ],
+      "Resource": "arn:aws:budgets::MANAGEMENT_ACCOUNT_ID:budget/playplace-*/action/*"
+    },
+    {
+      "Sid": "RetireOwnedBudgetActions",
+      "Effect": "Allow",
+      "Action": "budgets:DeleteBudgetAction",
+      "Resource": "arn:aws:budgets::MANAGEMENT_ACCOUNT_ID:budget/playplace-*/action/*",
+      "Condition": {"StringEquals": {"aws:ResourceTag/playplace:managed": "true"}}
+    },
+    {
+      "Sid": "PassOnlyBudgetExecutionRole",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::MANAGEMENT_ACCOUNT_ID:role/PlayplaceBudgetActions",
+      "Condition": {"StringEquals": {"iam:PassedToService": "budgets.amazonaws.com"}}
+    },
+    {
+      "Sid": "InspectOrganizationProtection",
+      "Effect": "Allow",
+      "Action": ["organizations:DescribePolicy", "organizations:ListPoliciesForTarget", "organizations:ListTargetsForPolicy"],
+      "Resource": "*"
+    }
+  ]
+}

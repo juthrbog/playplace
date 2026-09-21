@@ -5,6 +5,7 @@
 package core
 
 import (
+	"encoding/base64"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -60,6 +61,11 @@ type Account struct {
 	Owner            string     `json:"owner"`
 	Status           Status     `json:"status"`
 	BudgetUSD        float64    `json:"budget_usd"`
+	BudgetHealth     string     `json:"budget_health,omitempty"`
+	BudgetPolicy     string     `json:"budget_policy,omitempty"`
+	BudgetError      string     `json:"budget_error,omitempty"`
+	BudgetRecovery   string     `json:"-"`
+	BudgetChecked    string     `json:"budget_checked,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
 	ExpiresAt        time.Time  `json:"expires_at"`
 	WarnedAt         *time.Time `json:"warned_at,omitempty"`
@@ -87,6 +93,11 @@ func (a *Account) Tags() map[string]string {
 		TagOwner:   a.Owner,
 		TagExpires: a.ExpiresAt.UTC().Format(time.RFC3339),
 		TagBudget:  strconv.FormatFloat(a.BudgetUSD, 'f', -1, 64),
+	}
+	for key, value := range map[string]string{TagBudgetHealth: a.BudgetHealth, TagBudgetPolicy: a.BudgetPolicy, TagBudgetRecovery: a.BudgetRecovery, TagBudgetChecked: a.BudgetChecked, TagBudgetError: base64.RawURLEncoding.EncodeToString([]byte(a.BudgetError))} {
+		if value != "" {
+			t[key] = value
+		}
 	}
 	if a.WarnedAt != nil {
 		t[TagWarnedAt] = a.WarnedAt.UTC().Format(time.RFC3339)
@@ -154,6 +165,13 @@ func FromRemote(r RemoteAccount, defaults Config, now time.Time) *Account {
 	}
 	if t, err := time.Parse(time.RFC3339, r.Tags[TagCloseAlertedAt]); err == nil {
 		a.CloseAlertedAt = &t
+	}
+	a.BudgetHealth = r.Tags[TagBudgetHealth]
+	a.BudgetPolicy = r.Tags[TagBudgetPolicy]
+	a.BudgetRecovery = r.Tags[TagBudgetRecovery]
+	a.BudgetChecked = r.Tags[TagBudgetChecked]
+	if data, err := base64.RawURLEncoding.DecodeString(r.Tags[TagBudgetError]); err == nil {
+		a.BudgetError = string(data)
 	}
 	a.AccessGrantedTo = r.Tags[TagAccess]
 	a.RequestedBy = r.Tags[TagRequestedBy]

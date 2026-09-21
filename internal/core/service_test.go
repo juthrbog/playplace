@@ -779,7 +779,7 @@ func TestLifecycleIsWrittenToHistory(t *testing.T) {
 	h.svc.Extend(ctx, a.ID, a.ExpiresAt.Add(48*time.Hour), "anna@example.com", false)
 	h.svc.RequestClose(ctx, a.ID, "anna@example.com")
 
-	want := []string{"requested", "edited", "approved", "placed", "extended", "close-requested", "closed"}
+	want := []string{"requested", "edited", "approved", "budget-protection", "placed", "extended", "close-requested", "closed"}
 	got := rec.kinds()
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("events = %v, want %v", got, want)

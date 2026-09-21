@@ -59,6 +59,8 @@ func New(svc *core.Service, log *slog.Logger, auth Authenticator, slack *Slack, 
 	s.mux.HandleFunc("POST /refresh", s.refresh)
 	s.mux.HandleFunc("GET /accounts/{id}", s.show)
 	s.mux.HandleFunc("POST /accounts/{id}/extend", s.extend)
+	// Budget increases are admin-only; the handler authorizes before mutation.
+	s.mux.HandleFunc("POST /accounts/{id}/budget", s.budget)
 	s.mux.HandleFunc("POST /accounts/{id}/close", s.close)
 	s.mux.Handle("GET /static/", staticHandler())
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })

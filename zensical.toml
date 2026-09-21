@@ -12,6 +12,7 @@ nav = [
   { "Approving requests" = "approving.md" },
   { "Command line" = "cli.md" },
   { "Configuration" = "configuration.md" },
+  { "Budget protection" = "budgets.md" },
   { "Deploying" = "deploy.md" },
   { "Releasing" = "releasing.md" },
 ]

@@ -1,0 +1,83 @@
+{
+  "checked": "2026-09-21",
+  "results": [
+    {
+      "service": "autoscaling",
+      "source": "https://servicereference.us-east-1.amazonaws.com/v1/autoscaling/autoscaling.json",
+      "patterns": 4,
+      "unmatched": []
+    },
+    {
+      "service": "cloudformation",
+      "source": "https://servicereference.us-east-1.amazonaws.com/v1/cloudformation/cloudformation.json",
+      "patterns": 7,
+      "unmatched": []
+    },
+    {
+      "service": "dynamodb",
+      "source": "https://servicereference.us-east-1.amazonaws.com/v1/dynamodb/dynamodb.json",
+      "patterns": 3,
+      "unmatched": []
+    },
+    {
+      "service": "ec2",
+      "source": "https://servicereference.us-east-1.amazonaws.com/v1/ec2/ec2.json",
+      "patterns": 9,
+      "unmatched": []
+    },
+    {
+      "service": "ecs",
+      "source": "https://servicereference.us-east-1.amazonaws.com/v1/ecs/ecs.json",
+      "patterns": 4,
+      "unmatched": []
+    },
+    {
+      "service": "eks",
+      "source": "https://servicereference.us-east-1.amazonaws.com/v1/eks/eks.json",
+      "patterns": 2,
+      "unmatched": []
+    },
+    {
+      "service": "elasticache",
+      "source": "https://servicereference.us-east-1.amazonaws.com/v1/elasticache/elasticache.json",
+      "patterns": 1,
+      "unmatched": []
+    },
+    {
+      "service": "elasticloadbalancing",
+      "source": "https://servicereference.us-east-1.amazonaws.com/v1/elasticloadbalancing/elasticloadbalancing.json",
+      "patterns": 1,
+      "unmatched": []
+    },
+    {
+      "service": "lambda",
+      "source": "https://servicereference.us-east-1.amazonaws.com/v1/lambda/lambda.json",
+      "patterns": 2,
+      "unmatched": []
+    },
+    {
+      "service": "rds",
+      "source": "https://servicereference.us-east-1.amazonaws.com/v1/rds/rds.json",
+      "patterns": 3,
+      "unmatched": []
+    },
+    {
+      "service": "redshift",
+      "source": "https://servicereference.us-east-1.amazonaws.com/v1/redshift/redshift.json",
+      "patterns": 2,
+      "unmatched": []
+    },
+    {
+      "service": "s3",
+      "source": "https://servicereference.us-east-1.amazonaws.com/v1/s3/s3.json",
+      "patterns": 1,
+      "unmatched": []
+    },
+    {
+      "service": "sagemaker",
+      "source": "https://servicereference.us-east-1.amazonaws.com/v1/sagemaker/sagemaker.json",
+      "patterns": 2,
+      "unmatched": []
+    }
+  ]
+}

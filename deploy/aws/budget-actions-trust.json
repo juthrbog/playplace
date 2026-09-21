@@ -1,0 +1,12 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Service": "budgets.amazonaws.com"},
+    "Action": "sts:AssumeRole",
+    "Condition": {
+      "StringEquals": {"aws:SourceAccount": "MANAGEMENT_ACCOUNT_ID"},
+      "ArnLike": {"aws:SourceArn": "arn:aws:budgets::MANAGEMENT_ACCOUNT_ID:budget/playplace-*"}
+    }
+  }]
+}

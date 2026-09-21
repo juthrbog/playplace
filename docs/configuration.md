@@ -18,7 +18,14 @@ Intervals and waits (`--every`, `--close-alert-after`, `create --timeout`) need 
 | `--default-budget` | `50` | monthly budget in USD when a request does not say |
 | `--warn-before` | `3d` | how far ahead of expiry to warn the owner |
 | `--close-alert-after` | `24h` | positive duration before unconfirmed closure triggers an alert and reconciliation error; checked on each refresh |
-| `--alert-email` | | recipient for AWS Budgets alerts |
+| `--alert-email` | | single recipient for AWS Budgets alerts; required for enforcement |
+| `--budget-scp-id` | | separately deployed provisioning-deny SCP; empty means alerts-only |
+| `--budget-action-role` | | management-account role AWS Budgets assumes to apply/reverse the SCP |
+
+Configure both enforcement flags together. See [Budget protection](budgets.md)
+for deployment, policy coverage, admin increases and recovery. Without an alert
+recipient or enforcement configuration, the CLI warns instead of implying that
+budgets stop provisioning.
 
 ## Requests and limits
 

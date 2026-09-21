@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AttachOrReverseOnlyTheBudgetPolicy",
+      "Effect": "Allow",
+      "Action": ["organizations:AttachPolicy", "organizations:DetachPolicy"],
+      "Resource": [
+        "arn:aws:organizations::MANAGEMENT_ACCOUNT_ID:policy/ORGANIZATION_ID/service_control_policy/BUDGET_POLICY_ID",
+        "arn:aws:organizations::MANAGEMENT_ACCOUNT_ID:account/ORGANIZATION_ID/*"
+      ]
+    },
+    {
+      "Sid": "InspectBudgetPolicy",
+      "Effect": "Allow",
+      "Action": ["organizations:DescribePolicy", "organizations:ListTargetsForPolicy"],
+      "Resource": "arn:aws:organizations::MANAGEMENT_ACCOUNT_ID:policy/ORGANIZATION_ID/service_control_policy/BUDGET_POLICY_ID"
+    }
+  ]
+}

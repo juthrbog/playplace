@@ -21,8 +21,11 @@ optional Slack approvals and GitLab workflows.
   Identity Center.
 - **Lifetime and budget guardrails.** Limit requested lifetimes, monthly budgets,
   and accounts per owner. Set up AWS Budgets alerts and view recent spend.
+  Optionally deny covered provisioning APIs at 100% actual spend, with admin
+  budget increases that lift and rearm the restriction.
 - **Expiry management.** Warn owners before expiry, allow bounded extensions,
   request closure when time is up, and flag closures that remain unconfirmed.
+  Retire owned budget actions after confirmed closure while retaining billing alerts.
 - **Visibility and history.** See account status, spend, pending requests, and
   lifecycle events from the web UI, TUI, or CLI. History can be local or shared
   through CloudWatch Logs.
@@ -43,6 +46,7 @@ not hard spending caps.
    and can extend the lifetime within policy or request early closure.
 5. **Retire.** A refresh pass warns before expiry, requests closure at expiry,
    retries refused requests, and checks that AWS actually reports `CLOSED`.
+   It then retires the owned budget action to avoid leaving obsolete paid controls.
 
 Playplace runs with **management-account credentials**. AWS Organizations and
 resource tags hold its inventory and request queue—there is no application
@@ -69,7 +73,8 @@ credentials are needed:
    page to see its history.
 
 Approvers review the pending queue and approve or deny requests. Admins also
-see the fleet, edit requests, override limits, and trigger a sync with AWS.
+see the fleet, edit requests, change existing account budgets, override limits,
+and trigger a sync with AWS.
 
 See [Requesting an account](docs/requesting.md) and
 [Approving requests](docs/approving.md) for the full workflows.
@@ -91,6 +96,7 @@ playplace approve dev-alex
 playplace list
 playplace show dev-alex
 playplace extend dev-alex --by 3
+playplace budget dev-alex --amount 100 --reason "Approved additional testing"
 playplace costs dev-alex --days 7
 playplace history dev-alex
 playplace close dev-alex
@@ -165,8 +171,11 @@ Follow the [deployment guide](deploy/README.md) to:
 4. Run `playplace serve` behind HTTPS with OIDC sign-in, approvers, and admins
    configured. **Without OIDC, every visitor is an admin**—that mode is for
    private local development only.
-5. Schedule `playplace reconcile` independently and alert on failed or missed
-   runs. Configure shared history and lifecycle notifications as needed.
+5. Optionally enable [per-account budget restrictions](docs/budgets.md) using a
+   separately deployed provisioning SCP and AWS Budgets execution role.
+6. Alert on failed or missed refreshes. Use one serialized control-plane writer;
+   do not overlap scheduled reconciliation with service/CLI mutations. Configure
+   shared history and lifecycle notifications as needed.
 
 For a local walkthrough using LocalStack and Dex instead of real AWS, see
 [Development](DEVELOPMENT.md#testing-the-flows-locally).
