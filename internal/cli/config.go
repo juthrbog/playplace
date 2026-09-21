@@ -19,28 +19,30 @@ import (
 // options holds every flag. Each flag can also be set with PLAYPLACE_<NAME>
 // where NAME is the flag name upper-cased with dashes turned to underscores.
 type options struct {
-	NoRefresh       bool
-	LogLevel        string
-	AWSRegion       string
-	AWSProfile      string
-	AWSEndpoint     string
-	OUName          string
-	PermissionSet   string
-	EmailPattern    string
-	AlertEmail      string
-	SlackWebhook    string
-	DefaultTTL      string
-	WarnBefore      string
-	CloseAlertAfter string
-	Budget          float64
-	History         string
-	HistoryFile     string
-	HistoryGroup    string
-	MaxPerOwner     int
-	MaxTTL          string
-	MaxBudget       float64
-	RequestTTL      string
-	SelfApprove     bool
+	NoRefresh        bool
+	LogLevel         string
+	AWSRegion        string
+	AWSProfile       string
+	AWSEndpoint      string
+	OUName           string
+	PermissionSet    string
+	EmailPattern     string
+	AlertEmail       string
+	BudgetPolicyID   string
+	BudgetActionRole string
+	SlackWebhook     string
+	DefaultTTL       string
+	WarnBefore       string
+	CloseAlertAfter  string
+	Budget           float64
+	History          string
+	HistoryFile      string
+	HistoryGroup     string
+	MaxPerOwner      int
+	MaxTTL           string
+	MaxBudget        float64
+	RequestTTL       string
+	SelfApprove      bool
 }
 
 func defaultHistoryFile() string {
@@ -61,7 +63,9 @@ func (o *options) bind(cmd *cobra.Command) {
 	f.StringVar(&o.OUName, "ou-name", "Playground", "organizational unit that holds playground accounts")
 	f.StringVar(&o.PermissionSet, "permission-set", "", "IAM Identity Center permission set (name or ARN) granted to owners; empty disables access grants and owner validation")
 	f.StringVar(&o.EmailPattern, "email-pattern", "aws+pp-{name}@example.com", "root email for new accounts, {name} is replaced")
-	f.StringVar(&o.AlertEmail, "alert-email", "", "recipient for AWS Budgets alerts")
+	f.StringVar(&o.AlertEmail, "alert-email", "", "recipient for AWS Budgets alerts (required for enforcement)")
+	f.StringVar(&o.BudgetPolicyID, "budget-scp-id", "", "separately deployed provisioning-deny SCP; empty selects alerts-only budgets")
+	f.StringVar(&o.BudgetActionRole, "budget-action-role", "", "management-account IAM role used by AWS Budgets to attach/reverse the SCP")
 	f.StringVar(&o.SlackWebhook, "slack-webhook", "", "Slack incoming webhook for lifecycle notifications")
 	f.StringVar(&o.DefaultTTL, "default-ttl", "14d", "lifetime of a new account")
 	f.StringVar(&o.WarnBefore, "warn-before", "3d", "how far ahead of expiry to warn owners")
@@ -121,7 +125,15 @@ func (o *options) coreConfig() (core.Config, error) {
 	cfg.MaxBudgetUSD = o.MaxBudget
 	cfg.DefaultBudgetUSD = o.Budget
 	cfg.EmailPattern = o.EmailPattern
-	cfg.AlertEmail = o.AlertEmail
+	cfg.AlertEmail = strings.TrimSpace(o.AlertEmail)
+	cfg.BudgetPolicyID = strings.TrimSpace(o.BudgetPolicyID)
+	cfg.BudgetActionRole = strings.TrimSpace(o.BudgetActionRole)
+	if err := (core.BudgetSpec{LimitUSD: cfg.DefaultBudgetUSD, Email: cfg.AlertEmail, PolicyID: cfg.BudgetPolicyID, RoleARN: cfg.BudgetActionRole}).Validate(); err != nil {
+		return cfg, err
+	}
+	if math.IsNaN(cfg.MaxBudgetUSD) || math.IsInf(cfg.MaxBudgetUSD, 0) || cfg.MaxBudgetUSD < 0 {
+		return cfg, fmt.Errorf("max-budget must be finite and nonnegative")
+	}
 	cfg.MaxPerOwner = o.MaxPerOwner
 	cfg.AllowSelfApproval = o.SelfApprove
 	return cfg, nil

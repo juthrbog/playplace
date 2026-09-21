@@ -306,7 +306,8 @@ templ accountTR(r accountRow) {
 			<div class="bar" class={ templ.KV("over", r.Spend > r.Account.BudgetUSD) } title={ fmt.Sprintf("$%.2f of $%.0f", r.Spend, r.Account.BudgetUSD) }>
 				<span style={ barWidth(r.Spend, r.Account.BudgetUSD) }></span>
 			</div>
-			<small class="muted">{ fmt.Sprintf("$%.2f / $%.0f", r.Spend, r.Account.BudgetUSD) }</small>
+			<small class="muted">{ fmt.Sprintf("$%.2f / $%.2f", r.Spend, r.Account.BudgetUSD) }</small>
+			<div class="muted" title={ r.Account.BudgetError }>{ r.Account.BudgetHealth }</div>
 		</td>
 		<td>
 			if r.Account.Status.CanExtend() {
@@ -340,6 +341,10 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 				}
 				<dt>root email</dt><dd>{ a.Email }</dd>
 				<dt>budget</dt><dd>{ fmt.Sprintf("$%.2f / month", a.BudgetUSD) }</dd>
+				<dt>budget protection</dt><dd>{ a.BudgetHealth } <span class="muted">(last state observation: { a.BudgetChecked })</span></dd>
+				if a.BudgetError != "" {
+					<dt>budget error</dt><dd class="error">{ a.BudgetError }</dd>
+				}
 				<dt>spend, 30 days</dt><dd>{ fmt.Sprintf("$%.2f", total) }</dd>
 				<dt>created</dt><dd>{ a.CreatedAt.Format("2006-01-02 15:04 MST") }</dd>
 				if a.ProviderID != "" {
@@ -359,6 +364,21 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 				}
 			</dl>
 		</div>
+		if pg.Viewer.Admin && a.Managed && a.Status.CanExtend() {
+			<div class="card">
+				<h3>Change monthly budget</h3>
+				<p class="muted">An increase above reported spend can lift the provisioning restriction and rearm enforcement. AWS billing and policy changes are delayed. Existing resources keep charging.</p>
+				<form hx-post={ "/accounts/" + a.ID + "/budget" }>
+					<div class="row">
+						<label>USD per month<input name="budget" type="number" min="0.01" step="0.01" value={ fmt.Sprintf("%.2f", a.BudgetUSD) } required/></label>
+						<label>reason<input name="reason" maxlength="500" required/></label>
+						<label>override budget ceiling<input type="checkbox" name="override"/></label>
+						<button type="submit">Save budget</button>
+					</div>
+				</form>
+				<div id="form-error" class="error"></div>
+			</div>
+		}
 		if hasHistory {
 			<div class="card">
 				<h3 style="margin-top:0">History</h3>

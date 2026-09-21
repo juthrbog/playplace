@@ -14,7 +14,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/budgets"
-	budgettypes "github.com/aws/aws-sdk-go-v2/service/budgets/types"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	cetypes "github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
 	"github.com/aws/aws-sdk-go-v2/service/identitystore"
@@ -405,74 +404,6 @@ func (p *Provider) CloseAccount(ctx context.Context, providerID string) error {
 }
 
 // ---- budgets and costs -----------------------------------------------------
-
-// EnsureBudget writes a monthly cost budget in the management account,
-// filtered to the linked account, with alerts at 80% actual and 100% forecast.
-func (p *Provider) EnsureBudget(ctx context.Context, providerID string, limitUSD float64, notifyEmail string) error {
-	info, err := p.EnsureOrganization(ctx)
-	if err != nil {
-		return err
-	}
-	name := "playplace-" + providerID
-	budget := budgettypes.Budget{
-		BudgetName:  aws.String(name),
-		BudgetType:  budgettypes.BudgetTypeCost,
-		TimeUnit:    budgettypes.TimeUnitMonthly,
-		BudgetLimit: &budgettypes.Spend{Amount: aws.String(strconv.FormatFloat(limitUSD, 'f', 2, 64)), Unit: aws.String("USD")},
-		CostFilters: map[string][]string{"LinkedAccount": {providerID}},
-	}
-
-	_, err = p.budgets.DescribeBudget(ctx, &budgets.DescribeBudgetInput{
-		AccountId:  aws.String(info.ManagementAccountID),
-		BudgetName: aws.String(name),
-	})
-	var notFound *budgettypes.NotFoundException
-	if err == nil {
-		_, err = p.budgets.UpdateBudget(ctx, &budgets.UpdateBudgetInput{
-			AccountId: aws.String(info.ManagementAccountID),
-			NewBudget: &budget,
-		})
-		if err != nil {
-			return fmt.Errorf("update budget: %w", err)
-		}
-		return nil
-	}
-	if !errors.As(err, &notFound) {
-		return fmt.Errorf("describe budget: %w", err)
-	}
-
-	in := &budgets.CreateBudgetInput{
-		AccountId: aws.String(info.ManagementAccountID),
-		Budget:    &budget,
-	}
-	if notifyEmail != "" {
-		sub := []budgettypes.Subscriber{{SubscriptionType: budgettypes.SubscriptionTypeEmail, Address: aws.String(notifyEmail)}}
-		in.NotificationsWithSubscribers = []budgettypes.NotificationWithSubscribers{
-			{
-				Notification: &budgettypes.Notification{
-					NotificationType:   budgettypes.NotificationTypeActual,
-					ComparisonOperator: budgettypes.ComparisonOperatorGreaterThan,
-					Threshold:          80,
-					ThresholdType:      budgettypes.ThresholdTypePercentage,
-				},
-				Subscribers: sub,
-			},
-			{
-				Notification: &budgettypes.Notification{
-					NotificationType:   budgettypes.NotificationTypeForecasted,
-					ComparisonOperator: budgettypes.ComparisonOperatorGreaterThan,
-					Threshold:          100,
-					ThresholdType:      budgettypes.ThresholdTypePercentage,
-				},
-				Subscribers: sub,
-			},
-		}
-	}
-	if _, err := p.budgets.CreateBudget(ctx, in); err != nil {
-		return fmt.Errorf("create budget: %w", err)
-	}
-	return nil
-}
 
 // Costs returns daily unblended cost for one linked account. Cost Explorer
 // data lags by roughly a day and each call is billed.

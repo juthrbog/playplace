@@ -6,6 +6,8 @@ package fake
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -29,11 +31,16 @@ type Provider struct {
 	DailyCost   float64
 	CostCalls   int // how many times Costs was called, for tests that watch spend on Cost Explorer
 
-	accounts map[string]*account
-	requests map[string]*request
-	Budgets  map[string]float64
-	Closed   []string
-	seq      int
+	accounts      map[string]*account
+	requests      map[string]*request
+	Budgets       map[string]float64
+	BudgetStates  map[string]core.BudgetSnapshot
+	BudgetFailure string
+	BudgetCalls   int
+	RetireCalls   int
+	RetireFailure string
+	Closed        []string
+	seq           int
 
 	// Identity: when AccessOn is true, owners must exist in Users (keyed by
 	// email or user name) and grants are recorded in Grants by account id.
@@ -53,14 +60,15 @@ type request struct {
 
 func New() *Provider {
 	return &Provider{
-		Now:       time.Now,
-		accounts:  map[string]*account{},
-		requests:  map[string]*request{},
-		Budgets:   map[string]float64{},
-		DailyCost: 1.5,
-		Users:     map[string]core.User{},
-		Grants:    map[string][]string{},
-		ouTags:    map[string]string{},
+		Now:          time.Now,
+		accounts:     map[string]*account{},
+		requests:     map[string]*request{},
+		Budgets:      map[string]float64{},
+		BudgetStates: map[string]core.BudgetSnapshot{},
+		DailyCost:    1.5,
+		Users:        map[string]core.User{},
+		Grants:       map[string][]string{},
+		ouTags:       map[string]string{},
 	}
 }
 
@@ -68,9 +76,7 @@ func (p *Provider) OUTags(context.Context) (map[string]string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	out := map[string]string{}
-	for k, v := range p.ouTags {
-		out[k] = v
-	}
+	maps.Copy(out, p.ouTags)
 	return out, nil
 }
 
@@ -101,9 +107,7 @@ func (p *Provider) SetOUTags(_ context.Context, tags map[string]string) error {
 	if err := checkTags(p.ouTags, tags); err != nil {
 		return err
 	}
-	for k, v := range tags {
-		p.ouTags[k] = v
-	}
+	maps.Copy(p.ouTags, tags)
 	return nil
 }
 
@@ -142,10 +146,8 @@ func (p *Provider) GrantAccess(_ context.Context, id string, user core.User) err
 	if _, ok := p.accounts[id]; !ok {
 		return fmt.Errorf("no such account %s", id)
 	}
-	for _, g := range p.Grants[id] {
-		if g == user.ID {
-			return nil
-		}
+	if slices.Contains(p.Grants[id], user.ID) {
+		return nil
 	}
 	p.Grants[id] = append(p.Grants[id], user.ID)
 	return nil
@@ -226,9 +228,7 @@ func (p *Provider) settle(r *request) {
 	pid := fmt.Sprintf("%012d", 100000000000+p.seq)
 	r.State, r.ProviderID, r.CompletedAt = core.CreateSucceeded, pid, p.Now()
 	tags := map[string]string{}
-	for k, v := range r.tags {
-		tags[k] = v
-	}
+	maps.Copy(tags, r.tags)
 	p.accounts[pid] = &account{RemoteAccount: core.RemoteAccount{ProviderID: pid, Name: r.Name, Email: r.email, Status: "ACTIVE", JoinedAt: p.Now(), Tags: tags}}
 }
 
@@ -296,9 +296,7 @@ func (p *Provider) PlaceAccount(_ context.Context, id string, tags map[string]st
 		return err
 	}
 	a.inOU = true
-	for k, v := range tags {
-		a.Tags[k] = v
-	}
+	maps.Copy(a.Tags, tags)
 	return nil
 }
 
@@ -312,9 +310,7 @@ func (p *Provider) SetTags(_ context.Context, id string, tags map[string]string)
 	if err := checkTags(a.Tags, tags); err != nil {
 		return err
 	}
-	for k, v := range tags {
-		a.Tags[k] = v
-	}
+	maps.Copy(a.Tags, tags)
 	return nil
 }
 
@@ -352,11 +348,104 @@ func (p *Provider) CloseAccount(_ context.Context, id string) error {
 	return nil
 }
 
-func (p *Provider) EnsureBudget(_ context.Context, id string, usd float64, _ string) error {
+func (p *Provider) EnsureBudget(_ context.Context, id string, spec core.BudgetSpec) (core.BudgetProtection, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.Budgets[id] = usd
-	return nil
+	p.BudgetCalls++
+	if p.BudgetFailure != "" {
+		return core.BudgetProtection{}, fmt.Errorf("%s", p.BudgetFailure)
+	}
+	if err := spec.Validate(); err != nil {
+		return core.BudgetProtection{}, err
+	}
+	p.Budgets[id] = spec.LimitUSD
+	s := p.BudgetStates[id]
+	s.LimitUSD = spec.LimitUSD
+	defer func() { p.BudgetStates[id] = s }()
+	if !spec.Enforced() {
+		state := "alerts-only"
+		if spec.Email == "" {
+			state = "alerts-disabled"
+		}
+		return core.BudgetProtection{State: state, Configured: true}, nil
+	}
+	if s.ActionID == "" {
+		s.ActionID, s.ActionStatus = "fake-"+id, "STANDBY"
+	}
+	r := core.BudgetProtection{State: "recovering", ActionID: s.ActionID}
+	if c := spec.Recovery; c != nil && c.Period == spec.Now.UTC().Format("2006-01") {
+		if c.ActionID != s.ActionID || c.Limit != spec.LimitUSD {
+			return r, fmt.Errorf("recovery mismatch")
+		}
+		if c.Phase == "reverse" {
+			switch s.ActionStatus {
+			case "EXECUTION_SUCCESS":
+				s.ActionStatus = "REVERSE_IN_PROGRESS"
+				return r, nil
+			case "REVERSE_IN_PROGRESS":
+				s.ActionStatus = "REVERSE_SUCCESS"
+				r.RecoveryPhase = "reset"
+				return r, nil
+			case "REVERSE_SUCCESS":
+				r.RecoveryPhase = "reset"
+				return r, nil
+			}
+		} else {
+			switch s.ActionStatus {
+			case "REVERSE_SUCCESS":
+				s.ActionStatus = "RESET_IN_PROGRESS"
+				return r, nil
+			case "RESET_IN_PROGRESS":
+				s.ActionStatus = "STANDBY"
+			}
+		}
+		r.RecoveryDone = true
+	} else if spec.Recovery != nil {
+		r.RecoveryDone = true
+	}
+	if s.ActionStatus == "STANDBY" && s.SpendKnown && s.SpendUSD >= spec.LimitUSD {
+		s.ActionStatus = "EXECUTION_SUCCESS"
+	}
+	switch s.ActionStatus {
+	case "STANDBY":
+		r.State, r.Configured = "ready", true
+	case "EXECUTION_SUCCESS":
+		r.State, r.Configured = "restricted", true
+	default:
+		return r, fmt.Errorf("budget action state %s", s.ActionStatus)
+	}
+	return r, nil
+}
+
+func (p *Provider) InspectBudget(_ context.Context, id string, _ core.BudgetSpec) (core.BudgetSnapshot, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.BudgetFailure != "" {
+		return core.BudgetSnapshot{}, fmt.Errorf("%s", p.BudgetFailure)
+	}
+	s := p.BudgetStates[id]
+	s.LimitUSD = p.Budgets[id]
+	return s, nil
+}
+
+func (p *Provider) RetireBudgetAction(_ context.Context, id string, spec core.BudgetSpec) (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.RetireCalls++
+	if p.RetireFailure != "" {
+		return false, fmt.Errorf("%s", p.RetireFailure)
+	}
+	a := p.accounts[id]
+	if a == nil || a.Status != "CLOSED" || a.Tags[core.TagManaged] != "true" || spec.PolicyID == "" || spec.RoleARN == "" {
+		return false, fmt.Errorf("retirement requires a closed managed account and enforcement configuration")
+	}
+	s := p.BudgetStates[id]
+	if s.ActionID == "" {
+		return true, nil
+	}
+	s.ActionID, s.ActionStatus = "", ""
+	p.BudgetStates[id] = s // Preserve the budget and spend, just remove its action.
+	return false, nil      // Observe absence on the next pass, like the AWS provider.
 }
 
 func (p *Provider) Costs(_ context.Context, _ string, from, to time.Time) ([]core.CostPoint, error) {
@@ -383,9 +472,7 @@ func (p *Provider) Tags(id string) map[string]string {
 
 func cloneRemote(r core.RemoteAccount) core.RemoteAccount {
 	tags := map[string]string{}
-	for k, v := range r.Tags {
-		tags[k] = v
-	}
+	maps.Copy(tags, r.Tags)
 	r.Tags = tags
 	return r
 }

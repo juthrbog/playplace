@@ -81,8 +81,12 @@ checks also need their respective external services.
     task cli -- init
 
 Skip the `export` to run without Identity Center: owners become free text and
-no access is granted. LocalStack does not implement Budgets, so every place
-step logs "budget not created"; that is expected.
+no access is granted. If your LocalStack version does not implement Budgets,
+placement now reports a budget error and withholds new owner access; it no longer
+silently ignores missing protection. You can inspect the account and exercise
+closure, but a full ready/access flow requires working Budgets APIs. Use the
+fake-provider and loopback AWS API tests for offline budget/action workflows;
+real SCP enforcement and reverse/reset require a separately authorized sandbox.
 
 `task cli -- <command>` runs the CLI against LocalStack with test credentials.
 Set `PLAYPLACE_OPERATOR=you@example.com` so audit tags name you rather than

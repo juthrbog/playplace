@@ -21,6 +21,8 @@ type Config struct {
 	DefaultBudgetUSD float64       // monthly budget when none is given
 	EmailPattern     string        // e.g. "aws+pp-{name}@example.com"
 	AlertEmail       string        // recipient for provider budget alerts
+	BudgetPolicyID   string        // separately deployed provisioning restriction SCP
+	BudgetActionRole string        // separately deployed AWS Budgets execution role
 
 	InventoryTTL    time.Duration // how long a listed inventory is reused
 	CostTTL         time.Duration // how long pulled costs are reused
@@ -68,8 +70,8 @@ type Service struct {
 	invAt time.Time
 	costs map[string]costEntry
 
-	// opMu serializes the refresh pass and every change to the request
-	// queue within this process, so the worker, the web UI, Slack, and the
+	// opMu serializes refresh, placement, budget changes, close requests and
+	// request-queue mutations within this process, so the worker, web UI, Slack and
 	// TUI cannot run the same pass twice or approve the same request twice.
 	// Separate processes are not covered; AWS tags have no compare-and-swap.
 	opMu sync.Mutex
@@ -335,6 +337,9 @@ func checkBudget(v float64) error {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return errors.New("budget must be a number")
 	}
+	if v != 0 && !validMoney(v) {
+		return errors.New("budget must be positive USD with at most two decimal places")
+	}
 	return nil
 }
 
@@ -459,6 +464,8 @@ func (s *Service) checkNameFree(all []*Account, name, email string) error {
 // PollCreate checks one creation request and, on success, places the new
 // account in the OU with its tags and budget. Loop on it to wait in place.
 func (s *Service) PollCreate(ctx context.Context, requestID string) (*Account, error) {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
 	r, err := s.provider.CreateStatus(ctx, requestID)
 	if err != nil {
 		return nil, err
@@ -491,9 +498,9 @@ func (s *Service) place(ctx context.Context, remote RemoteAccount) (*Account, er
 	if err := s.provider.RemoveOUTags(ctx, []string{RequestTagPrefix + a.Name}); err != nil {
 		s.log.Warn("approved record not removed", "account", a.Name, "err", err)
 	}
-	if err := s.provider.EnsureBudget(ctx, a.ProviderID, a.BudgetUSD, s.cfg.AlertEmail); err != nil {
-		// A missing budget should not block use of the account.
-		s.log.Warn("budget not created", "account", a.Name, "err", err)
+	if err := s.reconcileBudget(ctx, a); err != nil {
+		s.Invalidate()
+		return a, err // Refresh retries even though the account is already placed.
 	}
 	if err := s.grantAccess(ctx, a); err != nil {
 		// Refresh retries; the account is still usable by operators.
@@ -502,11 +509,12 @@ func (s *Service) place(ctx context.Context, remote RemoteAccount) (*Account, er
 	s.Invalidate()
 	s.audit(ctx, "placed", a, ActorSystem, "", fmt.Sprintf("%s is active as account %s for %s, expires %s", a.Name, a.ProviderID, a.Owner, a.ExpiresAt.Format("2006-01-02")),
 		map[string]string{"expires": a.ExpiresAt.UTC().Format(time.RFC3339), "budget": strconv.FormatFloat(a.BudgetUSD, 'f', -1, 64), "approved_by": a.ApprovedBy, "requested_by": a.RequestedBy})
-	body := fmt.Sprintf("Account %s (%s) is ready for %s. It expires %s.", a.Name, a.ProviderID, a.Owner, a.ExpiresAt.Format("2006-01-02"))
+	var body strings.Builder
+	fmt.Fprintf(&body, "Account %s (%s) is ready for %s. It expires %s.", a.Name, a.ProviderID, a.Owner, a.ExpiresAt.Format("2006-01-02"))
 	if a.AccessGrantedTo != "" {
-		body += " Sign in through the access portal; the account is listed there."
+		body.WriteString(" Sign in through the access portal; the account is listed there.")
 	}
-	s.notify(ctx, a, "Playground account ready", body)
+	s.notify(ctx, a, "Playground account ready", body.String())
 	return a, nil
 }
 
@@ -605,6 +613,8 @@ func (s *Service) checkLifetime(a *Account, until time.Time, override bool) erro
 // If the provider's quota refuses, the account stays in closing and a later
 // Refresh retries. by names who asked.
 func (s *Service) RequestClose(ctx context.Context, id string, by string) (*Account, error) {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
 	a, err := s.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -651,7 +661,7 @@ func (s *Service) tryClose(ctx context.Context, a *Account) (*Account, error) {
 		a.CloseRequestedAt = requestedAt // tolerate an eventually consistent tag read
 	}
 	if a.Status == StatusClosed {
-		return a, s.confirmClosed(ctx, a)
+		return a, errors.Join(s.confirmClosed(ctx, a), s.retireBudget(ctx, a))
 	}
 	if a.Status == StatusUnavailable {
 		return a, fmt.Errorf("verify closure of %s: %s", a.Name, a.LastError)
@@ -793,6 +803,11 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 					sum.Closed = append(sum.Closed, a.Name)
 				}
 			}
+			// Also retire for externally closed and previously confirmed accounts.
+			// Cleanup failures must not undo or suppress confirmed closure.
+			if err := s.retireBudget(ctx, a); err != nil {
+				errs = append(errs, err)
+			}
 			continue
 		}
 		// Keep processing requested closures even when AWS is no longer
@@ -840,17 +855,24 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 				errs = append(errs, fmt.Errorf("adopt %s: %w", a.Name, err))
 				continue
 			}
-			if err := s.provider.EnsureBudget(ctx, a.ProviderID, a.BudgetUSD, s.cfg.AlertEmail); err != nil {
-				s.log.Warn("budget not created", "account", a.Name, "err", err)
-			}
 			a.Managed = true
 			sum.Adopted = append(sum.Adopted, a.Name)
 			s.audit(ctx, "adopted", a, ActorSystem, "", fmt.Sprintf("%s was found in the OU without tags and adopted for %s, expires %s", a.Name, a.Owner, a.ExpiresAt.Format("2006-01-02")), nil)
 		}
 
+		// Budget failure must prevent new grants, but never prevent expiry/closure.
+		budgetReady := false
+		if a.ExpiresAt.After(now) {
+			if err := s.reconcileBudget(ctx, a); err != nil {
+				errs = append(errs, err)
+			} else {
+				budgetReady = true
+			}
+		}
+
 		// 3. Owners without console access yet (a grant failed earlier, or the
 		//    account was adopted with a resolvable owner).
-		if a.ExpiresAt.After(now) && a.AccessGrantedTo == "" && s.provider.AccessEnabled() {
+		if budgetReady && a.ExpiresAt.After(now) && a.AccessGrantedTo == "" && s.provider.AccessEnabled() {
 			if err := s.grantAccess(ctx, a); err != nil {
 				if !errors.Is(err, ErrUserNotFound) {
 					errs = append(errs, fmt.Errorf("grant %s: %w", a.Name, err))
@@ -873,7 +895,8 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 			a, err = s.tryClose(ctx, a)
 			if err != nil {
 				errs = append(errs, err)
-			} else if a.Status == StatusClosed {
+			}
+			if a.Status == StatusClosed {
 				sum.Closed = append(sum.Closed, a.Name)
 			} else {
 				sum.Deferred = append(sum.Deferred, a.Name)
@@ -1036,17 +1059,22 @@ func (s *Service) SubmitRequest(ctx context.Context, in RequestInput, via string
 	s.log.Info("request queued", "name", r.Name, "owner", r.Owner, "via", via)
 	s.audit(ctx, "requested", pendingAccount(r, s.Now()), r.RequestedBy, via, fmt.Sprintf("%s requested %s for %s: %s/month, %d days", r.RequestedBy, r.Name, r.Owner, money(r.BudgetUSD), int(r.TTL.Hours()/24)),
 		map[string]string{"budget": strconv.FormatFloat(r.BudgetUSD, 'f', -1, 64), "days": strconv.Itoa(int(r.TTL.Hours() / 24)), "purpose": r.Purpose, "override": strconv.FormatBool(r.OverrideLimits)})
-	body := fmt.Sprintf("%s requested playground account %s for %s: %s/month, %d days.", r.RequestedBy, r.Name, r.Owner, money(r.BudgetUSD), int(r.TTL.Hours()/24))
+	var body strings.Builder
+	fmt.Fprintf(&body, "%s requested playground account %s for %s: %s/month, %d days.", r.RequestedBy, r.Name, r.Owner, money(r.BudgetUSD), int(r.TTL.Hours()/24))
 	if r.OverrideLimits {
-		body += " Limits overridden by an admin."
+		body.WriteString(" Limits overridden by an admin.")
 	}
 	if r.Purpose != "" {
-		body += " Purpose: " + r.Purpose + "."
+		body.WriteString(" Purpose: ")
+		body.WriteString(r.Purpose)
+		body.WriteByte('.')
 	}
 	if s.cfg.BaseURL != "" {
-		body += " Approve or deny at " + strings.TrimRight(s.cfg.BaseURL, "/") + "/#pending"
+		body.WriteString(" Approve or deny at ")
+		body.WriteString(strings.TrimRight(s.cfg.BaseURL, "/"))
+		body.WriteString("/#pending")
 	}
-	s.notifyAll(ctx, "Playground account requested: "+r.Name, body, "approvers", "req:"+r.Name)
+	s.notifyAll(ctx, "Playground account requested: "+r.Name, body.String(), "approvers", "req:"+r.Name)
 	return r, nil
 }
 

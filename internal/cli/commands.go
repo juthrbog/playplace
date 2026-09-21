@@ -329,13 +329,13 @@ func listCmd(opts *options) *cobra.Command {
 
 func printAccounts(accounts []*core.Account) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tOWNER\tSTATUS\tACCOUNT\tEXPIRES\tBUDGET")
+	fmt.Fprintln(w, "NAME\tOWNER\tSTATUS\tACCOUNT\tEXPIRES\tBUDGET\tPROTECTION")
 	for _, a := range accounts {
 		exp := a.ExpiresAt.Format("2006-01-02")
 		if a.ProviderID == "" {
 			exp = "-"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t$%.0f\n", a.Name, a.Owner, a.Status, a.ProviderID, exp, a.BudgetUSD)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t$%.2f\t%s\n", a.Name, a.Owner, a.Status, a.ProviderID, exp, a.BudgetUSD, a.BudgetHealth)
 	}
 	w.Flush()
 }
@@ -351,6 +351,10 @@ func showCmd(opts *options) *cobra.Command {
 				return err
 			}
 			fmt.Printf("name:        %s\nowner:       %s\nstatus:      %s\naccount id:  %s\n", acc.Name, acc.Owner, acc.Status, acc.ProviderID)
+			fmt.Printf("protection:  %s (observed %s)\n", acc.BudgetHealth, acc.BudgetChecked)
+			if acc.BudgetError != "" {
+				fmt.Printf("budget error: %s\n", acc.BudgetError)
+			}
 			if acc.ProviderState != "" {
 				fmt.Printf("AWS state:   %s\n", acc.ProviderState)
 			}

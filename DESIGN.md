@@ -30,7 +30,11 @@ accounts are playgrounds, and tags on each account hold the rest:
 | `playplace:managed` | `true` once the tool has tagged the account |
 | `playplace:owner` | who is responsible |
 | `playplace:expires` | RFC3339 expiry |
-| `playplace:budget` | monthly budget in USD |
+| `playplace:budget` | desired approved monthly budget in USD |
+| `playplace:budget-policy` | configured restriction SCP; prevents silently removing enforcement |
+| `playplace:budget-health`, `playplace:budget-checked` | observed protection state and last state/error-change time |
+| `playplace:budget-error` | bounded base64url error text |
+| `playplace:budget-recovery` | compact base64url recovery intent: action ID, approved limit, pre-update spend, month and reverse/reset phase |
 | `playplace:warned-at` | set once the owner was warned about expiry |
 | `playplace:close-requested` | durable close intent and start of the closure-monitoring clock |
 | `playplace:closed-at` | when playplace observed AWS `CLOSED` and recorded confirmation |
@@ -59,6 +63,24 @@ Accounts that land in the OU without tags are adopted with defaults on the
 next refresh. Cost Explorer bills per call, so `list` never touches it;
 `show`, `costs`, the TUI, and the web UI cache results for an hour.
 
+
+## Budget protection
+
+The provider reconciles budget amounts, the two owned notification thresholds,
+and optional per-account AWS Budgets actions. No-op passes never call
+`UpdateBudget`, which resets AWS's calculated spend. New owner grants wait for
+successful protection setup; failures on existing managed accounts are retried
+without preventing expiry/closure. Admin increases persist intent before AWS
+mutations. Reverse completion is observed before persisting the reset phase,
+so a crash after reset cannot authorize reversal of a newly executed action.
+Confirmed-closed accounts reconcile owned-action retirement independently of the
+closure-confirmation marker. The provider rechecks CLOSED, account/OU ownership,
+and the action's target/policy/role before deletion; only subsequent absence means
+`retired`. Failures retry across restarts without reverting closure. Budgets and
+alerts remain; retirement does not reverse/reset actions or clean up member resources.
+The SCP and execution role are deployed separately; runtime never directly
+attaches/detaches policies. See [Budget protection](docs/budgets.md) for coverage,
+authorization, recovery, retirement, and the single-writer deployment requirement.
 
 ## Lifecycle
 

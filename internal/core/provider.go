@@ -123,8 +123,15 @@ type Provider interface {
 	// Returns ErrCloseQuota when the provider refuses for quota reasons.
 	CloseAccount(ctx context.Context, providerID string) error
 
-	// EnsureBudget creates or updates a monthly cost budget for the account.
-	EnsureBudget(ctx context.Context, providerID string, limitUSD float64, notifyEmail string) error
+	// EnsureBudget reconciles the monthly budget, owned notifications and optional
+	// SCP action. Accepted action calls are not confirmation of completion.
+	EnsureBudget(ctx context.Context, providerID string, spec BudgetSpec) (BudgetProtection, error)
+	// InspectBudget reads spend and action state before an admin changes a limit.
+	InspectBudget(ctx context.Context, providerID string, spec BudgetSpec) (BudgetSnapshot, error)
+	// RetireBudgetAction deletes only an owned action after fresh CLOSED and
+	// ownership checks. True means absence was observed, not merely requested.
+	// Preserve the budget/alerts; never reverse actions or directly detach SCPs.
+	RetireBudgetAction(ctx context.Context, providerID string, spec BudgetSpec) (bool, error)
 
 	// AccessEnabled reports whether the provider can grant console access to
 	// owners. When false, owners are free text and no grants are attempted.

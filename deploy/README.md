@@ -10,7 +10,10 @@ playplace must run with management-account credentials, because AWS allows
   is down. Use the GitLab job in `gitlab/.gitlab-ci.yml` or cron. Every 15 minutes
   is a reasonable starting point; a daily schedule can leave expired accounts
   active for almost a day before attempting closure. Alert on failed or missed
-  runs, not just process uptime.
+  runs, not just process uptime. Serialize scheduled/CLI mutations against the
+  service worker (or use `serve --no-worker` and an externally serialized
+  reconciler). AWS tags have no cross-process compare-and-swap; concurrent
+  control-plane writers are not supported.
 
 ## IAM
 
@@ -211,7 +214,19 @@ bills. There is no `aws-nuke` integration or resource-deletion step.
 ## Additional guardrails outside the tool
 
 From your infrastructure code, also consider denying IAM users and access keys,
-allow-listing regions and services, and capping instance types. A Budgets Action
-that attaches a deny policy can help contain spend, but billing data and action
-execution are delayed; neither a budget nor an account TTL is a hard spending
-cap.
+allow-listing regions and services, and capping instance types.
+
+For per-account budget-triggered restrictions, separately deploy the policy and
+role in [Budget protection](../docs/budgets.md), then configure
+`--budget-scp-id`, `--budget-action-role`, and `--alert-email`. Unlike the
+purchase/trail SCP, **do not attach the budget SCP to the OU**: AWS Budgets manages
+its account attachments. The admin budget-change operation reverses and resets
+its action after a sufficient increase. After confirmed closure, reconciliation
+retires the owned action, retaining the budget and alerts. Update the runtime
+budget-actions policy to include its ownership-tag-constrained
+`budgets:DeleteBudgetAction` permission, and keep the original policy/role
+configuration until health reads `retired`. Failed/locked deletions retry; they
+never trigger direct SCP detachment. See the retirement runbook and remaining
+live-validation requirements in [Budget protection](../docs/budgets.md).
+Billing data and execution are delayed; neither a budget nor an account TTL is
+a hard spending cap.
