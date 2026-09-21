@@ -370,51 +370,46 @@ func (p *Provider) EnsureBudget(_ context.Context, id string, spec core.BudgetSp
 		return core.BudgetProtection{State: state, Configured: true}, nil
 	}
 	if s.ActionID == "" {
+		if spec.Recovery != nil {
+			return core.BudgetProtection{}, fmt.Errorf("action missing with recovery present")
+		}
 		s.ActionID, s.ActionStatus = "fake-"+id, "STANDBY"
 	}
-	r := core.BudgetProtection{State: "recovering", ActionID: s.ActionID}
-	if c := spec.Recovery; c != nil && c.Period == spec.Now.UTC().Format("2006-01") {
-		if c.ActionID != s.ActionID || c.Limit != spec.LimitUSD {
-			return r, fmt.Errorf("recovery mismatch")
-		}
-		if c.Phase == "reverse" {
-			switch s.ActionStatus {
-			case "EXECUTION_SUCCESS":
-				s.ActionStatus = "REVERSE_IN_PROGRESS"
-				return r, nil
-			case "REVERSE_IN_PROGRESS":
-				s.ActionStatus = "REVERSE_SUCCESS"
-				r.RecoveryPhase = "reset"
-				return r, nil
-			case "REVERSE_SUCCESS":
-				r.RecoveryPhase = "reset"
-				return r, nil
-			}
-		} else {
-			switch s.ActionStatus {
-			case "REVERSE_SUCCESS":
-				s.ActionStatus = "RESET_IN_PROGRESS"
-				return r, nil
-			case "RESET_IN_PROGRESS":
-				s.ActionStatus = "STANDBY"
-			}
-		}
-		r.RecoveryDone = true
-	} else if spec.Recovery != nil {
-		r.RecoveryDone = true
+	// Simulate remote completion, not the recovery policy: only an explicit
+	// ExecuteBudgetAction starts a reverse/reset. Core alone reads approval,
+	// chooses an operation and decides when the durable phase may advance.
+	switch s.ActionStatus {
+	case "REVERSE_IN_PROGRESS":
+		s.ActionStatus = "REVERSE_SUCCESS"
+	case "RESET_IN_PROGRESS":
+		s.ActionStatus = "STANDBY"
 	}
 	if s.ActionStatus == "STANDBY" && s.SpendKnown && s.SpendUSD >= spec.LimitUSD {
 		s.ActionStatus = "EXECUTION_SUCCESS"
 	}
-	switch s.ActionStatus {
-	case "STANDBY":
-		r.State, r.Configured = "ready", true
-	case "EXECUTION_SUCCESS":
-		r.State, r.Configured = "restricted", true
-	default:
-		return r, fmt.Errorf("budget action state %s", s.ActionStatus)
+	return core.BudgetProtection{State: "setup-pending", ActionID: s.ActionID, Action: &core.BudgetActionObservation{Status: s.ActionStatus, RestrictionAttached: s.ActionStatus == "EXECUTION_SUCCESS"}}, nil
+}
+
+func (p *Provider) ExecuteBudgetAction(_ context.Context, id string, _ core.BudgetSpec, actionID string, operation core.BudgetActionOperation) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.BudgetFailure != "" {
+		return fmt.Errorf("%s", p.BudgetFailure)
 	}
-	return r, nil
+	s := p.BudgetStates[id]
+	if actionID == "" || s.ActionID != actionID {
+		return fmt.Errorf("budget recovery does not match the owned action")
+	}
+	switch operation {
+	case core.BudgetActionReverse:
+		s.ActionStatus = "REVERSE_IN_PROGRESS"
+	case core.BudgetActionReset:
+		s.ActionStatus = "RESET_IN_PROGRESS"
+	default:
+		return fmt.Errorf("unsupported budget action operation")
+	}
+	p.BudgetStates[id] = s
+	return nil
 }
 
 func (p *Provider) InspectBudget(_ context.Context, id string, _ core.BudgetSpec) (core.BudgetSnapshot, error) {

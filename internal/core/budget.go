@@ -89,16 +89,38 @@ func validMoney(n float64) bool {
 	return n > 0 && n <= 1e12 && !math.IsInf(n, 0) && !math.IsNaN(n) && math.Abs(n*100-math.Round(n*100)) < 0.0001
 }
 
-// BudgetProtection is observed state, separate from the account lifecycle.
-// Configured means the desired state is observed (including retirement), not
-// that spending is capped.
+// BudgetProtection carries budget configuration observations. An enforced
+// adapter returns Action only after observing the desired configuration;
+// core owns recovery and derives protection health from that observation.
+// Configured protection is not a spending cap.
 type BudgetProtection struct {
-	State         string
-	ActionID      string
-	Configured    bool
-	RecoveryPhase string
-	RecoveryDone  bool
+	State      string
+	ActionID   string
+	Configured bool
+	Action     *BudgetActionObservation
 }
+
+// A nil observation means action setup/repair is not yet confirmed. An observed
+// empty or unknown status is different: core must report it as an error.
+type BudgetActionObservation struct {
+	Status              string
+	RestrictionAttached bool
+}
+
+// Recovery progress never crosses the provider seam as instructions to callers.
+// The budget module persists these facts before any subsequent recovery mutation.
+type budgetProgress struct {
+	BudgetProtection
+	recoveryPhase string
+	recoveryDone  bool
+}
+
+type BudgetActionOperation string
+
+const (
+	BudgetActionReverse BudgetActionOperation = "REVERSE_BUDGET_ACTION"
+	BudgetActionReset   BudgetActionOperation = "RESET_BUDGET_ACTION"
+)
 
 type BudgetSnapshot struct {
 	LimitUSD     float64
@@ -125,7 +147,11 @@ func (s *Service) reconcileBudget(ctx context.Context, a *Account) error {
 	if err == nil {
 		p, err = s.provider.EnsureBudget(ctx, a.ProviderID, spec)
 	}
-	return s.recordBudgetProtection(ctx, a, spec, p, err)
+	progress := budgetProgress{BudgetProtection: p}
+	if err == nil && p.Action != nil {
+		progress, err = s.advanceBudgetRecovery(ctx, a, spec, p)
+	}
+	return s.recordBudgetProtection(ctx, a, spec, progress, err)
 }
 
 // retireBudget runs independently of closure confirmation tags, so failures and
@@ -150,10 +176,10 @@ func (s *Service) retireBudget(ctx context.Context, a *Account) error {
 	} else if p.Configured {
 		p.State = "retired"
 	}
-	return s.recordBudgetProtection(ctx, a, spec, p, err)
+	return s.recordBudgetProtection(ctx, a, spec, budgetProgress{BudgetProtection: p}, err)
 }
 
-func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec BudgetSpec, p BudgetProtection, err error) error {
+func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec BudgetSpec, p budgetProgress, err error) error {
 	state := p.State
 	if state == "" {
 		state = "setup-pending"
@@ -183,10 +209,10 @@ func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec B
 		tags[TagBudgetRecovery] = ""
 	}
 	if spec.Recovery != nil && err == nil {
-		if p.RecoveryDone {
+		if p.recoveryDone {
 			tags[TagBudgetRecovery] = ""
-		} else if p.RecoveryPhase != "" && p.RecoveryPhase != spec.Recovery.Phase {
-			spec.Recovery.Phase = p.RecoveryPhase
+		} else if p.recoveryPhase != "" && p.recoveryPhase != spec.Recovery.Phase {
+			spec.Recovery.Phase = p.recoveryPhase
 			tags[TagBudgetRecovery] = spec.Recovery.Encode()
 		}
 	}

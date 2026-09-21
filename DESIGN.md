@@ -67,8 +67,10 @@ next refresh. Cost Explorer bills per call, so `list` never touches it;
 
 ## Budget protection
 
-The provider reconciles budget amounts, the two owned notification thresholds,
-and optional per-account AWS Budgets actions. No-op passes never call
+The AWS adapter reconciles budget amounts, the two owned notification thresholds,
+and optional per-account AWS Budgets action configuration. The core budget module
+owns recovery approval, durable phase progression, and reverse/reset ordering.
+No-op passes never call
 `UpdateBudget`, which resets AWS's calculated spend. New owner grants wait for
 successful protection setup; failures on existing managed accounts are retried
 without preventing expiry/closure. Admin increases persist intent before AWS
@@ -82,6 +84,25 @@ alerts remain; retirement does not reverse/reset actions or clean up member reso
 The SCP and execution role are deployed separately; runtime never directly
 attaches/detaches policies. See [Budget protection](docs/budgets.md) for coverage,
 authorization, recovery, retirement, and the single-writer deployment requirement.
+
+The budget module spans `internal/core/budget.go` and `budget_recovery.go`:
+`SetBudget` inspects pre-change spend and persists the approved amount and recovery
+intent before reconciliation can update AWS. `EnsureBudget` repairs configuration
+and returns observations, never recovery-phase instructions or reverse/reset
+requests. Core chooses explicit mutations through `ExecuteBudgetAction`; the AWS
+adapter rechecks the target and owned action before submitting them. Reverse
+success only advances the durable phase; reset is submitted on a later pass.
+Missing action observations mean setup is pending, while observed empty/unknown
+statuses remain errors. Recovery intent is retained on errors, even if the action
+has progressed; accepted mutations are not completion.
+
+The fake adapter simulates remote completion of explicitly submitted operations,
+not recovery policy. The same core decisions run against both adapters. Recovery
+records retain their existing tag encoding and resume without migration; caller
+commands, health states, and pending/error behavior are unchanged. Caller-interface
+tests use the real AWS adapter with loopback observations and durable mock tags to
+exercise interrupted writes, restarts, re-execution and period rollover together.
+These tests do not establish live AWS propagation, IAM or SCP behavior.
 
 ## Lifecycle
 

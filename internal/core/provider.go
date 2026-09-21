@@ -123,9 +123,13 @@ type Provider interface {
 	// Returns ErrCloseQuota when the provider refuses for quota reasons.
 	CloseAccount(ctx context.Context, providerID string) error
 
-	// EnsureBudget reconciles the monthly budget, owned notifications and optional
-	// SCP action. Accepted action calls are not confirmation of completion.
+	// EnsureBudget reconciles amount, owned notifications and action configuration.
+	// It observes action status/attachment but never reverses or resets an action.
 	EnsureBudget(ctx context.Context, providerID string, spec BudgetSpec) (BudgetProtection, error)
+	// ExecuteBudgetAction submits an explicit reverse/reset chosen by core after
+	// durable approval. Revalidate the target and owned action before submission;
+	// acceptance is not completion. Never directly attach/detach policies.
+	ExecuteBudgetAction(ctx context.Context, providerID string, spec BudgetSpec, actionID string, operation BudgetActionOperation) error
 	// InspectBudget reads spend and action state before an admin changes a limit.
 	InspectBudget(ctx context.Context, providerID string, spec BudgetSpec) (BudgetSnapshot, error)
 	// RetireBudgetAction deletes only an owned action after fresh CLOSED and
