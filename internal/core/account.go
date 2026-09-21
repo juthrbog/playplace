@@ -49,6 +49,7 @@ const (
 	TagRequestedBy    = "playplace:requested-by"     // who asked for the account
 	TagApprovedBy     = "playplace:approved-by"      // who approved it
 	TagPurpose        = "playplace:purpose"          // short free text from the request
+	TagHandoff        = "playplace:handoff"          // placing, pending, complete; absent on legacy accounts
 )
 
 // Account is a playground account as derived from the provider.
@@ -79,6 +80,7 @@ type Account struct {
 	RequestedBy      string     `json:"requested_by,omitempty"`
 	ApprovedBy       string     `json:"approved_by,omitempty"`
 	Purpose          string     `json:"purpose,omitempty"`
+	handoff          string     // durable initial-handoff progress, not lifecycle status
 
 	// Set on pending rows only, from the request record, so views can show
 	// and edit the asked-for lifetime without a second read of the queue.
@@ -122,6 +124,9 @@ func (a *Account) Tags() map[string]string {
 	}
 	if a.Purpose != "" {
 		t[TagPurpose] = a.Purpose
+	}
+	if a.handoff != "" {
+		t[TagHandoff] = a.handoff
 	}
 	return t
 }
@@ -177,6 +182,7 @@ func FromRemote(r RemoteAccount, defaults Config, now time.Time) *Account {
 	a.RequestedBy = r.Tags[TagRequestedBy]
 	a.ApprovedBy = r.Tags[TagApprovedBy]
 	a.Purpose = r.Tags[TagPurpose]
+	a.handoff = r.Tags[TagHandoff]
 	switch {
 	case r.Status == "CLOSED":
 		a.Status = StatusClosed

@@ -421,6 +421,7 @@ func (s *Service) Request(ctx context.Context, in RequestInput) (*Account, error
 		RequestedBy: in.RequestedBy,
 		ApprovedBy:  in.ApprovedBy,
 		Purpose:     strings.TrimSpace(in.Purpose),
+		handoff:     handoffPlacing,
 	}
 	reqID, err := s.provider.RequestAccount(ctx, AccountRequest{Name: a.Name, Email: a.Email, Tags: a.Tags()})
 	if err != nil {
@@ -476,7 +477,16 @@ func (s *Service) PollCreate(ctx context.Context, requestID string) (*Account, e
 		if err != nil {
 			return nil, err
 		}
-		return s.place(ctx, remote)
+		// Polling an old creation must not move or prepare an unavailable or
+		// closing account. Refresh owns closure progression.
+		if remote.Status != "ACTIVE" || remote.Tags[TagCloseRequested] != "" {
+			return FromRemote(remote, s.cfg, s.Now()), nil
+		}
+		a, err := s.place(ctx, remote)
+		if err != nil {
+			return a, err
+		}
+		return a, s.reconcileReadiness(ctx, a)
 	case CreateFailed:
 		a := FromCreateRequest(r)
 		s.audit(ctx, "failed", a, ActorSystem, "", fmt.Sprintf("AWS could not create %s: %s", a.Name, r.FailureReason), map[string]string{"reason": r.FailureReason, "request_id": r.RequestID})
@@ -486,10 +496,11 @@ func (s *Service) PollCreate(ctx context.Context, requestID string) (*Account, e
 	}
 }
 
-// place moves a freshly created account into the OU, writes tags, and sets
-// its budget. Idempotent.
+// place moves a freshly created account into the OU and writes tags.
+// Readiness is reconciled separately, including after a partial move failure.
 func (s *Service) place(ctx context.Context, remote RemoteAccount) (*Account, error) {
 	a := FromRemote(remote, s.cfg, s.Now())
+	defer s.Invalidate() // a failed tag write may still have moved the account
 	if err := s.provider.PlaceAccount(ctx, a.ProviderID, a.Tags()); err != nil {
 		return nil, fmt.Errorf("place %s: %w", a.Name, err)
 	}
@@ -498,23 +509,6 @@ func (s *Service) place(ctx context.Context, remote RemoteAccount) (*Account, er
 	if err := s.provider.RemoveOUTags(ctx, []string{RequestTagPrefix + a.Name}); err != nil {
 		s.log.Warn("approved record not removed", "account", a.Name, "err", err)
 	}
-	if err := s.reconcileBudget(ctx, a); err != nil {
-		s.Invalidate()
-		return a, err // Refresh retries even though the account is already placed.
-	}
-	if err := s.grantAccess(ctx, a); err != nil {
-		// Refresh retries; the account is still usable by operators.
-		s.log.Warn("access not granted", "account", a.Name, "owner", a.Owner, "err", err)
-	}
-	s.Invalidate()
-	s.audit(ctx, "placed", a, ActorSystem, "", fmt.Sprintf("%s is active as account %s for %s, expires %s", a.Name, a.ProviderID, a.Owner, a.ExpiresAt.Format("2006-01-02")),
-		map[string]string{"expires": a.ExpiresAt.UTC().Format(time.RFC3339), "budget": strconv.FormatFloat(a.BudgetUSD, 'f', -1, 64), "approved_by": a.ApprovedBy, "requested_by": a.RequestedBy})
-	var body strings.Builder
-	fmt.Fprintf(&body, "Account %s (%s) is ready for %s. It expires %s.", a.Name, a.ProviderID, a.Owner, a.ExpiresAt.Format("2006-01-02"))
-	if a.AccessGrantedTo != "" {
-		body.WriteString(" Sign in through the access portal; the account is listed there.")
-	}
-	s.notify(ctx, a, "Playground account ready", body.String())
 	return a, nil
 }
 
@@ -789,7 +783,7 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 			continue
 		}
 		sum.Placed = append(sum.Placed, acct.Name)
-		acct.Tags = placed.Tags() // includes the access grant, so step 3 does not repeat it
+		acct.Tags = placed.Tags() // retain handoff eligibility in this pass
 		remote = append(remote, acct)
 	}
 
@@ -851,6 +845,11 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 
 		// 2. Adopt accounts in the OU that lack our tags.
 		if !a.Managed {
+			// Invalid expiry also triggers repair here. Only raw ownership
+			// absence enrolls a new adoption; legacy repairs get no handoff.
+			if r.Tags[TagManaged] != "true" && a.handoff == "" {
+				a.handoff = handoffPending
+			}
 			if err := s.provider.SetTags(ctx, a.ProviderID, a.Tags()); err != nil {
 				errs = append(errs, fmt.Errorf("adopt %s: %w", a.Name, err))
 				continue
@@ -860,26 +859,13 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 			s.audit(ctx, "adopted", a, ActorSystem, "", fmt.Sprintf("%s was found in the OU without tags and adopted for %s, expires %s", a.Name, a.Owner, a.ExpiresAt.Format("2006-01-02")), nil)
 		}
 
-		// Budget failure must prevent new grants, but never prevent expiry/closure.
-		budgetReady := false
-		if a.ExpiresAt.After(now) {
-			if err := s.reconcileBudget(ctx, a); err != nil {
-				errs = append(errs, err)
-			} else {
-				budgetReady = true
-			}
+		// Readiness errors never prevent expiry/closure or another account's work.
+		beforeAccess := a.AccessGrantedTo
+		if err := s.reconcileReadiness(ctx, a); err != nil {
+			errs = append(errs, err)
 		}
-
-		// 3. Owners without console access yet (a grant failed earlier, or the
-		//    account was adopted with a resolvable owner).
-		if budgetReady && a.ExpiresAt.After(now) && a.AccessGrantedTo == "" && s.provider.AccessEnabled() {
-			if err := s.grantAccess(ctx, a); err != nil {
-				if !errors.Is(err, ErrUserNotFound) {
-					errs = append(errs, fmt.Errorf("grant %s: %w", a.Name, err))
-				}
-			} else {
-				sum.Granted = append(sum.Granted, a.Name)
-			}
+		if beforeAccess == "" && a.AccessGrantedTo != "" {
+			sum.Granted = append(sum.Granted, a.Name)
 		}
 
 		// 5. Expiry: close when past due, warn when close.

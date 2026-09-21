@@ -40,6 +40,7 @@ accounts are playgrounds, and tags on each account hold the rest:
 | `playplace:closed-at` | when playplace observed AWS `CLOSED` and recorded confirmation |
 | `playplace:close-alerted-at` | one-shot overdue-closure warning marker |
 | `playplace:access` | Identity Center principal the owner's access was granted to |
+| `playplace:handoff` | initial handoff progress: `placing`, `pending`, or `complete`; absent on legacy accounts |
 | `playplace:requested-by`, `playplace:approved-by`, `playplace:purpose` | audit trail from the request |
 
 Pending requests are tags on the Playground OU itself, keyed `playplace:req:<name>`.
@@ -182,6 +183,39 @@ verified with the signing secret, the clicker's Slack email is checked against
 the approver list, and the message is rewritten with the outcome. Approving in
 Slack and approving in the UI act on the same queue entry.
 
+
+## Account readiness and initial handoff
+
+Placement in the Playground OU is not readiness. One readiness module in
+`internal/core/readiness.go` advances accounts from creation polling and refresh:
+observed budget protection, optional owner access, then initial handoff. Placement
+history is recorded independently of protection/access success. Lifecycle status
+stays derived as before; an `active` account can still be awaiting readiness.
+
+An initial handoff requires an unexpired ACTIVE account with no close intent,
+configured protection without an active budget restriction, and an identified
+owner. With managed access enabled, the owner grant must succeed and its principal
+must be recorded. Otherwise free-text owners are accepted, except blank values
+and the placeholders `unknown` (case-insensitive) and `?`. Pending protection,
+failed grants, and unidentified owners are retried without delaying expiry or
+closure. Existing access is not revoked solely because readiness is lost.
+
+New creation requests carry `playplace:handoff=placing` in their original tags,
+so interruption before OU placement does not lose eligibility. After placement,
+`pending` is persisted before the best-effort placement history write. Newly
+adopted accounts start at `pending` in the same write that marks them managed.
+Both paths resume through refresh, including after a move succeeded but a tag
+write failed. Already-managed accounts without this tag receive no retroactive
+handoff notices, even when invalid lifecycle tags need repair; their protection
+and access still reconcile normally.
+
+Once readiness is observed, `complete` is persisted before attempting the existing
+account-ready notification. A failed completion write fails reconciliation and
+retries; a failed notification, or a crash after completion was persisted, may
+lose the notice rather than repeat it. History and notification delivery remain
+best-effort and are never consulted as state. Repeated polling, restarts, and later
+budget/access recovery do not reset the milestone. Keep the single-writer rule;
+this is not a transactional or exactly-once delivery guarantee.
 
 ## Owner access
 
