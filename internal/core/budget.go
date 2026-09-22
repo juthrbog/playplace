@@ -267,6 +267,9 @@ func (s *Service) SetBudget(ctx context.Context, ref string, amount float64, act
 	if err != nil {
 		return nil, err
 	}
+	if err := a.RepairError(); err != nil {
+		return nil, err
+	}
 	if !a.Managed || !a.Status.CanExtend() || !a.ExpiresAt.After(s.Now()) {
 		return nil, errors.New("only active managed accounts can have their budget changed")
 	}

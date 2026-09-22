@@ -22,13 +22,13 @@ func TestFromRemoteDerivesStatusFromTags(t *testing.T) {
 		budget  float64
 	}{
 		{"active", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp, TagBudget: "25"}, "ACTIVE"), StatusActive, true, "alex", 25},
-		{"expiring", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp, TagWarnedAt: t0.Format(time.RFC3339)}, "ACTIVE"), StatusExpiring, true, "alex", 50},
-		{"closing", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp, TagCloseRequested: t0.Format(time.RFC3339)}, "ACTIVE"), StatusClosing, true, "alex", 50},
-		{"closed", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, "CLOSED"), StatusClosed, true, "alex", 50},
-		{"pending closure", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, "PENDING_CLOSURE"), StatusClosing, true, "alex", 50},
-		{"suspended", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, "SUSPENDED"), StatusUnavailable, true, "alex", 50},
-		{"pending activation", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, "PENDING_ACTIVATION"), StatusUnavailable, true, "alex", 50},
-		{"unknown state", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, ""), StatusUnavailable, true, "alex", 50},
+		{"expiring", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp, TagWarnedAt: t0.Format(time.RFC3339)}, "ACTIVE"), StatusExpiring, true, "alex", 0},
+		{"closing", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp, TagCloseRequested: t0.Format(time.RFC3339)}, "ACTIVE"), StatusClosing, true, "alex", 0},
+		{"closed", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, "CLOSED"), StatusClosed, true, "alex", 0},
+		{"pending closure", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, "PENDING_CLOSURE"), StatusClosing, true, "alex", 0},
+		{"suspended", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, "SUSPENDED"), StatusUnavailable, true, "alex", 0},
+		{"pending activation", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, "PENDING_ACTIVATION"), StatusUnavailable, true, "alex", 0},
+		{"unknown state", base(map[string]string{TagManaged: "true", TagOwner: "alex", TagExpires: exp}, ""), StatusUnavailable, true, "alex", 0},
 		{"untagged", base(map[string]string{}, "ACTIVE"), StatusActive, false, "unknown", 50},
 		{"owner only", base(map[string]string{TagOwner: "sam"}, "ACTIVE"), StatusActive, false, "sam", 50},
 	}

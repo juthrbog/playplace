@@ -64,6 +64,36 @@ Accounts that land in the OU without tags are adopted with defaults on the
 next refresh. Cost Explorer bills per call, so `list` never touches it;
 `show`, `costs`, the TUI, and the web UI cache results for an hour.
 
+### Ownership is not tag validity
+
+The account module interprets `playplace:managed=true` as ownership independently
+of expiry, approved budget, and close-intent validity. Defaults belong to genuine
+adoption, not repair of owned accounts. Missing/invalid owned expiry or budget,
+and nonempty malformed close intent, produce field diagnostics rather than a new
+lifetime, a replacement approved amount, or assumed absence of closure intent.
+Unknown expiry/budget render as unknown (JSON `null` with `tag_errors`); lifecycle
+status remains derived separately. Repair never enrolls a legacy initial handoff.
+
+Readiness, placement, and budget changes require intact guardrail facts. While
+repair is needed, existing access and AWS protection remain; no new grant,
+handoff, budget update, reverse or reset is attempted. Extension requires known
+expiry and unambiguous close intent, not a valid budget. Neither extension nor
+budget mutation doubles as corruption repair, including with an override.
+
+There is deliberately no global all-tags-valid gate: valid expiry can still
+justify closure, valid close intent still progresses, explicit close remains
+available, and fresh AWS closure state supports monitoring and retirement.
+Malformed close intent alone cannot initiate closure. On observed
+`PENDING_CLOSURE`, a missing/unusable monitoring timestamp may be recorded as the
+current observation time, not a reconstruction of when closure was requested.
+Retirement ignores unrelated damaged facts and retains all fresh adapter safety
+checks. Active repair errors do not stop work on other accounts.
+
+This chooses explicit operator repair over automatic renewal, automatic closure
+based on unknown expiry, or a new repair command. See the
+[operator repair procedure](docs/budgets.md#damaged-account-guardrail-tags).
+No provider interface or durable tag format is added.
+
 
 ## Budget protection
 

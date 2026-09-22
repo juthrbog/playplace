@@ -395,7 +395,7 @@ func (m model) inSection(r row, s section) bool {
 		return a.Status == core.StatusActive
 	case secExpiring:
 		return a.Status == core.StatusExpiring ||
-			(a.Status == core.StatusActive && a.ExpiresAt.Sub(m.now()) <= 7*24*time.Hour)
+			(a.Status == core.StatusActive && !a.ExpiresAt.IsZero() && a.ExpiresAt.Sub(m.now()) <= 7*24*time.Hour)
 	case secClosed:
 		return a.Status == core.StatusClosed || a.Status == core.StatusClosing
 	}
@@ -691,7 +691,10 @@ func (m model) openExtend() (tea.Model, tea.Cmd) {
 		m.form = m.newEditForm(a)
 		return m, nil
 	}
-	if !a.Status.CanExtend() {
+	if !a.CanExtend() {
+		if err := a.RepairError(); err != nil {
+			return m, m.setFlash(err.Error(), true)
+		}
 		return m, m.setFlash(fmt.Sprintf("%s is %s and cannot be extended", a.Name, a.Status), true)
 	}
 	m.form = m.newExtendForm(a)

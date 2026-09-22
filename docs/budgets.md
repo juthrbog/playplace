@@ -225,6 +225,67 @@ state rather than reattaching last month's restriction from local state.
   action notifications use `--alert-email`. Delivery is best-effort, not an
   exactly-once guarantee.
 
+### Damaged account guardrail tags
+
+Ownership is not lost when an owned account's expiry or approved budget is
+missing or invalid. Such accounts remain owned, with actionable field diagnostics
+and unknown values instead of a new default lifetime or budget. Nonempty malformed
+`playplace:close-requested` is also a repair error, not permission to prepare the
+account or evidence sufficient to close it.
+
+Until the required facts are repaired, playplace withholds preparation: no new
+access, initial handoff, budget update, reverse or reset. Existing grants and AWS
+protection remain in place; the last budget-health observation is not a claim
+that reconciliation is still succeeding. A valid expired lifetime or valid close
+intent still authorizes closure despite unrelated damage. Explicit closure and
+confirmed-CLOSED retirement also remain available. Missing/bad expiry or budget
+on a CLOSED account does **not** require repair before safe action retirement.
+
+Repair is an operator task, using management-account credentials:
+
+1. Serialize with the sole writer: stop the worker/scheduled reconciliation and
+   prevent concurrent CLI mutations. Record the account ID, observed AWS state,
+   raw tags, reviewed approval, operator and repair reason in your incident record.
+2. Inspect without an automatic refresh:
+
+   ```sh
+   playplace --no-refresh list --all
+   aws organizations describe-account --account-id "$ACCOUNT_ID"
+   aws organizations list-tags-for-resource --resource-id "$ACCOUNT_ID"
+   ```
+
+3. Establish the **reviewed approved fact**, not a guessed default. Do not extend
+   an unknown lifetime or raise an unknown budget merely to clear the error.
+   Logs can help investigation; they are not automatically authoritative state.
+   If you cannot establish the approved facts, leave preparation paused or use
+   explicit closure (`playplace --no-refresh close ACCOUNT -y`). Normal `extend`
+   and `budget` commands, including overrides, do not repair missing baselines.
+4. Write only the damaged fields you have reviewed. For example, after setting
+   `REVIEWED_EXPIRY` to the approved RFC3339 timestamp, or `REVIEWED_BUDGET` to the
+   approved positive USD amount with at most two decimal places:
+
+   ```sh
+   aws organizations tag-resource --resource-id "$ACCOUNT_ID" \
+     --tags "Key=playplace:expires,Value=$REVIEWED_EXPIRY"
+   # Only if the budget tag also requires repair:
+   aws organizations tag-resource --resource-id "$ACCOUNT_ID" \
+     --tags "Key=playplace:budget,Value=$REVIEWED_BUDGET"
+   ```
+
+   Inspect malformed close intent separately. Restore a verified timestamp if
+   closure was intended; remove that tag only after establishing that no close
+   intent should remain. An explicit `close` command is preferable when requesting
+   closure now. AWS `PENDING_CLOSURE` still drives closure monitoring regardless of
+   the tag; playplace may establish a new observation clock, not the lost original
+   request time. Never delete ownership, policy, recovery or handoff markers to
+   make an account look unowned or to bypass a safety check. Restoring a budget
+   tag is not a new recovery approval.
+5. Reread the tags, then run `playplace reconcile` as the sole writer. Inspect
+   diagnostics and budget health before resuming the worker. A repaired account
+   resumes eligible work, but a legacy account does not receive a retroactive
+   initial-handoff notice. Raw AWS repairs do not produce a playplace mutation
+   history event; retain the incident record and AWS audit evidence.
+
 Enabling actions does not validate the execution role's effective IAM permissions
 by actually executing a restriction. An accepted action configuration is not proof
 that it will succeed later. Test the role, attachment quota, selected denies,

@@ -6,6 +6,8 @@ package core
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -75,12 +77,15 @@ type Account struct {
 	CloseAlertedAt   *time.Time `json:"close_alerted_at,omitempty"`
 	ProviderState    string     `json:"provider_state,omitempty"`
 	LastError        string     `json:"last_error,omitempty"`
-	Managed          bool       `json:"managed"`             // has our tags
+	Managed          bool       `json:"managed"`             // exact ownership marker, independent of tag validity
 	AccessGrantedTo  string     `json:"access_to,omitempty"` // identity store principal id, empty until granted
 	RequestedBy      string     `json:"requested_by,omitempty"`
 	ApprovedBy       string     `json:"approved_by,omitempty"`
 	Purpose          string     `json:"purpose,omitempty"`
 	handoff          string     // durable initial-handoff progress, not lifecycle status
+
+	// TagErrors identifies unusable guardrail facts, independently of lifecycle.
+	TagErrors map[string]string `json:"tag_errors,omitempty"`
 
 	// Set on pending rows only, from the request record, so views can show
 	// and edit the asked-for lifetime without a second read of the queue.
@@ -128,12 +133,65 @@ func (a *Account) Tags() map[string]string {
 	if a.handoff != "" {
 		t[TagHandoff] = a.handoff
 	}
+	// Tag writes are additive. Never render unknown facts as replacement values.
+	for key := range a.TagErrors {
+		delete(t, key)
+	}
 	return t
 }
 
-// FromRemote derives an Account from a provider account and its tags.
-// Accounts without our tags are reported with Managed=false so the refresh
-// pass can adopt them.
+// RepairError reports damaged guardrail facts without changing ownership or
+// lifecycle status. Operations use only the facts they require: readiness and
+// budget changes need all three, extension needs expiry and close intent, while
+// closure and retirement may proceed on independent evidence.
+func (a *Account) RepairError() error {
+	return a.tagError(TagExpires, TagBudget, TagCloseRequested)
+}
+
+func (a *Account) tagError(keys ...string) error {
+	var errs []error
+	for _, key := range keys {
+		if issue := a.TagErrors[key]; issue != "" {
+			errs = append(errs, fmt.Errorf("account %s: %s %s; operator tag repair required", a.Name, key, issue))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (a *Account) invalidTag(key, issue string) {
+	if a.TagErrors == nil {
+		a.TagErrors = make(map[string]string)
+	}
+	a.TagErrors[key] = issue
+}
+
+// CanExtend also requires a known baseline and unambiguous close intent.
+// An unrelated damaged budget does not invalidate an otherwise valid extension.
+func (a *Account) CanExtend() bool {
+	return a.Status.CanExtend() && a.tagError(TagExpires, TagCloseRequested) == nil
+}
+
+// MarshalJSON exposes damaged expiry/budget as null, not a made-up date or $0.
+// Valid accounts retain their existing JSON representation.
+func (a Account) MarshalJSON() ([]byte, error) {
+	type accountJSON Account
+	out := struct {
+		accountJSON
+		ExpiresAt *time.Time `json:"expires_at"`
+		BudgetUSD *float64   `json:"budget_usd"`
+	}{accountJSON: accountJSON(a), ExpiresAt: &a.ExpiresAt, BudgetUSD: &a.BudgetUSD}
+	if a.TagErrors[TagExpires] != "" {
+		out.ExpiresAt = nil
+	}
+	if a.TagErrors[TagBudget] != "" {
+		out.BudgetUSD = nil
+	}
+	return json.Marshal(out)
+}
+
+// FromRemote interprets ownership separately from guardrail facts. Defaults
+// are for genuine adoption only; owned accounts retain unknown values and
+// actionable diagnostics until an operator repairs their tags.
 func FromRemote(r RemoteAccount, defaults Config, now time.Time) *Account {
 	a := &Account{
 		ID:            r.ProviderID,
@@ -148,22 +206,29 @@ func FromRemote(r RemoteAccount, defaults Config, now time.Time) *Account {
 	if a.Owner == "" {
 		a.Owner = "unknown"
 	}
-	if t, err := time.Parse(time.RFC3339, r.Tags[TagExpires]); err == nil {
+	if t, err := time.Parse(time.RFC3339, r.Tags[TagExpires]); err == nil && !t.IsZero() {
 		a.ExpiresAt = t
+	} else if a.Managed {
+		a.invalidTag(TagExpires, "is missing or invalid")
 	} else {
 		a.ExpiresAt = now.Add(defaults.DefaultTTL)
-		a.Managed = false
 	}
-	if b, err := strconv.ParseFloat(r.Tags[TagBudget], 64); err == nil && b > 0 {
+	if b, err := strconv.ParseFloat(r.Tags[TagBudget], 64); err == nil && validMoney(b) {
 		a.BudgetUSD = b
+	} else if a.Managed {
+		a.invalidTag(TagBudget, "is missing or invalid")
 	} else {
 		a.BudgetUSD = defaults.DefaultBudgetUSD
 	}
 	if t, err := time.Parse(time.RFC3339, r.Tags[TagWarnedAt]); err == nil {
 		a.WarnedAt = &t
 	}
-	if t, err := time.Parse(time.RFC3339, r.Tags[TagCloseRequested]); err == nil {
-		a.CloseRequestedAt = &t
+	if raw := r.Tags[TagCloseRequested]; raw != "" {
+		if t, err := time.Parse(time.RFC3339, raw); err == nil && !t.IsZero() {
+			a.CloseRequestedAt = &t
+		} else {
+			a.invalidTag(TagCloseRequested, "is nonempty but invalid")
+		}
 	}
 	if t, err := time.Parse(time.RFC3339, r.Tags[TagClosedAt]); err == nil {
 		a.ClosedAt = &t

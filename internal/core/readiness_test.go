@@ -226,7 +226,16 @@ func TestReadinessAdoptionAndLegacyEligibility(t *testing.T) {
 			h.prov.Seed(core.RemoteAccount{ProviderID: "111111111111", Name: tc.name, JoinedAt: t0, Tags: tags})
 			p := &readinessProvider{Provider: h.prov, pendingBudget: true}
 			h.svc = readinessService(h, p)
-			_, _ = h.svc.Refresh(ctx) // adoption persists, then setup waits
+			_, _ = h.svc.Refresh(ctx) // genuine adoption persists, then setup waits
+			if tc.badExpiry {
+				if h.prov.Tags("111111111111")[core.TagExpires] != "broken" {
+					t.Fatal("owned expiry damage was silently repaired")
+				}
+				// Explicit operator repair must not enroll a legacy handoff.
+				if err := h.prov.SetTags(ctx, "111111111111", map[string]string{core.TagExpires: t0.Add(14 * 24 * time.Hour).Format(time.RFC3339)}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			p.pendingBudget = false
 			h.svc = readinessService(h, p)
 			if _, err := h.svc.Refresh(ctx); err != nil {

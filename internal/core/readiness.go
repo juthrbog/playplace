@@ -20,6 +20,9 @@ const (
 // continues for legacy and handed-off accounts; only explicitly enrolled accounts
 // get an initial handoff. The provider owns observed budget/access completion.
 func (s *Service) reconcileReadiness(ctx context.Context, a *Account) error {
+	if err := a.RepairError(); err != nil {
+		return err
+	}
 	if a.handoff == handoffPlacing {
 		// Placement is a fact even if protection or access is still pending.
 		// Persist before the best-effort history write, including after a crash

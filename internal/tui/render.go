@@ -3,7 +3,9 @@ package tui
 import (
 	"fmt"
 	"image/color"
+	"maps"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -67,8 +69,18 @@ func money(v float64) string {
 	}
 }
 
+func expiryFact(t, now time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
+	return t.Local().Format("2006-01-02 15:04") + "  " + expiresIn(t, now)
+}
+
 // expiresIn is the human form of time until expiry.
 func expiresIn(t, now time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
 	d := t.Sub(now)
 	switch {
 	case d <= -24*time.Hour:
@@ -231,6 +243,9 @@ func (m model) tableRow(r row, cols []column, selected bool) string {
 
 // spendCell shows "$412 / $500" with a graded bar when there is room.
 func (m model) spendCell(r row, width int, base lipgloss.Style) string {
+	if r.Account.BudgetUSD <= 0 {
+		return base.Render(pad(money(r.MTD)+" / unknown", width))
+	}
 	pct := 0.0
 	if r.Account.BudgetUSD > 0 {
 		pct = r.MTD / r.Account.BudgetUSD
@@ -330,7 +345,7 @@ func (m model) headerView() string {
 		}
 		open++
 		mtd += r.MTD
-		if r.Account.Status.IsOpen() && r.Account.ExpiresAt.Sub(m.now()) <= 7*24*time.Hour {
+		if r.Account.Status.IsOpen() && !r.Account.ExpiresAt.IsZero() && r.Account.ExpiresAt.Sub(m.now()) <= 7*24*time.Hour {
 			soon++
 		}
 	}
@@ -444,7 +459,7 @@ func (m model) detailBlock(r row, width int) []string {
 		lines = append(lines, kv("email", ansi.Truncate(a.Email, width-9, "…")))
 	}
 	if a.ProviderID != "" {
-		lines = append(lines, kv("expires", a.ExpiresAt.Local().Format("2006-01-02 15:04")+"  "+th.label.Render(expiresIn(a.ExpiresAt, m.now()))))
+		lines = append(lines, kv("expires", expiryFact(a.ExpiresAt, m.now())))
 	}
 	lines = append(lines, m.spendLine(r, width))
 	if len(r.Series) > 0 {
@@ -468,6 +483,9 @@ func (m model) detailBlock(r row, width int) []string {
 func (m model) spendLine(r row, width int) string {
 	th := m.th
 	a := r.Account
+	if a.BudgetUSD <= 0 {
+		return th.label.Render(pad("spend", 9)) + th.value.Render(money(r.MTD)+" / unknown")
+	}
 	pct := 0.0
 	if a.BudgetUSD > 0 {
 		pct = r.MTD / a.BudgetUSD
@@ -497,6 +515,12 @@ func (m model) lifecycleLines(a *core.Account, width int) []string {
 	}
 	if a.LastError != "" {
 		out = append(out, kv("failure", ansi.Truncate(a.LastError, width-9, "…"), th.errText))
+	}
+	for _, tag := range slices.Sorted(maps.Keys(a.TagErrors)) {
+		out = append(out, kv("repair", ansi.Truncate(tag+": "+a.TagErrors[tag], width-9, "…"), th.errText))
+	}
+	if a.RepairError() != nil {
+		out = append(out, kv("action", "operator tag repair required", th.errText))
 	}
 	if !a.Managed && a.ProviderID != "" {
 		out = append(out, kv("note", "untagged; the next sync adopts it", th.fact))
@@ -547,7 +571,7 @@ func (m model) paneView(width, height int) string {
 		left = append(left, kv("email", ansi.Truncate(a.Email, leftW-9, "…")))
 	}
 	if a.ProviderID != "" {
-		left = append(left, kv("expires", a.ExpiresAt.Local().Format("2006-01-02 15:04")+" "+th.label.Render(expiresIn(a.ExpiresAt, m.now()))))
+		left = append(left, kv("expires", expiryFact(a.ExpiresAt, m.now())))
 	}
 	left = append(left, m.lifecycleLines(a, leftW)...)
 

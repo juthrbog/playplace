@@ -331,13 +331,18 @@ func printAccounts(accounts []*core.Account) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "NAME\tOWNER\tSTATUS\tACCOUNT\tEXPIRES\tBUDGET\tPROTECTION")
 	for _, a := range accounts {
-		exp := a.ExpiresAt.Format("2006-01-02")
+		exp := accountExpiry(a, "2006-01-02")
 		if a.ProviderID == "" {
 			exp = "-"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t$%.2f\t%s\n", a.Name, a.Owner, a.Status, a.ProviderID, exp, a.BudgetUSD, a.BudgetHealth)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", a.Name, a.Owner, a.Status, a.ProviderID, exp, accountBudget(a), a.BudgetHealth)
 	}
 	w.Flush()
+	for _, a := range accounts {
+		if err := a.RepairError(); err != nil {
+			fmt.Println(err)
+		}
+	}
 }
 
 func showCmd(opts *options) *cobra.Command {
@@ -361,9 +366,12 @@ func showCmd(opts *options) *cobra.Command {
 			if acc.RequestID != "" {
 				fmt.Printf("request id:  %s\n", acc.RequestID)
 			}
-			fmt.Printf("email:       %s\nbudget:      $%.2f/month\ncreated:     %s\n", acc.Email, acc.BudgetUSD, acc.CreatedAt.Format(time.RFC3339))
+			fmt.Printf("email:       %s\nbudget:      %s/month\ncreated:     %s\n", acc.Email, accountBudget(acc), acc.CreatedAt.Format(time.RFC3339))
 			if acc.ProviderID != "" {
-				fmt.Printf("expires:     %s\n", acc.ExpiresAt.Format(time.RFC3339))
+				fmt.Printf("expires:     %s\n", accountExpiry(acc, time.RFC3339))
+			}
+			if err := acc.RepairError(); err != nil {
+				fmt.Printf("repair:      %s\n", err)
 			}
 			if acc.WarnedAt != nil {
 				fmt.Printf("warned:      %s\n", acc.WarnedAt.Format(time.RFC3339))
@@ -523,7 +531,7 @@ func costsCmd(opts *options) *cobra.Command {
 					}
 					spend = fmt.Sprintf("$%.2f", total)
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t$%.0f\t%s\n", acc.Name, acc.Owner, acc.ProviderID, acc.BudgetUSD, spend)
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", acc.Name, acc.Owner, acc.ProviderID, accountBudget(acc), spend)
 			}
 			return w.Flush()
 		}),

@@ -91,6 +91,9 @@ func newTheme(isDark bool) theme {
 // state. Glyphs carry the meaning on their own so NO_COLOR terminals still
 // read correctly.
 func (t theme) status(a *core.Account, now time.Time) (glyph, label string, c color.Color) {
+	if a.RepairError() != nil {
+		return "!", string(a.Status) + " !", t.danger
+	}
 	left := a.ExpiresAt.Sub(now)
 	switch a.Status {
 	case core.StatusActive:
