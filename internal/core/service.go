@@ -479,10 +479,11 @@ func (s *Service) PollCreate(ctx context.Context, requestID string) (*Account, e
 		}
 		// Polling an old creation must not move or prepare an unavailable or
 		// closing account. Refresh owns closure progression.
-		if remote.Status != "ACTIVE" || remote.Tags[TagCloseRequested] != "" {
-			return FromRemote(remote, s.cfg, s.Now()), nil
+		a := FromRemote(remote, s.cfg, s.Now())
+		if remote.Status != "ACTIVE" || a.CloseRequestedAt != nil {
+			return a, nil
 		}
-		a, err := s.place(ctx, remote)
+		a, err = s.place(ctx, a)
 		if err != nil {
 			return a, err
 		}
@@ -498,8 +499,10 @@ func (s *Service) PollCreate(ctx context.Context, requestID string) (*Account, e
 
 // place moves a freshly created account into the OU and writes tags.
 // Readiness is reconciled separately, including after a partial move failure.
-func (s *Service) place(ctx context.Context, remote RemoteAccount) (*Account, error) {
-	a := FromRemote(remote, s.cfg, s.Now())
+func (s *Service) place(ctx context.Context, a *Account) (*Account, error) {
+	if err := a.RepairError(); err != nil {
+		return a, err
+	}
 	defer s.Invalidate() // a failed tag write may still have moved the account
 	if err := s.provider.PlaceAccount(ctx, a.ProviderID, a.Tags()); err != nil {
 		return nil, fmt.Errorf("place %s: %w", a.Name, err)
@@ -555,12 +558,18 @@ func (s *Service) revokeAccess(ctx context.Context, a *Account) error {
 // Without that rule, repeated extensions would walk around the request-time
 // ceiling.
 func (s *Service) Extend(ctx context.Context, id string, until time.Time, by string, override bool) (*Account, error) {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	s.Invalidate()
 	a, err := s.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	if !a.Status.CanExtend() {
 		return nil, fmt.Errorf("account %s is %s and cannot be extended", a.Name, a.Status)
+	}
+	if err := a.tagError(TagExpires, TagCloseRequested); err != nil {
+		return nil, err
 	}
 	if !until.After(a.ExpiresAt) {
 		return nil, fmt.Errorf("new expiry %s is not after current expiry %s", until.Format(time.RFC3339), a.ExpiresAt.Format(time.RFC3339))
@@ -774,10 +783,11 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 			errs = append(errs, err)
 			continue
 		}
-		if acct.Tags[TagManaged] != "true" || acct.Status != "ACTIVE" {
-			continue // someone else's CreateAccount
+		candidate := FromRemote(acct, s.cfg, now)
+		if !candidate.Managed || candidate.ProviderState != "ACTIVE" {
+			continue // someone else's CreateAccount, or not available for placement
 		}
-		placed, err := s.place(ctx, acct)
+		placed, err := s.place(ctx, candidate)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -845,9 +855,11 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 
 		// 2. Adopt accounts in the OU that lack our tags.
 		if !a.Managed {
-			// Invalid expiry also triggers repair here. Only raw ownership
-			// absence enrolls a new adoption; legacy repairs get no handoff.
-			if r.Tags[TagManaged] != "true" && a.handoff == "" {
+			if err := a.RepairError(); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if a.handoff == "" {
 				a.handoff = handoffPending
 			}
 			if err := s.provider.SetTags(ctx, a.ProviderID, a.Tags()); err != nil {
@@ -868,7 +880,11 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 			sum.Granted = append(sum.Granted, a.Name)
 		}
 
-		// 5. Expiry: close when past due, warn when close.
+		// Only a known expiry can authorize expiry-based warning or closure.
+		// Other tag damage must not block this independent evidence.
+		if a.ExpiresAt.IsZero() {
+			continue
+		}
 		left := a.ExpiresAt.Sub(now)
 		switch {
 		case left <= 0:

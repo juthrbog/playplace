@@ -77,6 +77,20 @@ mutations rather than calling the private recovery implementation. The fake adap
 keeps automatic remote progress for lightweight lifecycle tests, but does not decide
 recovery eligibility or phases. No AWS credentials or live accounts are used.
 
+## Offline ownership and guardrail tests
+
+`internal/core/ownership_test.go` exercises refresh, creation polling, ordinary
+mutations, explicit closure and restart from durable tags. Missing/invalid owned
+expiry and budget, and malformed close intent, must never authorize adoption or
+preparation. Independent expiry/closure evidence remains actionable. Operator
+restoration resumes readiness without enrolling a legacy handoff.
+
+`internal/provider/aws/ownership_retirement_flow_test.go` runs `Refresh` through
+the real AWS adapter using loopback HTTP. It proves damaged inventory facts no
+longer mask retirement, while fresh ownership drift still prevents deletion.
+Existing adapter tests retain the CLOSED/OU/action safety matrix. These tests do
+not establish live IAM, propagation, SCP behavior, or billing effects.
+
 ## Testing the flows locally
 
 The `task cli`, `task tui`, and `task serve*` workflows run against LocalStack Pro

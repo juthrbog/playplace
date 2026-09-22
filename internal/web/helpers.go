@@ -13,6 +13,9 @@ func tableURL(showAll bool) string {
 }
 
 func expiresIn(t time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
 	d := time.Until(t)
 	switch {
 	case d < 0:
@@ -22,6 +25,20 @@ func expiresIn(t time.Time) string {
 	default:
 		return fmt.Sprintf("in %dd", int(d.Hours()/24))
 	}
+}
+
+func expiryDate(t time.Time, layout string) string {
+	if t.IsZero() {
+		return "unknown"
+	}
+	return t.Format(layout)
+}
+
+func budgetAmount(amount float64) string {
+	if amount <= 0 {
+		return "unknown"
+	}
+	return fmt.Sprintf("$%.2f", amount)
 }
 
 func barWidth(spend, budget float64) string {

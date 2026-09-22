@@ -291,9 +291,12 @@ templ accountTR(r accountRow) {
 			if r.Account.LastError != "" {
 				<div class="error">{ r.Account.LastError }</div>
 			}
+			if r.Account.RepairError() != nil {
+				<div class="error">{ r.Account.RepairError().Error() }</div>
+			}
 		</td>
 		<td><code>{ r.Account.ProviderID }</code></td>
-		<td title={ r.Account.ExpiresAt.Format(time.RFC3339) }>
+		<td title={ expiryDate(r.Account.ExpiresAt, time.RFC3339) }>
 			if r.Account.Status == core.StatusActive || r.Account.Status == core.StatusExpiring || r.Account.Status == core.StatusClosing {
 				{ expiresIn(r.Account.ExpiresAt) }
 			} else if !r.Account.ExpiresAt.IsZero() && r.Account.Status != core.StatusFailed && r.Account.Status != core.StatusClosed {
@@ -303,14 +306,16 @@ templ accountTR(r accountRow) {
 			}
 		</td>
 		<td>
-			<div class="bar" class={ templ.KV("over", r.Spend > r.Account.BudgetUSD) } title={ fmt.Sprintf("$%.2f of $%.0f", r.Spend, r.Account.BudgetUSD) }>
-				<span style={ barWidth(r.Spend, r.Account.BudgetUSD) }></span>
-			</div>
-			<small class="muted">{ fmt.Sprintf("$%.2f / $%.2f", r.Spend, r.Account.BudgetUSD) }</small>
+			if r.Account.BudgetUSD > 0 {
+				<div class="bar" class={ templ.KV("over", r.Spend > r.Account.BudgetUSD) } title={ fmt.Sprintf("$%.2f of $%.0f", r.Spend, r.Account.BudgetUSD) }>
+					<span style={ barWidth(r.Spend, r.Account.BudgetUSD) }></span>
+				</div>
+			}
+			<small class="muted">{ fmt.Sprintf("$%.2f / %s", r.Spend, budgetAmount(r.Account.BudgetUSD)) }</small>
 			<div class="muted" title={ r.Account.BudgetError }>{ r.Account.BudgetHealth }</div>
 		</td>
 		<td>
-			if r.Account.Status.CanExtend() {
+			if r.Account.CanExtend() {
 				<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/extend" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
 					<input type="hidden" name="by" value="7d"/>
 					<button type="submit" title="extend by 7 days">+7d</button>
@@ -340,7 +345,7 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 					<dt>request id</dt><dd><code>{ a.RequestID }</code></dd>
 				}
 				<dt>root email</dt><dd>{ a.Email }</dd>
-				<dt>budget</dt><dd>{ fmt.Sprintf("$%.2f / month", a.BudgetUSD) }</dd>
+				<dt>budget</dt><dd>{ budgetAmount(a.BudgetUSD) } / month</dd>
 				<dt>budget protection</dt><dd>{ a.BudgetHealth } <span class="muted">(last state observation: { a.BudgetChecked })</span></dd>
 				if a.BudgetError != "" {
 					<dt>budget error</dt><dd class="error">{ a.BudgetError }</dd>
@@ -348,7 +353,11 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 				<dt>spend, 30 days</dt><dd>{ fmt.Sprintf("$%.2f", total) }</dd>
 				<dt>created</dt><dd>{ a.CreatedAt.Format("2006-01-02 15:04 MST") }</dd>
 				if a.ProviderID != "" {
-					<dt>expires</dt><dd>{ a.ExpiresAt.Format("2006-01-02 15:04 MST") } <span class="muted">({ expiresIn(a.ExpiresAt) })</span></dd>
+					<dt>expires</dt><dd>{ expiryDate(a.ExpiresAt, "2006-01-02 15:04 MST") }
+						if !a.ExpiresAt.IsZero() {
+							<span class="muted"> ({ expiresIn(a.ExpiresAt) })</span>
+						}
+					</dd>
 				}
 				if a.WarnedAt != nil {
 					<dt>owner warned</dt><dd>{ a.WarnedAt.Format("2006-01-02 15:04 MST") }</dd>
@@ -359,12 +368,15 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 				if a.LastError != "" {
 					<dt>failure</dt><dd class="error">{ a.LastError }</dd>
 				}
+				if a.RepairError() != nil {
+					<dt>repair required</dt><dd class="error">{ a.RepairError().Error() }</dd>
+				}
 				if !a.Managed {
 					<dt>note</dt><dd class="muted">not yet tagged by playplace; the next sync adopts it</dd>
 				}
 			</dl>
 		</div>
-		if pg.Viewer.Admin && a.Managed && a.Status.CanExtend() {
+		if pg.Viewer.Admin && a.Managed && a.Status.CanExtend() && a.RepairError() == nil {
 			<div class="card">
 				<h3>Change monthly budget</h3>
 				<p class="muted">An increase above reported spend can lift the provisioning restriction and rearm enforcement. AWS billing and policy changes are delayed. Existing resources keep charging.</p>

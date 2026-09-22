@@ -4,6 +4,17 @@ Short-lived AWS playground accounts with approved ownership, expiry, budget prot
 
 ## Language
 
+**Playplace ownership**:
+An account's enrollment under playplace management, independent of whether its stored lifetime, approved budget, or close intent is usable. This is distinct from the human owner responsible for the account.
+_Avoid_: Valid account (as a synonym for owned)
+
+**Adoption**:
+Enrollment of a previously unowned playground account, using defaults for unspecified lifetime and budget. Restoring damaged facts on an already-owned account is repair, not adoption.
+
+**Guardrail facts**:
+The approved expiry, approved monthly budget, and any close intent that determine which account operations are justified. A damaged fact is unknown; independently valid facts remain usable for closure and retirement.
+_Avoid_: Defaults (as a substitute for lost approved facts)
+
 **Account readiness**:
 An unexpired account with no closure underway has observed budget protection, no active budget restriction, and, when owner access is managed, a successful owner access grant. Readiness does not mean spending is capped.
 _Avoid_: Created, placed, active (as synonyms for ready)

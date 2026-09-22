@@ -228,6 +228,7 @@ func TestRequestApprovalFlow(t *testing.T) {
 		t.Fatalf("requester should see the pending card:\n%s", body)
 	}
 	svc := core.NewService(prov, nil, core.DefaultConfig(), nil)
+	svc.Now = func() time.Time { return t0 }
 	q, err := svc.GetRequest(context.Background(), "bobs-box")
 	if err != nil || q.Owner != "bob@example.com" || q.RequestedBy != "bob@example.com" || q.Via != "web" || q.Purpose != "try bedrock" {
 		t.Fatalf("queued = %+v %v (owner from the form must be ignored)", q, err)
