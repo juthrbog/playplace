@@ -9,7 +9,7 @@ and [the domain glossary](../../CONTEXT.md).
 [implementation handoff](lifecycle-history-implementation.md) for the ordered
 checkpoints, dependencies, acceptance checks, worktree state, and validation notes.
 
-## Implementation checkpoint: identity and paginated readers
+## Implementation checkpoint: identity, readers, and shared-store adapter
 
 Implemented:
 
@@ -22,20 +22,32 @@ Implemented:
   newest-first/oldest-first ordering;
 - paginated web account timelines with escaped details and explicit read errors;
 - journey-keyed TUI caches, scrollable paginated timelines, and retryable errors;
-- request-expiry events emitted only after queue removal succeeds.
+- request-expiry events emitted only after queue removal succeeds;
+- a DynamoDB adapter with organization/environment namespaces, transactional
+  search indexes, and duplicate-safe event writes, not yet enabled at runtime;
+- durable journey origins, exact operation/request/account correlations,
+  ownership observations, and terminal metadata, including archived journeys;
+- local and loopback tests for complete filtered pagination, timestamp ties,
+  missing/corrupt/unavailable records, and identity recovery after producer loss.
 
-Still pending: DynamoDB and deployment namespacing; durable intent/delivery,
-deduplication and unknown-outcome reconciliation; exposure-increasing operation
-gates; archived journey metadata and ownership-period authorization; the History
-hub and web-wide search; failure grouping; journey retention and scheduled
-maintenance; and retirement of CloudWatch/disabled modes. In-flight or failed
-direct creations without a queue record still need shared metadata to recover
-their journey identity after a restart. Current history writes remain best-effort.
+See the [store layout and contracts](lifecycle-history-store.md) for checkpoint 1.
+The DynamoDB Local tests include a separate producer process whose working
+directory is removed before a new client recovers a failed direct journey.
+That recovery uses exact IDs, not names or live inventory.
 
-The existing CloudWatch adapter participates in the paginated reader interface
-until its replacement is implemented; this is not a new compatibility-window
-commitment. Readers currently scan available matching records, so the shared
-store's indexing and two-second capacity target are not yet established.
+Still pending: runtime wiring and deployment configuration for the shared store;
+durable intent/delivery and unknown-outcome reconciliation; exposure-increasing
+operation gates; ownership-period authorization; the History hub and web-wide
+search; failure grouping; journey retention and scheduled maintenance; and
+retirement of CloudWatch/disabled modes. Storage-level duplicate detection does
+not establish the delivery contract. Current runtime writes remain best-effort.
+In-flight or failed direct creations without a queue record still need runtime
+integration with the new metadata adapter for identity recovery after restart.
+
+The existing CloudWatch adapter remains in the runtime reader interface until
+cutover. This is not a new compatibility-window commitment. Runtime readers
+still scan matching records. The DynamoDB adapter uses transactional indexes,
+but its two-second capacity target remains unmeasured.
 
 ## Purpose and boundaries
 
@@ -109,8 +121,8 @@ same authorization boundary as the event, not become a raw provider-response dum
 DynamoDB is the selected primary shared store for events, journey metadata,
 historical ownership, retention metadata, and durable delivery tracking. It is a
 history-only exception to the existing no-database/no-state-file architecture.
-The exact table layout, indexes, and conditional-write strategy remain
-implementation design work, not claims established by this document.
+Checkpoint 1 implements the [table layout, indexes, and conditional writes](lifecycle-history-store.md)
+for events and journey metadata. Durable delivery tracking remains checkpoint 2 work.
 
 Standalone CLI and CI continue to operate directly against AWS. They do not
 require a running playplace web server. Disposable runners cannot satisfy shared
@@ -283,7 +295,7 @@ Implementation must demonstrate at least:
 - retention anchored to confirmed journey termination, not event age;
 - measured search behavior at the chosen capacity target.
 
-The exact DynamoDB schema, maintenance scheduling mechanism, IAM resources,
-event-field encoding, and query implementation require engineering validation.
-They were not implemented or tested as part of the design interview; the
-checkpoint above tracks subsequent implementation progress.
+The checkpoint above tracks implementation evidence after the design interview.
+The store document specifies the schema and query implementation tested in
+checkpoint 1. Maintenance scheduling, IAM resources, delivery/outcome encoding,
+and production capacity still require implementation or validation.

@@ -9,10 +9,9 @@ trade-off and [CONTEXT.md](../../CONTEXT.md) for terminology.
 ## Resume procedure
 
 1. Inspect `git status --short`, the current branch, and its diff before editing.
-   This handoff and checkpoint 0 are included together in the
-   `feat/lifecycle-history` change, based on `6918f93`. Verify that your checkout
-   includes that change before starting checkpoint 1, and preserve any local
-   modifications or untracked follow-up work.
+   Checkpoint 0 merged into `main` at `3041cba`. Checkpoint 1 was implemented on
+   that base. Preserve local modifications and untracked checkpoint work.
+   The checked items below describe local evidence, not commit or merge status.
 2. Read the accepted design's implementation checkpoint, then inspect the first
    unchecked checkpoint below. The source and current Git state override this
    historical snapshot if work has continued since it was written.
@@ -63,9 +62,9 @@ Important limits to carry forward:
 - CloudWatch and `none` remain runtime modes only because the replacement is not
   implemented yet. Their eventual removal needs no migration project.
 
-### [ ] 1. Shared store and durable journey metadata
+### [x] 1. Shared store and durable journey metadata
 
-**Depends on:** 0. **Next work starts here.**
+**Depends on:** 0. Implemented and locally verified. Runtime use remains disabled.
 
 Design the DynamoDB keys/indexes and write/read seam around the existing
 `internal/audit` interface. Persist journey identity, origin, authoritative
@@ -81,9 +80,42 @@ identity after a process restart without matching names. Specify the indexing
 strategy for the accepted workload. Keep the shared mode out of the supported
 runtime path until checkpoint 2's delivery/gating contract is tested.
 
+Implemented in `internal/audit/journey.go`, `dynamodb.go`, and
+`dynamodb_search.go`. Before extending these files, read the
+[store layout and contracts](lifecycle-history-store.md) for keys, indexes,
+write conditions, limits, and test instructions.
+
+Evidence and remaining limits:
+
+- The adapter implements `Sink` plus versioned journey writes and exact identity
+  lookups. Transactions preserve correlations, ownership observations, and
+  terminal metadata independently of queue/account inventory.
+- In-memory and DynamoDB Local 3.3.0 contracts passed with the race detector.
+  Tests cover archived requests/accounts, namespace isolation, conditional
+  writes, complete filtered pagination, timestamp ties, corruption, and outages.
+  A separate producer process exits and loses its working directory before a new
+  client recovers a failed direct journey through exact operation/request IDs.
+- Event writes and search indexes commit together. Repeated delivery of the same
+  event does not duplicate search results. This is storage-level behavior, not
+  the durable delivery contract required in checkpoint 2.
+- CLI configuration in `internal/cli/root.go` and `config.go` was reviewed and
+  left unchanged. The adapter is not wired into `Service` or exposed as a runtime
+  mode. Existing direct-creation runtime recovery limits still apply until
+  checkpoint 2 connects producers and identity recovery to this store.
+- Ownership observations record reliable source references, not inferred owner
+  periods. Authorization, pending/unknown outcomes, retention, and maintenance
+  remain pending. The capacity target is unmeasured.
+- Fresh validation passed: `go test -race ./...`, `go vet ./...`,
+  `go build -o .generated/playplace-checkpoint1 ./cmd/playplace`, active LSP
+  diagnostics, and `git diff --check`. No web templates changed.
+  The isolated loopback suite also passed with
+  `PLAYPLACE_TEST_DYNAMODB_ENDPOINT=http://127.0.0.1:32768 go test -race ./internal/audit -count=1`.
+  The test table was deleted and the isolated test container was stopped.
+  Existing application services were not restarted.
+
 ### [ ] 2. Durable delivery, operation gates, and uncertain outcomes
 
-**Depends on:** 1.
+**Depends on:** 1. **Next work starts here.**
 
 Replace the shared mode's best-effort-only write path with durable intent and
 outcome tracking. Reuse an event/operation identity across delivery retries.
