@@ -321,6 +321,12 @@ Identity Center APIs, and, with `--history cloudwatch`, its log group.
 
 ## History
 
+**Accepted redesign, not yet implemented:** [Lifecycle history redesign](docs/design/lifecycle-history.md)
+and its [architecture decision](docs/adr/0001-dedicated-lifecycle-history.md)
+define the target shared store, delivery guarantees, journey identity, search,
+visibility, and retention. The no-database principle and log-only behavior below
+describe the current implementation, not that accepted target.
+
 Every lifecycle event is written to a history sink: requested, edited,
 approved, denied, withdrawn, placed, access granted, extended, warned,
 expired, close requested, closed, adopted, failed. Each line records when,

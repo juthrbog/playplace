@@ -4,6 +4,17 @@ Short-lived AWS playground accounts with approved ownership, expiry, budget prot
 
 ## Language
 
+**Lifecycle journey**:
+A distinct playground request's progression and any resulting account lifecycle, or an account lifecycle beginning with adoption or direct creation when no request exists. Reusing a name does not join separate journeys.
+_Avoid_: Account name (as journey identity)
+
+**Request journey**:
+A lifecycle journey beginning with one playground request submission, including its edits and decisions and any account it produces. Resubmission after denial, withdrawal, or request expiry starts a separate journey, even when the name is reused.
+
+**Lifecycle history**:
+The shared operational record of lifecycle journeys, including requests that never produce an account. It makes known gaps explicit; it is not an authoritative audit trail or proof of current account state.
+_Avoid_: Audit trail (as a synonym), account history (when excluding requests)
+
 **Playplace ownership**:
 An account's enrollment under playplace management, independent of whether its stored lifetime, approved budget, or close intent is usable. This is distinct from the human owner responsible for the account.
 _Avoid_: Valid account (as a synonym for owned)
