@@ -21,7 +21,7 @@ import (
 
 // History reads past events for the selected account. nil hides history.
 type History interface {
-	Query(ctx context.Context, f audit.Filter) ([]core.AuditEvent, error)
+	audit.Searcher
 }
 
 // Options carries display-only facts the service does not know.
@@ -146,9 +146,9 @@ type model struct {
 	loading bool
 	stale   bool // the last reload failed; rows are from an earlier load
 	err     error
-	hist    map[string][]core.AuditEvent // account name -> newest first
-	loadSeq int                          // newest load issued; older results are dropped
-	histSeq int                          // bumped when hist is cleared; older results are dropped
+	hist    map[string]historyState // journey identity -> loaded pages and viewport
+	loadSeq int                     // newest load issued; older results are dropped
+	histSeq int                     // bumped when hist is cleared; older results are dropped
 
 	// chrome
 	width, height int
@@ -194,8 +194,10 @@ type (
 	}
 	histMsg struct {
 		seq    int
-		name   string
-		events []core.AuditEvent
+		key    string
+		cursor string
+		page   audit.Page
+		err    error
 	}
 )
 
@@ -218,7 +220,7 @@ func newModel(ctx context.Context, svc *core.Service, opts Options) model {
 		opts:    opts,
 		now:     time.Now,
 		loading: true,
-		hist:    map[string][]core.AuditEvent{},
+		hist:    map[string]historyState{},
 		th:      th,
 		keys:    newKeyMap(),
 		help:    help.New(),
@@ -360,25 +362,15 @@ func (m model) loadHistory() tea.Cmd {
 	if !ok || m.opts.History == nil {
 		return func() tea.Msg { return nil }
 	}
-	if _, cached := m.hist[r.Account.Name]; cached {
+	if _, cached := m.hist[historyKey(r.Account)]; cached {
 		return func() tea.Msg { return nil }
 	}
-	h, ctx, name, seq := m.opts.History, m.ctx, r.Account.Name, m.histSeq
-	return func() tea.Msg {
-		events, err := h.Query(ctx, audit.Filter{Account: name, Limit: 50})
-		if err != nil {
-			return nil
-		}
-		if events == nil {
-			events = []core.AuditEvent{}
-		}
-		return histMsg{seq: seq, name: name, events: events}
-	}
+	return m.fetchHistory(r.Account, "")
 }
 
 // clearHistory drops the cache and outranks every history read in flight.
 func (m *model) clearHistory() {
-	m.hist = map[string][]core.AuditEvent{}
+	m.hist = map[string]historyState{}
 	m.histSeq++
 }
 
@@ -504,7 +496,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.seq < m.histSeq {
 			return m, nil // cleared since this read started
 		}
-		m.hist[msg.name] = msg.events
+		state := m.hist[msg.key]
+		if (msg.cursor == "" && state.page.Events != nil) || (msg.cursor != "" && msg.cursor != state.page.Next) {
+			return m, nil // duplicate or out-of-order page response
+		}
+		state.loading = false
+		state.err = msg.err
+		if msg.err == nil {
+			if msg.cursor == "" {
+				state.page = msg.page
+			} else {
+				state.page.Events = append(state.page.Events, msg.page.Events...)
+				state.page.Next = msg.page.Next
+				state.page.Incomplete = state.page.Incomplete || msg.page.Incomplete
+			}
+		}
+		m.hist[msg.key] = state
 		return m, nil
 
 	case syncMsg:
@@ -602,6 +609,17 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	if m.showDetail {
 		switch {
+		case key.Matches(msg, k.Down):
+			return m.scrollHistory(1)
+		case key.Matches(msg, k.Up):
+			return m.scrollHistory(-1)
+		case key.Matches(msg, k.PageDown):
+			return m.scrollHistory(max(1, m.height/2))
+		case key.Matches(msg, k.PageUp):
+			return m.scrollHistory(-max(1, m.height/2))
+		case key.Matches(msg, k.Refresh):
+			m.clearHistory()
+			return m, m.loadHistory()
 		case key.Matches(msg, k.Back, k.Enter):
 			m.showDetail = false
 		case key.Matches(msg, k.Extend):

@@ -1,9 +1,41 @@
 # Lifecycle history redesign
 
-**Status: accepted design, not implemented.** This document records the agreed
-target for storing, searching, and displaying history. It does not describe
-capabilities already available in playplace. See [the architecture decision](../adr/0001-dedicated-lifecycle-history.md)
+**Status: accepted design; implementation in progress.** This document records
+the agreed target for storing, searching, and displaying history. The checkpoint
+below distinguishes delivered behavior from requirements still pending. See [the architecture decision](../adr/0001-dedicated-lifecycle-history.md)
 and [the domain glossary](../../CONTEXT.md).
+
+**Resuming implementation in a fresh session?** Start with the
+[implementation handoff](lifecycle-history-implementation.md) for the ordered
+checkpoints, dependencies, acceptance checks, worktree state, and validation notes.
+
+## Implementation checkpoint: identity and paginated readers
+
+Implemented:
+
+- persisted request journey IDs, carried through edits, approval, placement, and
+  service restarts; new submissions receive new IDs even when names/times match;
+- account-origin identity for direct creation and adoption, and event IDs on new
+  history writes;
+- journey-scoped account timelines without name-based or legacy-record joins;
+- structured CLI filters, query-bound pagination cursors, JSON output, and
+  newest-first/oldest-first ordering;
+- paginated web account timelines with escaped details and explicit read errors;
+- journey-keyed TUI caches, scrollable paginated timelines, and retryable errors;
+- request-expiry events emitted only after queue removal succeeds.
+
+Still pending: DynamoDB and deployment namespacing; durable intent/delivery,
+deduplication and unknown-outcome reconciliation; exposure-increasing operation
+gates; archived journey metadata and ownership-period authorization; the History
+hub and web-wide search; failure grouping; journey retention and scheduled
+maintenance; and retirement of CloudWatch/disabled modes. In-flight or failed
+direct creations without a queue record still need shared metadata to recover
+their journey identity after a restart. Current history writes remain best-effort.
+
+The existing CloudWatch adapter participates in the paginated reader interface
+until its replacement is implemented; this is not a new compatibility-window
+commitment. Readers currently scan available matching records, so the shared
+store's indexing and two-second capacity target are not yet established.
 
 ## Purpose and boundaries
 
@@ -22,11 +54,12 @@ exposure-increasing actions require durable history intent before mutation.
 This does not authorize an action or override its ordinary lifecycle checks.
 Exposure-reducing actions must not be blocked solely by a history outage.
 
-## Current implementation versus target
+## Pre-redesign baseline versus target
 
+The table below describes the pre-redesign baseline, not the checkpoint above.
 The inspected baseline was commit `65c694ba48494fc1611cc85cb6c0ee1599b9f163`.
 
-| Area | Current implementation | Accepted target |
+| Area | Pre-redesign baseline | Accepted target |
 | --- | --- | --- |
 | Storage | Local JSONL, CloudWatch, or disabled history | DynamoDB for shared deployments; JSONL for local development |
 | Delivery | Synchronous best-effort writes; failures only warn | Shared durable intent/delivery tracking, retry, deduplication, and outcome reconciliation |
@@ -37,11 +70,11 @@ The inspected baseline was commit `65c694ba48494fc1611cc85cb6c0ee1599b9f163`.
 | Access | Current account authorization followed by name-only history lookup | Journey- and event-scoped historical access, including ownership periods |
 | Retention | No file expiry; attempted fixed CloudWatch retention | Complete open journeys, then one year after confirmed termination |
 
-Relevant current code: `internal/core/audit.go`, `internal/core/service.go`
+Relevant baseline code: `internal/core/audit.go`, `internal/core/service.go`
 (`audit`), `internal/audit/`, `internal/cli/commands.go` (`history`),
 `internal/web/server.go` (`show`), and `internal/tui/tui.go`.
 
-The name-only lookup is particularly important to replace: authorization for a
+The baseline's name-only lookup motivated checkpoint 0: authorization for a
 current account does not authorize unrelated older records sharing its name.
 
 ## Journeys and events
@@ -252,4 +285,5 @@ Implementation must demonstrate at least:
 
 The exact DynamoDB schema, maintenance scheduling mechanism, IAM resources,
 event-field encoding, and query implementation require engineering validation.
-None were implemented or tested as part of this design interview.
+They were not implemented or tested as part of the design interview; the
+checkpoint above tracks subsequent implementation progress.

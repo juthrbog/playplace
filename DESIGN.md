@@ -8,7 +8,8 @@ and local testing, see [Development](DEVELOPMENT.md).
 
 - **No state.** The Playground OU says which accounts exist; tags on each
   account say everything else. Anything not derivable from AWS is not kept,
-  except an optional write-only history log. See [No state file](#no-state-file).
+  except an optional history log, which is queried for display but never used
+  to decide account lifecycle state. See [No state file](#no-state-file).
 - **Management account only.** The tool holds management-account
   credentials and never assumes a role into a playground account. What runs
   inside an account is somebody else's concern.
@@ -28,6 +29,7 @@ accounts are playgrounds, and tags on each account hold the rest:
 | tag | meaning |
 |---|---|
 | `playplace:managed` | `true` once the tool has tagged the account |
+| `playplace:journey` | stable history correlation identity, not lifecycle authority |
 | `playplace:owner` | who is responsible |
 | `playplace:expires` | RFC3339 expiry |
 | `playplace:budget` | desired approved monthly budget in USD |
@@ -321,29 +323,44 @@ Identity Center APIs, and, with `--history cloudwatch`, its log group.
 
 ## History
 
-**Accepted redesign, not yet implemented:** [Lifecycle history redesign](docs/design/lifecycle-history.md)
-and its [architecture decision](docs/adr/0001-dedicated-lifecycle-history.md)
-define the target shared store, delivery guarantees, journey identity, search,
-visibility, and retention. The no-database principle and log-only behavior below
-describe the current implementation, not that accepted target.
+**Redesign in progress:** [Lifecycle history redesign](docs/design/lifecycle-history.md)
+tracks the implemented identity/pagination checkpoint and remaining work. Its
+[architecture decision](docs/adr/0001-dedicated-lifecycle-history.md) defines the
+future shared store, delivery guarantees, historical visibility, and retention.
+The no-database principle still describes the current runtime.
 
-Every lifecycle event is written to a history sink: requested, edited,
-approved, denied, withdrawn, placed, access granted, extended, warned,
-expired, close requested, closed, adopted, failed. Each line records when,
-who, through which channel, and a sentence saying what happened, with details
-such as a deny reason or an edit diff.
+Lifecycle operations attempt best-effort writes to a history sink: requested,
+edited, approved, denied, withdrawn, placed, access granted, extended, warned,
+expired, close requested, closed, adopted, failed, and budget/closure health
+changes. Successful writes record when, who, a channel when supplied, and a
+sentence saying what happened, with details such as a deny reason or an edit diff.
+New events have opaque IDs; request records carry a journey ID through approval
+into account tags. Web/TUI account timelines use that identity, never names.
+Legacy accounts without one use a provider-account-ID origin for new events;
+uncorrelated old events remain available only through trusted CLI searches.
 
-    playplace history dev-alex          # one account's story, oldest first
-    playplace history --owner alex@example.com --since 30
-    playplace history --limit 20         # everything recent
+    playplace history dev-alex          # all journeys with this name, newest first
+    playplace history --journey ID --oldest-first
+    playplace history --owner alex@example.com --since 30 --actor lead@example.com
+    playplace history --limit 20 --json  # page plus next cursor and completeness
 
 `--history file` (default) appends JSON lines to `~/.playplace/history.jsonl`
 on the machine running the command, so nothing depends on AWS. `--history
 cloudwatch` writes to a CloudWatch Logs group (`--history-log-group`, default
-`/playplace/history`, one-year retention) so every operator, the web UI, and
-the worker share one record. `--history none` turns it off. The account page
-in the web UI and the detail pane in the TUI show the same history. The tool never reads history to make a
-decision; losing it loses the timeline and nothing else.
+`/playplace/history`) so every operator, the web UI, and the worker can share one
+record. Creation of a new group attempts to set one-year retention; existing
+group retention is not reconciled. `--history none` turns it off. These modes
+remain until the DynamoDB replacement is implemented, then CloudWatch/disabled
+modes will be removed without a migration project.
+
+CLI searches support owner, actor, event, journey/account IDs, and date ranges.
+Web account pages support order reversal, expandable details, and next-page
+links. The TUI detail view scrolls through loaded history and fetches older pages;
+`r` reloads it after a failure or to pick up new events. Cursors bind their query
+and order, and backend errors/damaged records are distinct from empty history.
+The current file and CloudWatch readers scan available matching records; there
+is no silent 5,000-event cap, but shared-store performance is not yet established.
+The tool never reads history to decide account lifecycle state.
 
 
 ## The mark
@@ -438,8 +455,10 @@ that turns records at Warn and above into notices and drops the rest.
 When a history sink is configured, the bottom pane's right column lists the
 selected account's most recent events instead of daily spend, and the full
 detail screen shows daily spend on the left and history on the right. Events
-are fetched per selected account through a `tea.Cmd`, cached by name, and the
-cache is cleared on every reload so actions show up at once.
+are fetched through a `tea.Cmd` and cached by journey identity. Actions, sync,
+and manual reload clear the cache; timer inventory reloads do not. Full detail
+supports up/down and page keys to browse every event, fetching older pages as
+needed. Read failures are visible and retryable rather than left loading.
 
 ### Layout
 
@@ -475,7 +494,7 @@ pane. Selection is a `▌` bar plus a subtle background on every cell.
 - `a`, `d`, and `w` act only on pending rows; `x` only on real accounts. `e`
   edits the request on a pending row and extends on a real account. Each
   refuses with a flash rather than opening a dialog on the wrong row type.
-- History is cached per account and cleared after an action, a sync, or `r`,
+- History is cached per journey and cleared after an action, a sync, or `r`,
   not on the timer, so the timer never re-reads the history sink.
 - Empty, loading, and error states each have a line of text in the table body.
 - Never print outside the frame. Warnings go through the notice feed, and

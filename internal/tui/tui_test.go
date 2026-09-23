@@ -375,9 +375,9 @@ func TestCreateFormQueuesAndOperatorApproves(t *testing.T) {
 func TestHistoryInPaneAndDetail(t *testing.T) {
 	svc, _ := seeded(t)
 	hist := &audit.Memory{}
-	hist.Record(context.Background(), core.AuditEvent{At: t0.Add(-2 * time.Hour), Event: "approved", Account: "dev-alpha", Owner: "alex", Actor: "lead@example.com", Message: "lead@example.com approved dev-alpha for alex"})
-	hist.Record(context.Background(), core.AuditEvent{At: t0.Add(-time.Hour), Event: "extended", Account: "dev-alpha", Owner: "alex", Actor: "alex", Message: "alex extended dev-alpha to 2026-09-30"})
-	hist.Record(context.Background(), core.AuditEvent{At: t0, Event: "closed", Account: "old-one", Owner: "sam", Actor: "system", Message: "old-one was closed"})
+	hist.Record(context.Background(), core.AuditEvent{JourneyID: "account:628790588465", At: t0.Add(-2 * time.Hour), Event: "approved", Account: "dev-alpha", Owner: "alex", Actor: "lead@example.com", Message: "lead@example.com approved dev-alpha for alex"})
+	hist.Record(context.Background(), core.AuditEvent{JourneyID: "account:628790588465", At: t0.Add(-time.Hour), Event: "extended", Account: "dev-alpha", Owner: "alex", Actor: "alex", Message: "alex extended dev-alpha to 2026-09-30"})
+	hist.Record(context.Background(), core.AuditEvent{JourneyID: "account:222222222222", At: t0, Event: "closed", Account: "old-one", Owner: "sam", Actor: "system", Message: "old-one was closed"})
 	m := newModel(context.Background(), svc, Options{Context: "x", Operator: "ops", History: hist})
 	m.now = func() time.Time { return t0 }
 	m = step(t, m, tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -731,11 +731,11 @@ func TestStaleLoadResultIsIgnored(t *testing.T) {
 	late := m.loadHistory()
 	m.clearHistory()
 	m = run(t, m, late)
-	if _, ok := m.hist[name]; ok {
+	if _, ok := m.hist[historyKey(sel.Account)]; ok {
 		t.Fatal("history read from before a clear must not fill the cache")
 	}
 	m = run(t, m, m.loadHistory())
-	if _, ok := m.hist[name]; !ok {
+	if _, ok := m.hist[historyKey(sel.Account)]; !ok {
 		t.Fatal("a fresh history read should fill the cache")
 	}
 }

@@ -540,51 +540,6 @@ func costsCmd(opts *options) *cobra.Command {
 	return cmd
 }
 
-func historyCmd(opts *options) *cobra.Command {
-	var owner, since string
-	var limit int
-	cmd := &cobra.Command{
-		Use:   "history [ACCOUNT]",
-		Short: "Show what happened to an account, an owner's accounts, or everything",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: withApp(opts, false, func(ctx context.Context, a *app, args []string) error {
-			if a.history == nil {
-				return fmt.Errorf("history is off (--history none); use --history file or cloudwatch")
-			}
-			f := audit.Filter{Owner: owner, Limit: limit}
-			if len(args) == 1 {
-				f.Account = args[0]
-			}
-			if since != "" {
-				d, err := parseDuration(since)
-				if err != nil {
-					return fmt.Errorf("since: %w", err)
-				}
-				f.Since = time.Now().Add(-d)
-			}
-			events, err := a.history.Query(ctx, f)
-			if err != nil {
-				return err
-			}
-			if len(events) == 0 {
-				fmt.Printf("nothing recorded in %s\n", a.history.Where())
-				return nil
-			}
-			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "WHEN\tEVENT\tACCOUNT\tBY\tWHAT HAPPENED")
-			for i := len(events) - 1; i >= 0; i-- { // oldest first reads as a story
-				e := events[i]
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", e.At.Local().Format("2006-01-02 15:04"), e.Event, e.Account, e.Actor, e.Message)
-			}
-			return w.Flush()
-		}),
-	}
-	cmd.Flags().StringVar(&owner, "owner", "", "only events for this owner's accounts")
-	cmd.Flags().StringVar(&since, "since", "", "only events newer than this many days, e.g. 30")
-	cmd.Flags().IntVar(&limit, "limit", 100, "most events to show")
-	return cmd
-}
-
 func reconcileCmd(opts *options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "reconcile",

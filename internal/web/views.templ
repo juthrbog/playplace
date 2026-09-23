@@ -334,7 +334,7 @@ templ statusPill(s core.Status) {
 	<span class={ "pill", string(s) }>{ string(s) }</span>
 }
 
-templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float64, hasHistory bool, events []core.AuditEvent) {
+templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float64, history historyView) {
 	@layout(pg, a.Name) {
 		<div class="card">
 			<h2 style="margin-top:0">{ a.Name } @statusPill(a.Status)</h2>
@@ -391,31 +391,55 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 				<div id="form-error" class="error"></div>
 			</div>
 		}
-		if hasHistory {
+		if history.Enabled {
 			<div class="card">
 				<h3 style="margin-top:0">History</h3>
-				if len(events) == 0 {
-					<p class="muted">Nothing recorded yet.</p>
-				} else {
+				if history.OrderURL != "" {
+					<a href={ templ.SafeURL(history.OrderURL) }>
+						if history.OldestFirst {
+							Show newest first
+						} else {
+							Show oldest first
+						}
+					</a>
+				}
+				if history.Notice != "" {
+					<p class="muted">{ history.Notice }</p>
+				}
+				if history.Error != "" {
+					<p class="error" role="alert">{ history.Error }</p>
+				} else if len(history.Page.Events) == 0 && !history.Page.Incomplete {
+					<p class="muted">Nothing recorded yet for this journey.</p>
+				} else if len(history.Page.Events) > 0 {
 					<table>
 						<thead><tr><th>When</th><th>Event</th><th>By</th><th>What happened</th></tr></thead>
 						<tbody>
-							for _, e := range events {
+							for _, e := range history.Page.Events {
 								<tr>
-									<td title={ e.At.Format(time.RFC3339) }>{ e.At.Local().Format("Jan 2 15:04") }</td>
+									<td title={ e.At.Format(time.RFC3339Nano) }>{ e.At.UTC().Format("2006-01-02 15:04:05 MST") }</td>
 									<td><span class="pill">{ e.Event }</span></td>
 									<td>{ e.Actor }
 										if e.Via != "" {
 											<span class="muted">via { e.Via }</span>
 										}
 									</td>
-									<td style="white-space:normal">{ e.Message }</td>
+									<td style="white-space:normal">{ e.Message }
+										if len(e.Details) > 0 {
+											<details><summary>Details</summary><pre>{ historyDetails(e) }</pre></details>
+										}
+									</td>
 								</tr>
 							}
 						</tbody>
 					</table>
 				}
 			</div>
+		}
+		if history.Enabled && history.Page.Incomplete {
+			<p class="error" role="alert">History is incomplete: some stored records could not be read.</p>
+		}
+		if history.NextURL != "" {
+			<p><a href={ templ.SafeURL(history.NextURL) }>Next history page</a></p>
 		}
 		<div class="card">
 			<h3 style="margin-top:0">Daily spend</h3>

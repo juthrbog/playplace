@@ -14,8 +14,8 @@ import (
 // sees the same queue without a store. One tag per request:
 //
 //	key   playplace:req:<name>
-//	value v2 <len>:<owner> <len>:<ttlHours> <len>:<budget> <len>:<requestedBy>
-//	         <len>:<unixTime> <len>:<via> <len>:<purpose> <len>:<flags>
+//	value v3 <len>:<owner> <len>:<ttlHours> <len>:<budget> <len>:<requestedBy>
+//	         <len>:<unixTime> <len>:<via> <len>:<purpose> <len>:<flags> <len>:<journeyID>
 //
 // Fields are length-prefixed rather than delimited so that no escaping is
 // needed, because AWS tag values may only contain letters, numbers, spaces,
@@ -26,11 +26,12 @@ import (
 // and the provider's create request id.
 const (
 	RequestTagPrefix = "playplace:req:"
-	requestVersion   = "v2"
+	requestVersion   = "v3"
 )
 
 // Request is an account request waiting for approval.
 type Request struct {
+	JourneyID   string        `json:"journey_id,omitempty"`
 	Name        string        `json:"name"`
 	Owner       string        `json:"owner"`
 	TTL         time.Duration `json:"ttl"`
@@ -73,6 +74,9 @@ func (r Request) Validate() error {
 			return err
 		}
 	}
+	if err := ValidateTagValue("journey id", r.JourneyID); err != nil {
+		return err
+	}
 	if err := ValidatePurpose(r.Purpose); err != nil {
 		return err
 	}
@@ -107,6 +111,7 @@ func (r Request) Encode() string {
 		field(r.Via),
 		field(strings.TrimSpace(r.Purpose)),
 		field(flags),
+		field(r.JourneyID),
 	}
 	if r.Approved {
 		parts = append(parts, field(r.ApprovedBy), field(strconv.FormatInt(r.ApprovedAt.Unix(), 10)), field(r.CreateRequestID))
@@ -115,7 +120,7 @@ func (r Request) Encode() string {
 }
 
 // DecodeRequest parses a tag key and value written by Encode. Values in the
-// earlier pipe-delimited v1 form are still read.
+// earlier v2 and pipe-delimited v1 forms are still read without inventing history identity.
 func DecodeRequest(key, value string) (Request, error) {
 	name, ok := strings.CutPrefix(key, RequestTagPrefix)
 	if !ok || name == "" {
@@ -123,12 +128,17 @@ func DecodeRequest(key, value string) (Request, error) {
 	}
 	var parts []string
 	var err error
+	baseFields := 8
 	switch {
-	case strings.HasPrefix(value, requestVersion+" "):
-		parts, err = splitFields(strings.TrimPrefix(value, requestVersion+" "), 8)
+	case strings.HasPrefix(value, requestVersion+" "), strings.HasPrefix(value, "v2 "):
+		encoded := strings.TrimPrefix(value, "v2 ")
+		if strings.HasPrefix(value, requestVersion+" ") {
+			baseFields = 9
+			encoded = strings.TrimPrefix(value, requestVersion+" ")
+		}
+		parts, err = splitFields(encoded, baseFields)
 		if err == nil && strings.Contains(parts[7], "a") {
-			// Approved records carry three more fields.
-			parts, err = splitFields(strings.TrimPrefix(value, requestVersion+" "), 11)
+			parts, err = splitFields(encoded, baseFields+3)
 		}
 	case strings.HasPrefix(value, "v1|"):
 		parts, err = splitV1(value)
@@ -157,12 +167,15 @@ func DecodeRequest(key, value string) (Request, error) {
 		OverrideLimits: strings.Contains(parts[7], "o"),
 		Approved:       strings.Contains(parts[7], "a"),
 	}
-	if r.Approved && len(parts) == 11 {
-		r.ApprovedBy = parts[8]
-		if t, err := strconv.ParseInt(parts[9], 10, 64); err == nil {
+	if baseFields == 9 {
+		r.JourneyID = parts[8]
+	}
+	if r.Approved && len(parts) == baseFields+3 {
+		r.ApprovedBy = parts[baseFields]
+		if t, err := strconv.ParseInt(parts[baseFields+1], 10, 64); err == nil {
 			r.ApprovedAt = time.Unix(t, 0).UTC()
 		}
-		r.CreateRequestID = parts[10]
+		r.CreateRequestID = parts[baseFields+2]
 	}
 	return r, nil
 }
@@ -228,6 +241,7 @@ func splitV1(value string) ([]string, error) {
 // fill copies the request's facts onto an account derived from the
 // provider's create status, which knows only the name.
 func (r Request) fill(a *Account) {
+	a.JourneyID = r.JourneyID
 	a.Owner = r.Owner
 	a.BudgetUSD = r.BudgetUSD
 	a.Purpose = r.Purpose
@@ -241,6 +255,7 @@ func (r Request) fill(a *Account) {
 // pendingAccount shows a request in the inventory alongside real accounts.
 func pendingAccount(r Request, now time.Time) *Account {
 	return &Account{
+		JourneyID:   r.JourneyID,
 		ID:          "req:" + r.Name,
 		Name:        r.Name,
 		Owner:       r.Owner,

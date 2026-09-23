@@ -1,8 +1,8 @@
 # Command line
 
 The CLI runs with management-account credentials from the usual AWS
-credential chain. Every command first runs a refresh pass unless you pass
-`--no-refresh`. Lifetimes are in days.
+credential chain. Lifecycle commands first run a refresh pass unless you pass
+`--no-refresh`; read-only history searches do not refresh. Lifetimes are in days.
 
 ## Requests
 
@@ -28,7 +28,6 @@ removes it.
     playplace budget ACCOUNT --amount USD --reason TEXT [--override-limits]
     playplace close ACCOUNT [-y]
     playplace costs [ACCOUNT] [--days N]
-    playplace history [ACCOUNT] [--owner EMAIL] [--since DAYS] [--limit N]
 
 `ACCOUNT` is a name, an AWS account id, or a prefix of either. `list` hides
 closed accounts unless `--all`. `costs` pulls Cost Explorer once an hour per
@@ -43,6 +42,34 @@ mode, an increase above reported spend can reverse the specific restriction and
 reset its action, rearming enforcement for the new amount. This is asynchronous:
 “change saved; reconciliation pending” means the intent is durable. `list` and
 `show` include protection health. See [Budget protection](budgets.md).
+
+## History
+
+    playplace history [NAME] --owner EMAIL --actor EMAIL --event approved
+    playplace history --journey JOURNEY_ID --oldest-first
+    playplace history --account-id ACCOUNT_ID --since 30d --limit 50 --json
+    playplace history --since 2026-09-01T00:00:00Z --until 2026-10-01T00:00:00Z
+
+History is newest-first by default. `--oldest-first` reverses the order. Name,
+owner, and actor filters are case-insensitive exact matches; journey/account IDs
+and event types are exact. Filters combine with AND. `--since` is inclusive and
+`--until` exclusive; both accept an RFC3339 timestamp or a positive age such as
+`30d`. Names are search labels: use `--journey` to isolate one request-to-account
+journey when a name has been reused.
+
+`--limit` selects a page of up to 500 events. When more results exist, text output
+prints a next cursor on stderr; use `--cursor` with the same filters and order.
+For relative-date searches, reuse the resolved absolute bounds printed with the
+cursor rather than recalculating the age. JSON output includes `events`, `next`,
+`incomplete`, and the resolved `since`/`until` bounds; event details remain
+structured. A cursor is not a fixed snapshot: late-arriving older events can
+appear on subsequent pages.
+
+Damaged records produce an explicit incomplete-history warning. Backend failures
+are errors, not empty results. Old records without journey identity remain
+available to trusted CLI searches by name, but are not attached to an account's
+web/TUI timeline merely because the name matches. These reads do not mutate or
+refresh account lifecycle state.
 
 ## Operators
 
