@@ -1,6 +1,7 @@
-// Package audit stores and queries playplace's history: one line per
-// lifecycle event. Two sinks exist, a local JSON-lines file for setups that
-// want nothing tied to AWS, and CloudWatch Logs for a shared, retained record.
+// Package audit stores and queries lifecycle history. Runtime sinks are local
+// JSONL and CloudWatch Logs. The DynamoDB adapter adds shared journey metadata
+// and indexed events, but remains outside runtime configuration until durable
+// delivery and operation gates are implemented.
 package audit
 
 import (
