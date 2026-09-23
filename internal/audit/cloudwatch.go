@@ -28,8 +28,7 @@ type CloudWatch struct {
 	Client        *cloudwatchlogs.Client
 	Group         string
 	RetentionDays int32
-	Window        time.Duration // how far back queries look by default
-	Log           *slog.Logger  // optional; warnings that should not fail a write go here
+	Log           *slog.Logger // optional; warnings that should not fail a write go here
 
 	mu     sync.Mutex
 	group  bool   // log group exists
@@ -99,51 +98,56 @@ func (c *CloudWatch) Record(ctx context.Context, e core.AuditEvent) error {
 }
 
 func (c *CloudWatch) Query(ctx context.Context, f Filter) ([]core.AuditEvent, error) {
-	since := f.Since
-	if since.IsZero() {
-		w := c.Window
-		if w <= 0 {
-			w = 365 * 24 * time.Hour
-		}
-		since = time.Now().Add(-w)
+	page, err := c.Search(ctx, f)
+	return page.Events, err
+}
+
+func (c *CloudWatch) Search(ctx context.Context, f Filter) (Page, error) {
+	if _, err := decodeCursor(f); err != nil {
+		return Page{}, err
 	}
 	var conds []string
-	if f.Account != "" {
-		conds = append(conds, fmt.Sprintf(`($.account = %q)`, f.Account))
+	// Names, actors, and owners use case-insensitive matching locally. Do not
+	// narrow them with CloudWatch's case-sensitive equality filters.
+	if f.JourneyID != "" {
+		conds = append(conds, fmt.Sprintf(`($.journey_id = %q)`, f.JourneyID))
 	}
-	if f.Owner != "" {
-		conds = append(conds, fmt.Sprintf(`($.owner = %q)`, f.Owner))
+	in := &cloudwatchlogs.FilterLogEventsInput{LogGroupName: aws.String(c.Group)}
+	if !f.Since.IsZero() {
+		in.StartTime = aws.Int64(f.Since.UnixMilli())
 	}
-	in := &cloudwatchlogs.FilterLogEventsInput{
-		LogGroupName: aws.String(c.Group),
-		StartTime:    aws.Int64(since.UnixMilli()),
+	if !f.Until.IsZero() {
+		end := f.Until.UnixMilli()
+		if f.Until.Nanosecond()%int(time.Millisecond) != 0 {
+			end++
+		}
+		in.EndTime = aws.Int64(end) // API precision is milliseconds; matches enforces the exact bound
 	}
 	if len(conds) > 0 {
 		in.FilterPattern = aws.String("{ " + strings.Join(conds, " && ") + " }")
 	}
 	var out []core.AuditEvent
+	incomplete := false
 	pag := cloudwatchlogs.NewFilterLogEventsPaginator(c.Client, in)
 	for pag.HasMorePages() {
 		page, err := pag.NextPage(ctx)
 		if err != nil {
 			var nf *cwtypes.ResourceNotFoundException
 			if errors.As(err, &nf) {
-				return nil, nil // no group yet means no history yet
+				return Page{Events: []core.AuditEvent{}}, nil // no group yet means no history yet
 			}
-			return nil, fmt.Errorf("filter log events: %w", err)
+			return Page{}, fmt.Errorf("filter log events: %w", err)
 		}
 		for _, ev := range page.Events {
 			var e core.AuditEvent
-			if err := json.Unmarshal([]byte(aws.ToString(ev.Message)), &e); err != nil {
+			if err := json.Unmarshal([]byte(aws.ToString(ev.Message)), &e); err != nil || e.At.IsZero() || e.Event == "" {
+				incomplete = true
 				continue
 			}
 			if f.matches(e) { // LocalStack and older patterns may be lenient
 				out = append(out, e)
 			}
 		}
-		if len(out) > 5000 {
-			break
-		}
 	}
-	return newestFirst(out, f.limit()), nil
+	return paginate(out, f, incomplete)
 }

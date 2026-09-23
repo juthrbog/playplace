@@ -591,12 +591,12 @@ func (m model) paneView(width, height int) string {
 		}
 	}
 	room := height - 1 - len(right)
-	if events, ok := m.hist[a.Name]; m.opts.History != nil && ok {
-		if len(events) == 0 {
-			right = append(right, th.label.Render(pad("history", 9))+th.fact.Render("nothing recorded yet"))
+	if state, ok := m.hist[historyKey(a)]; m.opts.History != nil && ok {
+		if status := state.status(); status != "" {
+			right = append(right, th.label.Render(pad("history", 9))+th.fact.Render(status))
 			room--
 		}
-		for i, e := range events {
+		for i, e := range state.page.Events {
 			if room <= 0 {
 				break
 			}
@@ -675,15 +675,14 @@ func (m model) detailView(width, height int) string {
 
 	// Right: history, newest first.
 	histW := width - 2 - costW - 3
-	hist := []string{th.label.Render("history")}
-	events, loaded := m.hist[r.Account.Name]
-	switch {
-	case !loaded:
+	hist := []string{th.label.Render("history · ↑/↓ scroll · pgdn older · r reload")}
+	state, loaded := m.hist[historyKey(r.Account)]
+	if !loaded {
 		hist = append(hist, th.fact.Render("loading…"))
-	case len(events) == 0:
-		hist = append(hist, th.fact.Render("nothing recorded yet"))
+	} else if status := state.status(); status != "" {
+		hist = append(hist, th.fact.Render(status))
 	}
-	for _, e := range events {
+	for _, e := range state.page.Events[min(state.offset, len(state.page.Events)):] {
 		if len(hist) >= bodyH {
 			break
 		}

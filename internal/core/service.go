@@ -109,9 +109,9 @@ func (s *Service) SetAuditor(a Auditor) {
 
 // audit records one event, best effort.
 func (s *Service) audit(ctx context.Context, event string, a *Account, actor, via, msg string, details map[string]string) {
-	e := AuditEvent{At: s.Now().UTC(), Event: event, Actor: actor, Via: via, Message: msg, Details: details}
+	e := AuditEvent{ID: NewHistoryID(), At: s.Now().UTC(), Event: event, Actor: actor, Via: via, Message: msg, Details: details}
 	if a != nil {
-		e.Account, e.AccountID, e.Owner = a.Name, a.ProviderID, a.Owner
+		e.Account, e.AccountID, e.Owner, e.JourneyID = a.Name, a.ProviderID, a.Owner, a.HistoryID()
 	}
 	if err := s.auditor.Record(ctx, e); err != nil {
 		s.log.Warn("history not written", "event", event, "account", e.Account, "err", err)
@@ -311,7 +311,8 @@ type RequestInput struct {
 	// must only set it for admins.
 	OverrideLimits bool
 
-	viaQueue bool // set by Approve so Request does not log a direct create
+	journeyID string // carried by Approve; callers cannot choose a different request's identity
+	viaQueue  bool   // set by Approve so Request does not log a direct create
 }
 
 // validateFreeText checks the fields that end up in tags against AWS's rules.
@@ -409,7 +410,11 @@ func (s *Service) Request(ctx context.Context, in RequestInput) (*Account, error
 		in.RequestedBy = in.Owner
 	}
 	now := s.Now()
+	if in.journeyID == "" {
+		in.journeyID = NewHistoryID()
+	}
 	a := &Account{
+		JourneyID:   in.journeyID,
 		Name:        in.Name,
 		Email:       in.Email,
 		Owner:       in.Owner,
@@ -489,12 +494,30 @@ func (s *Service) PollCreate(ctx context.Context, requestID string) (*Account, e
 		}
 		return a, s.reconcileReadiness(ctx, a)
 	case CreateFailed:
-		a := FromCreateRequest(r)
+		a := s.creationAccount(ctx, r)
 		s.audit(ctx, "failed", a, ActorSystem, "", fmt.Sprintf("AWS could not create %s: %s", a.Name, r.FailureReason), map[string]string{"reason": r.FailureReason, "request_id": r.RequestID})
 		return a, nil
 	default:
-		return FromCreateRequest(r), nil
+		return s.creationAccount(ctx, r), nil
 	}
+}
+
+// Creation status has no tags. Only the exact provider request ID may link it
+// to a queued journey; a reused name is never sufficient evidence.
+func (s *Service) creationAccount(ctx context.Context, cr CreateRequest) *Account {
+	a := FromCreateRequest(cr)
+	records, err := s.allRequests(ctx)
+	if err != nil {
+		s.log.Warn("creation history identity unavailable", "request", cr.RequestID, "err", err)
+		return a
+	}
+	for _, r := range records {
+		if r.Approved && r.CreateRequestID == cr.RequestID {
+			r.fill(a)
+			break
+		}
+	}
+	return a
 }
 
 // place moves a freshly created account into the OU and writes tags.
@@ -1047,7 +1070,8 @@ func (s *Service) SubmitRequest(ctx context.Context, in RequestInput, via string
 		return Request{}, err
 	}
 	r := Request{
-		Name: in.Name, Owner: in.Owner, TTL: in.TTL, BudgetUSD: in.BudgetUSD,
+		JourneyID: NewHistoryID(),
+		Name:      in.Name, Owner: in.Owner, TTL: in.TTL, BudgetUSD: in.BudgetUSD,
 		RequestedBy: in.RequestedBy, RequestedAt: s.Now().UTC().Truncate(time.Second), Via: via, Purpose: strings.TrimSpace(in.Purpose),
 		OverrideLimits: in.OverrideLimits,
 	}
@@ -1110,7 +1134,13 @@ func (s *Service) Approve(ctx context.Context, name, approver string) (*Account,
 		return nil, err
 	}
 	pending := r
+	if r.JourneyID == "" {
+		r.JourneyID = NewHistoryID()
+	}
 	r.Approved, r.ApprovedBy, r.ApprovedAt = true, approver, s.Now().UTC().Truncate(time.Second)
+	if err := r.Validate(); err != nil {
+		return nil, err
+	}
 	if err := s.provider.SetOUTags(ctx, map[string]string{r.Key(): r.Encode()}); err != nil {
 		return nil, fmt.Errorf("claim request: %w", err)
 	}
@@ -1119,6 +1149,7 @@ func (s *Service) Approve(ctx context.Context, name, approver string) (*Account,
 		Purpose: r.Purpose, RequestedBy: r.RequestedBy, ApprovedBy: approver,
 		OverrideLimits: r.OverrideLimits, // an admin already vouched for the values
 		viaQueue:       true,
+		journeyID:      r.JourneyID,
 	})
 	if err != nil {
 		if uerr := s.provider.SetOUTags(ctx, map[string]string{pending.Key(): pending.Encode()}); uerr != nil {
@@ -1320,6 +1351,7 @@ func (s *Service) expireRequests(ctx context.Context, sum *Summary) error {
 	}
 	now := s.Now()
 	var keys []string
+	var expired []Request
 	for _, r := range all {
 		if r.Approved {
 			c, known := byID[r.CreateRequestID]
@@ -1336,14 +1368,21 @@ func (s *Service) expireRequests(ctx context.Context, sum *Summary) error {
 		}
 		if now.Sub(r.RequestedAt) > s.cfg.RequestTTL {
 			keys = append(keys, r.Key())
-			sum.Expired = append(sum.Expired, r.Name)
-			s.audit(ctx, "request-expired", pendingAccount(r, now), ActorSystem, "", fmt.Sprintf("nobody acted on the request for %s within %d days; dropped", r.Name, int(s.cfg.RequestTTL.Hours()/24)), nil)
-			s.notifyAll(ctx, "Playground request expired: "+r.Name,
-				fmt.Sprintf("Nobody approved the request for %s within %d days; it was dropped. Submit it again if still needed.", r.Name, int(s.cfg.RequestTTL.Hours()/24)), r.Owner, "req:"+r.Name)
+			expired = append(expired, r)
 		}
 	}
 	if len(keys) > 0 {
-		return s.provider.RemoveOUTags(ctx, keys)
+		if err := s.provider.RemoveOUTags(ctx, keys); err != nil {
+			return err
+		}
+	}
+	// A failed removal is not a terminal outcome. Announce expiry only after
+	// the provider accepted it; durable unknown-outcome handling is separate.
+	for _, r := range expired {
+		sum.Expired = append(sum.Expired, r.Name)
+		s.audit(ctx, "request-expired", pendingAccount(r, now), ActorSystem, "", fmt.Sprintf("nobody acted on the request for %s within %d days; dropped", r.Name, int(s.cfg.RequestTTL.Hours()/24)), nil)
+		s.notifyAll(ctx, "Playground request expired: "+r.Name,
+			fmt.Sprintf("Nobody approved the request for %s within %d days; it was dropped. Submit it again if still needed.", r.Name, int(s.cfg.RequestTTL.Hours()/24)), r.Owner, "req:"+r.Name)
 	}
 	return nil
 }

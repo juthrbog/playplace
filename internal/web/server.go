@@ -22,7 +22,7 @@ import (
 
 // History reads past events for the account page. nil hides the card.
 type History interface {
-	Query(ctx context.Context, f audit.Filter) ([]core.AuditEvent, error)
+	audit.Searcher
 	Where() string
 }
 
@@ -494,15 +494,7 @@ func (s *Server) show(w http.ResponseWriter, r *http.Request) {
 	for _, c := range costs {
 		total += c.AmountUSD
 	}
-	var events []core.AuditEvent
-	if s.history != nil {
-		ev, err := s.history.Query(r.Context(), audit.Filter{Account: a.Name, Limit: 50})
-		if err != nil {
-			s.log.Warn("history", "account", a.Name, "err", err)
-		}
-		events = ev
-	}
-	s.render(w, r, accountPage(s.pageFor(r), a, costs, total, s.history != nil, events))
+	s.render(w, r, accountPage(s.pageFor(r), a, costs, total, s.accountHistory(r, a)))
 }
 
 func (s *Server) extend(w http.ResponseWriter, r *http.Request) {

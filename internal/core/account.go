@@ -51,11 +51,13 @@ const (
 	TagRequestedBy    = "playplace:requested-by"     // who asked for the account
 	TagApprovedBy     = "playplace:approved-by"      // who approved it
 	TagPurpose        = "playplace:purpose"          // short free text from the request
+	TagJourney        = "playplace:journey"          // stable history identity, not lifecycle authority
 	TagHandoff        = "playplace:handoff"          // placing, pending, complete; absent on legacy accounts
 )
 
 // Account is a playground account as derived from the provider.
 type Account struct {
+	JourneyID        string     `json:"journey_id,omitempty"`
 	ID               string     `json:"id"`                    // provider id, or request id while creating or failed
 	ProviderID       string     `json:"provider_id,omitempty"` // empty until creation succeeds
 	RequestID        string     `json:"request_id,omitempty"`  // provider-side creation request id
@@ -100,6 +102,9 @@ func (a *Account) Tags() map[string]string {
 		TagOwner:   a.Owner,
 		TagExpires: a.ExpiresAt.UTC().Format(time.RFC3339),
 		TagBudget:  strconv.FormatFloat(a.BudgetUSD, 'f', -1, 64),
+	}
+	if id := a.HistoryID(); id != "" {
+		t[TagJourney] = id
 	}
 	for key, value := range map[string]string{TagBudgetHealth: a.BudgetHealth, TagBudgetPolicy: a.BudgetPolicy, TagBudgetRecovery: a.BudgetRecovery, TagBudgetChecked: a.BudgetChecked, TagBudgetError: base64.RawURLEncoding.EncodeToString([]byte(a.BudgetError))} {
 		if value != "" {
@@ -196,6 +201,7 @@ func FromRemote(r RemoteAccount, defaults Config, now time.Time) *Account {
 	a := &Account{
 		ID:            r.ProviderID,
 		ProviderID:    r.ProviderID,
+		JourneyID:     r.Tags[TagJourney],
 		Name:          r.Name,
 		Email:         r.Email,
 		Owner:         r.Tags[TagOwner],

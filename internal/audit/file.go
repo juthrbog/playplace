@@ -22,7 +22,10 @@ type File struct {
 func (f *File) Where() string { return f.Path }
 func (f *File) Close() error  { return nil }
 
-func (f *File) Record(_ context.Context, e core.AuditEvent) error {
+func (f *File) Record(ctx context.Context, e core.AuditEvent) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := os.MkdirAll(filepath.Dir(f.Path), 0o755); err != nil {
@@ -51,25 +54,40 @@ func (f *File) Record(_ context.Context, e core.AuditEvent) error {
 	return err
 }
 
-func (f *File) Query(_ context.Context, flt Filter) ([]core.AuditEvent, error) {
+func (f *File) Query(ctx context.Context, flt Filter) ([]core.AuditEvent, error) {
+	page, err := f.Search(ctx, flt)
+	return page.Events, err
+}
+
+func (f *File) Search(ctx context.Context, flt Filter) (Page, error) {
+	if _, err := decodeCursor(flt); err != nil {
+		return Page{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return Page{}, err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	fh, err := os.Open(f.Path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return Page{Events: []core.AuditEvent{}}, nil
 	}
 	if err != nil {
-		return nil, err
+		return Page{}, err
 	}
 	defer fh.Close()
+	incomplete := false
 	var out []core.AuditEvent
 	sc := bufio.NewScanner(fh)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for sc.Scan() {
+		if err := ctx.Err(); err != nil {
+			return Page{}, err
+		}
 		var e core.AuditEvent
-		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
-			// A write cut short (disk full, killed mid-line) leaves a torn
-			// line; skipping it keeps the rest of the history readable.
+		if err := json.Unmarshal(sc.Bytes(), &e); err != nil || e.At.IsZero() || e.Event == "" {
+			// Keep readable entries, but never present a damaged log as complete.
+			incomplete = true
 			continue
 		}
 		if flt.matches(e) {
@@ -77,7 +95,7 @@ func (f *File) Query(_ context.Context, flt Filter) ([]core.AuditEvent, error) {
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return nil, err
+		return Page{}, err
 	}
-	return newestFirst(out, flt.limit()), nil
+	return paginate(out, flt, incomplete)
 }
