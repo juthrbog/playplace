@@ -23,7 +23,10 @@ type recoveryRemote struct {
 	spendKnown, attached     bool
 	action                   bt.Action
 	failPhase, failOperation string
-	mutations                []string
+	// lockOperation fails that call with ResourceLockedException, as AWS
+	// does while it locks an action during a transition.
+	lockOperation string
+	mutations     []string
 	// alerts is the EMAIL recipient of each owned budget notification, by
 	// notification type. actionUpdates records each UpdateBudgetAction input.
 	alerts        map[string]string
@@ -102,6 +105,9 @@ func (h *recoveryFlow) respond(name string, in map[string]any) (any, int) {
 	}
 	if r.failOperation == name {
 		return denied()
+	}
+	if r.lockOperation == name {
+		return map[string]any{"__type": "ResourceLockedException", "Message": "injected lock"}, 400
 	}
 	switch name {
 	case "ListAccountsForParent":

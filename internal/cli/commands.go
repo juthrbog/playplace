@@ -47,23 +47,36 @@ func initCmd(opts *options) *cobra.Command {
 With --ou-id, init creates nothing. It verifies the OU that the ID names and
 reports it.
 
-init also lists the active accounts in the OU that playplace does not
-manage, with what the next refresh does to each: adopt it and close it at
-the end of its lifetime, start its closure at once, or leave it alone until
-someone repairs its tags. The dates assume that the next refresh runs today.
-Most commands start with a refresh, so run init before any other command.
-Move every account that playplace must not manage out of the OU.`,
+init also lists the active accounts in the OU and the new accounts that wait
+in the organization root, with what the next refresh does to each:
+
+  - an active account in the OU that playplace does not manage: adopt it and
+    close it at the end of its lifetime, start its closure at once, or leave
+    it alone until someone repairs its tags
+  - an active account in the OU that playplace manages: resume its
+    management, and start its closure at once if it expired or has a
+    playplace:close-requested tag
+  - a new account of playplace that waits in the organization root: move it
+    into the OU, or leave it in the root until someone repairs its tags.
+    playplace places an account only once, so it never moves one to another
+    OU later.
+
+The next refresh also tracks the closure of the accounts in the OU that AWS
+is already closing. init does not list them. The dates assume that the next
+refresh runs today. Most commands start with a refresh, so run init before
+any other command. Make sure that this is the right OU, and move every
+account that playplace must not manage out of it.`,
 		RunE: withApp(opts, false, func(ctx context.Context, a *app, _ []string) error {
 			info, err := a.svc.Init(ctx)
 			if err != nil {
 				return err
 			}
 			printInit(info, strings.TrimSpace(opts.OUID) != "")
-			unmanaged, err := a.svc.Unmanaged(ctx)
+			forecast, err := a.svc.Forecast(ctx)
 			if err != nil {
 				return err
 			}
-			printUnmanaged(unmanaged, a.svc.Now())
+			printForecast(forecast, a.svc.Now())
 			return nil
 		}),
 	}
@@ -90,37 +103,78 @@ func printInit(info core.OrgInfo, byID bool) {
 	}
 }
 
-// printUnmanaged lists the accounts in the OU that playplace does not
-// manage, with what the next refresh does to each, as if it ran now. A valid
-// --ou-id that names the wrong OU passes every check. This list is where the
-// operator sees the mistake before playplace adopts and closes accounts that
-// are not playgrounds.
-func printUnmanaged(accounts []*core.Account, now time.Time) {
-	switch len(accounts) {
-	case 0:
+// printForecast lists the active accounts in the OU and the creations in the
+// organization root, with what the next refresh does to each, as if it ran
+// now. A valid --ou-id that names the wrong OU passes every check. This list
+// is where the operator sees the mistake before playplace adopts, closes or
+// moves accounts that are not playgrounds. It always prints something, so
+// that an empty OU does not look like a skipped check.
+func printForecast(f core.Forecast, now time.Time) {
+	if len(f.Unmanaged)+len(f.Managed)+len(f.Waiting)+len(f.Blocked) == 0 {
+		fmt.Println("No active account is in this OU, and no new account waits in the organization root.")
 		return
-	case 1:
-		fmt.Println("playplace does not manage 1 account in this OU:")
-	default:
-		fmt.Printf("playplace does not manage %d accounts in this OU:\n", len(accounts))
 	}
-	for _, a := range accounts {
+	if len(f.Unmanaged) > 0 {
+		fmt.Printf("playplace does not manage %s in this OU:\n", countAccounts(len(f.Unmanaged)))
+	}
+	for _, a := range f.Unmanaged {
 		// The order matches Refresh: close intent first, then tag damage,
 		// then adoption.
 		switch err := a.RepairError(); {
 		case a.CloseRequestedAt != nil:
-			fmt.Printf("  %s (%s): closure starts at once, because it has a %s tag\n", a.Name, a.ProviderID, core.TagCloseRequested)
+			fmt.Printf("  %s (%s): %s\n", a.Name, a.ProviderID, closure(a, now))
 		case err != nil:
 			fmt.Printf("  %s (%s): left alone until someone repairs its tags: %v\n", a.Name, a.ProviderID, err)
 		default:
-			closure := "closure starts on " + a.ExpiresAt.Format("2006-01-02")
-			if !a.ExpiresAt.After(now) {
-				closure = "closure starts at once"
-			}
-			fmt.Printf("  %s (%s): adopted with owner %s and %s/month, %s\n", a.Name, a.ProviderID, a.Owner, core.Dollars(a.BudgetUSD), closure)
+			fmt.Printf("  %s (%s): adopted with owner %s and %s/month, %s\n", a.Name, a.ProviderID, a.Owner, core.Dollars(a.BudgetUSD), closure(a, now))
 		}
 	}
-	fmt.Println("The next refresh does this, and the dates assume that it runs today. Move every account that playplace must not manage out of the OU before you run another command.")
+	if len(f.Managed) > 0 {
+		fmt.Printf("playplace manages %s in this OU:\n", countAccounts(len(f.Managed)))
+	}
+	for _, a := range f.Managed {
+		fmt.Printf("  %s (%s): owner %s, %s\n", a.Name, a.ProviderID, a.Owner, closure(a, now))
+	}
+	if len(f.Waiting) > 0 {
+		fmt.Printf("playplace moves %s from the organization root into this OU. It places an account only once, so it never moves one to another OU later:\n", countAccounts(len(f.Waiting)))
+	}
+	for _, a := range f.Waiting {
+		when := ""
+		if a.ProviderState == "PENDING_ACTIVATION" {
+			when = "moves after AWS activates it, "
+		}
+		fmt.Printf("  %s (%s): %sowner %s, %s\n", a.Name, a.ProviderID, when, a.Owner, closure(a, now))
+	}
+	if len(f.Blocked) > 0 {
+		fmt.Printf("playplace leaves %s in the organization root until someone repairs the tags:\n", countAccounts(len(f.Blocked)))
+	}
+	for _, a := range f.Blocked {
+		fmt.Printf("  %s (%s): %v\n", a.Name, a.ProviderID, a.RepairError())
+	}
+	fmt.Println("The next refresh does this, and the dates assume that it runs today. Before you run another command, make sure that this is the right OU, and move every account that playplace must not manage out of it.")
+}
+
+// closure says when the next refresh starts to close a, in the order that
+// Refresh decides it: close intent, then a missing expiry, then the expiry.
+func closure(a *core.Account, now time.Time) string {
+	switch {
+	case a.CloseRequestedAt != nil:
+		return "closure starts at once, because it has a " + core.TagCloseRequested + " tag"
+	case a.ExpiresAt.IsZero():
+		return "no closure, because it has no valid " + core.TagExpires + " tag"
+	case !a.ExpiresAt.After(now):
+		return "closure starts at once"
+	default:
+		return "closure starts on " + a.ExpiresAt.Format("2006-01-02")
+	}
+}
+
+// countAccounts says "1 account" or "N accounts".
+func countAccounts(n int) string {
+	if n == 1 {
+		return "1 account"
+	}
+	return fmt.Sprintf("%d accounts", n)
 }
 
 func requestCmd(opts *options) *cobra.Command {

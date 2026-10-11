@@ -142,7 +142,7 @@ func TestExtendIsCappedForEngineersNotAdmins(t *testing.T) {
 	// annas-box joined at t0 and expires in 3 days; 100 days pushes its
 	// lifetime past the 90 day ceiling.
 	res, body := do(t, ts, "POST", "/accounts/111111111111/extend", "anna@example.com", false, url.Values{"by": {"100d"}}, true)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, "past the 90d ceiling") {
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "past the ceiling of 90 days") {
 		t.Fatalf("engineer extend past the ceiling should be refused with an explanation, got %d:\n%s", res.StatusCode, body)
 	}
 	if exp := prov.Tags("111111111111")[core.TagExpires]; exp != t0.Add(72*time.Hour).Format(time.RFC3339) {

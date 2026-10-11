@@ -167,8 +167,8 @@ Follow the [deployment guide](deploy/README.md) to:
    and optional Identity Center permission set. `playplace init` creates the
    organization and OU if missing; run it only in the intended management account.
    Other commands never create them and fail when the OU is missing. `init`
-   also lists the active accounts in the OU that playplace does not manage,
-   with what the next refresh does to each.
+   also lists the active accounts in the OU and the new accounts that wait
+   in the organization root, with what the next refresh does to each.
 3. Separately deploy the [purchase and trail SCP](deploy/aws/playground-safeguards-scp.json)
    and review existing account obligations **before granting playground access**.
 4. Run `playplace serve` behind HTTPS with OIDC sign-in, approvers, and admins

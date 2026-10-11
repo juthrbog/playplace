@@ -245,10 +245,14 @@ func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec B
 			// account, and a repaired configuration changes nothing for people.
 			if state == "error" || state == "restricted" || state == "retired" || a.BudgetHealth == "restricted" || a.BudgetHealth == "recovering" || a.BudgetHealth == "error" {
 				body := "Budget protection is " + state + ". " + message
-				if a.BudgetHealth == "error" && (state == "setup-pending" || state == "restricting") {
-					// The step from these states to ready is silent, so this
+				switch {
+				case a.BudgetHealth == "error" && state == "setup-pending":
+					// The step from setup-pending to ready is silent, so this
 					// notice is the last one for a repair that succeeds.
-					body = "Budget protection is being repaired (" + state + "). No further notice is sent when it is ready."
+					body = "Budget protection is being repaired (setup-pending). No further notice is sent when it is ready."
+				case a.BudgetHealth == "error" && state == "restricting":
+					// restricting ends in restricted, which sends its own notice.
+					body = "Budget protection is being repaired (restricting). AWS is applying the budget restriction, and a notice follows when it is in place."
 				}
 				s.notifyAll(ctx, "Playground budget: "+a.Name, body, a.Owner, a.ProviderID)
 			}

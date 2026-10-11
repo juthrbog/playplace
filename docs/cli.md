@@ -149,8 +149,10 @@ the SCP to an OU above the Playground OU instead. The SCP then also applies
 to every other OU and account below that parent. Attach it there only when
 that is what you want.
 
-`init` also lists the active accounts in the OU that playplace does not
-manage. For each one, it prints what the next refresh does:
+`init` also lists the active accounts in the OU and the new accounts that
+wait in the organization root, with what the next refresh does to each. For
+each active account in the OU that playplace does not manage, it prints
+what the next refresh does:
 
 - It adopts the account and prints the owner, the budget, and the day when
   the closure starts. The account keeps each valid playplace owner,
@@ -162,10 +164,25 @@ manage. For each one, it prints what the next refresh does:
 - It leaves an account with a damaged `playplace:close-requested` tag
   alone until someone repairs the tag.
 
+Then `init` lists the active accounts in the OU that playplace manages, with
+the owner and the day when the closure starts. The next refresh resumes
+their management. It starts at once to close each one that expired or has
+a `playplace:close-requested` tag. If you quarantined accounts in another
+OU and named that OU by mistake, they show here. Last, `init` lists the new
+accounts of playplace that wait in the organization root. The next refresh
+moves each of them into this OU. playplace places an account only once, so
+it never moves one to another OU later, even after you correct the OU. A new
+account with damaged tags stays in the root until someone repairs the tags,
+and `init` lists it apart. If the OU holds no active account and no new
+account waits, `init` says so. The next refresh also tracks the closure of
+the accounts in the OU that AWS is already closing. `init` does not list
+them.
+
 The dates assume that the next refresh runs on the same day. Most commands
 start with a refresh, so run `init` before any other command. Check the
-name of the OU and the list, and move every account that playplace must
-not manage out of the OU.
+name of the OU and the list. If this is the wrong OU, correct `--ou-id` or
+`--ou-name` before you run another command. Move every account that
+playplace must not manage out of the OU.
 
 `create` is the escape hatch for operators; it records you as approver and,
 like `approve`, does not apply the per-owner limit, which is checked when a

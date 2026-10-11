@@ -71,10 +71,14 @@ To use an existing nested OU:
    `organizations:DescribeOrganizationalUnit`, which the runtime policy
    allows. It checks that the OU is in the organization of the AWS profile
    and prints the name and the ID of the OU. Then it lists the active
-   accounts in the OU that playplace does not manage, with what the next
-   refresh does to each. Check the name of the OU and the list. If the list
-   names an account that playplace must not manage, move that account out of
-   the OU. `init` creates nothing, so it does not need the bootstrap policy.
+   accounts in the OU and the new accounts of playplace that wait in the
+   organization root, with what the next refresh does to each. Check the
+   name of the OU and the list. If the list names an account that playplace
+   must not manage, move that account out of the OU. If it names accounts
+   that you quarantined, the ID is wrong. Correct `--ou-id` before you run
+   another command. The refresh moves each waiting account into the OU, and
+   playplace never moves it to another OU later. `init` creates nothing, so
+   it does not need the bootstrap policy.
 5. Make sure that the safeguards SCP applies to the OU before you grant
    access. See
    [Deploy the purchase and trail SCP](#deploy-the-purchase-and-trail-scp-before-granting-access).
@@ -109,9 +113,9 @@ init` creates them, and every other command fails when they are missing.
 you run `init`, then detach it. Do not attach it to the role that runs
 `serve` or `reconcile`. If the organization and the Playground OU already
 exist, `init` does not need it. It only reports them and lists the accounts
-that the next refresh adopts. With `--ou-id`, `init` never creates anything
-and never needs it. If you apply the runtime policy in a new organization,
-run `init` with the bootstrap policy first.
+in the OU and the root that the next refresh acts on. With `--ou-id`, `init`
+never creates anything and never needs it. If you apply the runtime policy
+in a new organization, run `init` with the bootstrap policy first.
 
 New accounts wait in the organization root until playplace places them, so
 playplace lists the root with `organizations:ListAccountsForParent`. If you

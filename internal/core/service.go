@@ -129,28 +129,79 @@ func (s *Service) Init(ctx context.Context) (OrgInfo, error) {
 	return s.provider.EnsureOrganization(ctx)
 }
 
-// Unmanaged lists the active accounts in the playground OU that have no
-// playplace:managed=true tag, as the next refresh reads them. The refresh
-// adopts each of them, unless the account has close intent (its closure
-// starts at once) or damaged tags (it is left alone). An adopted account
-// keeps each valid playplace owner, expires and budget tag. Without them, it
-// gets the owner "unknown", the default lifetime or the default budget. init
-// prints them, so that an operator who names the wrong OU sees which
-// accounts playplace takes over and when it closes them.
-func (s *Service) Unmanaged(ctx context.Context) ([]*Account, error) {
+// Forecast holds the active accounts in the playground OU and the creations
+// that wait in the organization root, with what the next refresh does to
+// them, as it reads them. init prints it, so that an operator who names the
+// wrong OU sees which accounts playplace takes over, closes or moves before
+// it does. It leaves out the accounts in the OU that are not active: AWS is
+// already closing most of them, and the refresh only tracks that closure.
+type Forecast struct {
+	// Unmanaged are the active accounts in the playground OU without the
+	// playplace:managed=true tag. The refresh adopts each of them, unless the
+	// account has close intent (its closure starts at once) or damaged tags
+	// (it is left alone). An adopted account keeps each valid playplace
+	// owner, expires and budget tag. Without them, it gets the owner
+	// "unknown", the default lifetime or the default budget.
+	Unmanaged []*Account
+	// Managed are the active accounts in the playground OU with the
+	// playplace:managed=true tag. The refresh resumes their management, and
+	// it starts the closure of each one that expired or has close intent. An
+	// operator who quarantined an account in another OU sees it here when
+	// that OU is named by mistake.
+	Managed []*Account
+	// Waiting are the creations of playplace that wait in the organization
+	// root. The refresh moves each of them into the playground OU. It places
+	// an account only once, so it never moves one to another OU later. One
+	// that is PENDING_ACTIVATION moves on the first refresh after AWS
+	// activates it.
+	Waiting []*Account
+	// Blocked are creations of playplace in the organization root with
+	// damaged tags. The refresh leaves them there, and reports the damage on
+	// each pass until someone repairs the tags.
+	Blocked []*Account
+}
+
+// Forecast reads the active accounts in the playground OU and the creations
+// that wait in the organization root. It changes nothing.
+func (s *Service) Forecast(ctx context.Context) (Forecast, error) {
+	var f Forecast
 	remote, err := s.provider.ListPlaygroundAccounts(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list playground accounts: %w", err)
+		return f, fmt.Errorf("list playground accounts: %w", err)
+	}
+	root, err := s.provider.ListRootAccounts(ctx)
+	if err != nil {
+		return f, fmt.Errorf("list root accounts: %w", err)
 	}
 	now := s.Now()
-	var out []*Account
+	inOU := map[string]bool{}
 	for _, r := range remote {
-		if r.Status == "ACTIVE" && r.Tags[TagManaged] != "true" {
-			out = append(out, FromRemote(r, s.cfg, now))
+		inOU[r.ProviderID] = true
+		switch {
+		case r.Status != "ACTIVE":
+		case r.Tags[TagManaged] == "true":
+			f.Managed = append(f.Managed, FromRemote(r, s.cfg, now))
+		default:
+			f.Unmanaged = append(f.Unmanaged, FromRemote(r, s.cfg, now))
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, nil
+	// The same checks as the first step of Refresh and place. A closed or
+	// closing account in the root is never placed, and one with damaged tags
+	// stays there.
+	for _, r := range root {
+		if inOU[r.ProviderID] || !awaitingPlacement(r) || (r.Status != "ACTIVE" && r.Status != "PENDING_ACTIVATION") {
+			continue
+		}
+		if a := FromRemote(r, s.cfg, now); a.RepairError() != nil {
+			f.Blocked = append(f.Blocked, a)
+		} else {
+			f.Waiting = append(f.Waiting, a)
+		}
+	}
+	for _, list := range [][]*Account{f.Unmanaged, f.Managed, f.Waiting, f.Blocked} {
+		sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+	}
+	return f, nil
 }
 
 // Invalidate drops the cached inventory so the next read hits the provider.
@@ -396,7 +447,10 @@ func checkBudget(v float64) error {
 	return nil
 }
 
-// checkLimits enforces the TTL and budget ceilings unless overridden.
+// checkLimits enforces the TTL and budget ceilings unless overridden. The
+// refusal shows both sides as the forms and the approvers see them. Lifetime
+// rounds up to the hour, so a lifetime over a ceiling in whole hours never
+// reads as equal to it.
 func (s *Service) checkLimits(in RequestInput) error {
 	if err := checkBudget(in.BudgetUSD); err != nil {
 		return err
@@ -405,10 +459,10 @@ func (s *Service) checkLimits(in RequestInput) error {
 		return nil
 	}
 	if s.cfg.MaxTTL > 0 && in.TTL > s.cfg.MaxTTL {
-		return fmt.Errorf("ttl %dd exceeds the maximum of %dd; an admin can override", int(in.TTL.Hours()/24), int(s.cfg.MaxTTL.Hours()/24))
+		return fmt.Errorf("lifetime %s exceeds the maximum of %s; an admin can override", Lifetime(in.TTL), Lifetime(s.cfg.MaxTTL))
 	}
 	if s.cfg.MaxBudgetUSD > 0 && in.BudgetUSD > s.cfg.MaxBudgetUSD {
-		return fmt.Errorf("budget $%.0f exceeds the maximum of $%.0f; an admin can override", in.BudgetUSD, s.cfg.MaxBudgetUSD)
+		return fmt.Errorf("budget %s exceeds the maximum of %s; an admin can override", Dollars(in.BudgetUSD), Dollars(s.cfg.MaxBudgetUSD))
 	}
 	return nil
 }
@@ -805,8 +859,11 @@ func (s *Service) checkLifetime(a *Account, until time.Time, override bool) erro
 	}
 	limit := start.Add(s.cfg.MaxTTL)
 	if until.After(limit) {
-		return fmt.Errorf("%s would live %dd, past the %dd ceiling; the latest expiry is %s and an admin can override",
-			a.Name, int(until.Sub(start).Hours()/24), int(s.cfg.MaxTTL.Hours()/24), limit.Format("2006-01-02"))
+		// Lifetime rounds up to the hour, so a lifetime just over the ceiling
+		// never reads as equal to it. The limit can fall on the requested
+		// day, so it shows the time too.
+		return fmt.Errorf("%s would live %s, past the ceiling of %s; the latest expiry is %s and an admin can override",
+			a.Name, Lifetime(until.Sub(start)), Lifetime(s.cfg.MaxTTL), limit.UTC().Format("2006-01-02 15:04 UTC"))
 	}
 	return nil
 }

@@ -193,6 +193,8 @@ func (p *Provider) EnsureOrganization(context.Context) (core.OrgInfo, error) {
 func (p *Provider) Seed(r core.RemoteAccount) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// The fake owns its copy, so a test can compare its seed with the state.
+	r.Tags = maps.Clone(r.Tags)
 	if r.Tags == nil {
 		r.Tags = map[string]string{}
 	}

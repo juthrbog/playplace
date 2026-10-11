@@ -101,8 +101,18 @@ lifetime ends. Two kinds of account are not adopted. playplace starts to
 close an account with a `playplace:close-requested` tag at once. It leaves
 an account with a damaged `playplace:close-requested` tag alone until
 someone repairs the tag. So `init` lists these accounts with what the next
-refresh does to each. The operator moves every other account out of the OU
-before any other command, because most commands start with a refresh.
+refresh does to each. It also lists the active accounts in the OU that have
+the `playplace:managed=true` tag, and the creations of playplace that wait
+in the organization root. A quarantine OU that is named by mistake shows its
+accounts there. The next refresh resumes their management, and it closes
+each one that expired or has a `playplace:close-requested` tag. It moves
+each waiting creation into the named OU, unless the creation has damaged
+tags. Placement happens once, so a creation in the wrong OU stays there
+after the operator corrects the OU. `init` does not list the accounts in
+the OU that AWS is already closing, because the refresh only tracks that
+closure. The operator checks the list and moves every other account out of
+the OU before any other command, because most commands start with a
+refresh.
 
 AWS creates every new account in the organization root. Placement moves it
 from there into the OU, once. Playplace places an account only when it sits

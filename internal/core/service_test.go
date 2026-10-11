@@ -678,11 +678,21 @@ func TestDenyWithdrawAndExpire(t *testing.T) {
 func TestTTLAndBudgetCeilingsWithAdminOverride(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "long", Owner: "a@example.com", TTL: 120 * 24 * time.Hour}, "web"); err == nil || !strings.Contains(err.Error(), "maximum of 90d") {
-		t.Fatalf("ttl over 90d should be refused, got %v", err)
-	}
-	if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "rich", Owner: "a@example.com", BudgetUSD: 501}, "web"); err == nil || !strings.Contains(err.Error(), "maximum of $500") {
-		t.Fatalf("budget over $500 should be refused, got %v", err)
+	// The refusal shows both sides as the approvers see them, so a value just
+	// over a ceiling does not read as equal to it.
+	for _, tc := range []struct {
+		ttl    time.Duration
+		budget float64
+		want   string
+	}{
+		{120 * 24 * time.Hour, 0, "lifetime 120 days exceeds the maximum of 90 days; an admin can override"},
+		{90*24*time.Hour + 12*time.Hour, 0, "lifetime 2172 hours exceeds the maximum of 90 days; an admin can override"},
+		{0, 501, "budget $501 exceeds the maximum of $500; an admin can override"},
+		{0, 500.40, "budget $500.40 exceeds the maximum of $500; an admin can override"},
+	} {
+		if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "over", Owner: "a@example.com", TTL: tc.ttl, BudgetUSD: tc.budget}, "web"); err == nil || err.Error() != tc.want {
+			t.Errorf("ttl %s, budget %v: refusal = %v, want %q", tc.ttl, tc.budget, err, tc.want)
+		}
 	}
 	// At the ceiling is fine.
 	if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "edge", Owner: "b@example.com", TTL: 90 * 24 * time.Hour, BudgetUSD: 500}, "web"); err != nil {
@@ -717,8 +727,15 @@ func TestTTLAndBudgetCeilingsWithAdminOverride(t *testing.T) {
 	if acc, err = h.svc.PollCreate(ctx, acc.RequestID); err != nil || acc.Status != core.StatusActive {
 		t.Fatalf("place edge: %+v %v", acc, err)
 	}
-	if _, err := h.svc.Extend(ctx, acc.ID, acc.ExpiresAt.Add(24*time.Hour), "d@example.com", false); err == nil || !strings.Contains(err.Error(), "past the 90d ceiling") {
+	if _, err := h.svc.Extend(ctx, acc.ID, acc.ExpiresAt.Add(24*time.Hour), "d@example.com", false); err == nil || !strings.Contains(err.Error(), "past the ceiling of 90 days") {
 		t.Fatalf("extend past the lifetime ceiling should be refused, got %v", err)
+	}
+	// A minute over the ceiling does not read as equal to it, and the limit
+	// shows its time, because it can fall on the requested day.
+	limit := acc.CreatedAt.Add(90 * 24 * time.Hour)
+	want := "edge would live 2161 hours, past the ceiling of 90 days; the latest expiry is " + limit.UTC().Format("2006-01-02 15:04") + " UTC and an admin can override"
+	if _, err := h.svc.Extend(ctx, acc.ID, limit.Add(time.Minute), "d@example.com", false); err == nil || err.Error() != want {
+		t.Fatalf("extend a minute past the ceiling = %v, want %q", err, want)
 	}
 	if got, _ := h.svc.Get(ctx, acc.ID); !got.ExpiresAt.Equal(acc.ExpiresAt) {
 		t.Fatal("a refused extend must not change the expiry")

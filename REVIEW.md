@@ -96,7 +96,8 @@ landed on 2026-10-10 and 2026-10-11.
 - [x] **Rotating `--alert-email` sent restricted accounts through
   setup-pending** (budget-6, the rest). A repair that changes only the
   recipients now keeps the observed state, with no health change and no
-  notice. An update that AWS rejects still fails the pass (tests).
+  notice. An update that AWS rejects still fails the pass. The test for that
+  case came later, with the review of how the two commits interact.
 - [x] **A nested Playground OU was refused.** `--ou-id` (`PLAYPLACE_OU_ID`)
   names an OU at any depth. playplace reads it with
   `DescribeOrganizationalUnit`, refuses to start when `--ou-name` is also
@@ -130,6 +131,37 @@ landed on 2026-10-10 and 2026-10-11.
 - [x] **The LocalStack flow was not run after the OU change.** It ran on
   2026-10-11. LocalStack keeps the `CreateAccount` tags, and placement
   works.
+
+The next four items came from a review on 2026-10-11 of how 1c1ddfc and
+874a2b9 interact. Each finding had a verifier that tried to refute it. A
+second review of the fixes found more gaps, and the entries include them.
+
+- [x] **The `init` list left out managed accounts and root creations.** It
+  listed only the accounts without `playplace:managed=true`. If `--ou-id`
+  named a quarantine OU by mistake, `init` printed nothing for it. The next
+  refresh closed its expired accounts, and it moved each creation that waited
+  in the root into that OU for good. `init` now lists the managed accounts
+  in the OU and the waiting creations too. A creation with damaged tags is
+  listed apart, because the refresh leaves it in the root. `init` says so
+  when there is nothing to list (`core.Service.Forecast`, tests that check
+  each forecast against the next refresh). It does not list the accounts in
+  the OU that AWS is already closing, and the docs say so. `fake.Seed` now
+  copies its tags, so the test that `init` writes no tag can fail.
+- [x] **The limit refusals rounded both sides**, for example "ttl 90d exceeds
+  the maximum of 90d" for 90.5 days. The request and edit refusal now shows
+  both sides as approvers see them: "lifetime 2172 hours exceeds the maximum
+  of 90 days" and "budget $500.40 exceeds the maximum of $500". The extend
+  refusal does the same, and shows the time of the latest expiry, because it
+  can fall on the requested day (tests). The web edit form that now takes
+  cents and part-days made this easier to reach.
+- [x] **A repair into `restricting` promised no further notice.** The
+  `restricted` notice follows when the restriction is in place. The notice
+  now says so, and docs/budgets.md lists the notice at the end of each kind
+  of repair (test).
+- [x] **No test covered a rejected recipient rotation.** A test now has AWS
+  lock the action in `restricting` and `recovering`. The pass fails, health
+  shows `error`, one notice is sent, and the first accepted pass rotates the
+  recipient and returns to the observed state.
 
 ### Accepted or documented
 

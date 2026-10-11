@@ -259,10 +259,13 @@ state rather than reattaching last month's restriction from local state.
   use the configured lifecycle notifier (for example `--slack-webhook`); AWS
   action notifications use `--alert-email`. Delivery is best-effort, not an
   exactly-once guarantee.
-  A repair from `error` is announced when it starts, not when it finishes.
-  Finished setup sends no budget notice, because the *ready* notice covers a
-  new account. A recipient rotation that AWS accepts sends no budget
-  notice, because health does not change.
+  A repair from `error` is announced when it starts. A repair through
+  `setup-pending` sends no notice when it ends. A repair through
+  `restricting` sends the `restricted` notice when the restriction is in
+  place, and one through `recovering` sends a notice when it ends. Finished
+  setup sends no budget notice, because the *ready* notice covers a new
+  account. A recipient rotation that AWS accepts sends no budget notice,
+  because health does not change.
 
 ### Damaged account guardrail tags
 
