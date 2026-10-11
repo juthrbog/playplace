@@ -96,7 +96,7 @@ func (p *Provider) EnsureBudget(ctx context.Context, id string, spec core.Budget
 	if err := spec.Validate(); err != nil {
 		return result, err
 	}
-	info, err := p.EnsureOrganization(ctx)
+	info, err := p.org(ctx)
 	if err != nil {
 		return result, err
 	}
@@ -157,7 +157,7 @@ func (p *Provider) EnsureBudget(ctx context.Context, id string, spec core.Budget
 
 func (p *Provider) InspectBudget(ctx context.Context, id string, spec core.BudgetSpec) (core.BudgetSnapshot, error) {
 	var s core.BudgetSnapshot
-	info, err := p.EnsureOrganization(ctx)
+	info, err := p.org(ctx)
 	if err != nil {
 		return s, err
 	}

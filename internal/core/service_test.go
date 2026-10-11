@@ -43,6 +43,17 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) advance(d time.Duration) { h.now = h.now.Add(d) }
 
+// ref reads the pending request as an interface would show it, so the
+// action that follows is bound to the current version.
+func (h *harness) ref(t *testing.T, name string) core.RequestRef {
+	t.Helper()
+	q, err := h.svc.GetRequest(context.Background(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return q.Ref()
+}
+
 func (h *harness) active(t *testing.T, name, owner string, ttl time.Duration) *core.Account {
 	t.Helper()
 	ctx := context.Background()
@@ -53,6 +64,21 @@ func (h *harness) active(t *testing.T, name, owner string, ttl time.Duration) *c
 	a, err = h.svc.PollCreate(ctx, a.RequestID)
 	if err != nil || a.Status != core.StatusActive {
 		t.Fatalf("poll: %+v %v", a, err)
+	}
+	return a
+}
+
+// ready is active plus the refresh pass that observes protection created on
+// the first pass, as AWS needs, and so finishes the initial handoff.
+func (h *harness) ready(t *testing.T, name, owner string, ttl time.Duration) *core.Account {
+	t.Helper()
+	a := h.active(t, name, owner, ttl)
+	if _, err := h.svc.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	a, err := h.svc.Get(context.Background(), a.ID)
+	if err != nil || a.HandoffPending() {
+		t.Fatalf("not ready after a second pass: %+v %v", a, err)
 	}
 	return a
 }
@@ -152,6 +178,8 @@ func TestExpiryWarnsExtendsAndCloses(t *testing.T) {
 	ctx := context.Background()
 	a := h.active(t, "short", "alex", 5*24*time.Hour)
 	h.note.msgs = nil
+	rec := &recorderAudit{}
+	h.svc.SetAuditor(rec)
 
 	h.advance(24 * time.Hour)
 	if sum, _ := h.svc.Refresh(ctx); !sum.Empty() {
@@ -161,6 +189,17 @@ func TestExpiryWarnsExtendsAndCloses(t *testing.T) {
 	sum, _ := h.svc.Refresh(ctx)
 	if len(sum.Warned) != 1 || len(h.note.msgs) != 1 {
 		t.Fatalf("day 2: summary=%+v notes=%d", sum, len(h.note.msgs))
+	}
+	// The history names the notice. playplace sends it to the log or a
+	// channel, not to the owner.
+	var warned []string
+	for _, e := range rec.events {
+		if e.Event == "warned" {
+			warned = append(warned, e.Message)
+		}
+	}
+	if want := "sent the expiring notice for short (owner alex): expires 2026-09-20"; len(warned) != 1 || warned[0] != want {
+		t.Fatalf("warned history = %q, want [%q]", warned, want)
 	}
 	a, _ = h.svc.Get(ctx, a.ID)
 	if a.Status != core.StatusExpiring || a.WarnedAt == nil {
@@ -279,6 +318,20 @@ func TestCostsAreCachedAndWindowed(t *testing.T) {
 	}
 	if c, ok := h.svc.CostsCached(a.ProviderID, 30); !ok || len(c) != 30 {
 		t.Fatalf("cached window = %d %v", len(c), ok)
+	}
+}
+
+func TestMonthToDateUsesTheUTCMonth(t *testing.T) {
+	day := func(m time.Month, d int) time.Time { return time.Date(2026, m, d, 0, 0, 0, 0, time.UTC) }
+	pts := []core.CostPoint{{Date: day(9, 29), AmountUSD: 1}, {Date: day(9, 30), AmountUSD: 2}, {Date: day(10, 1), AmountUSD: 4}}
+	// 20:00 on 30 September in New York is already 1 October in UTC, so only
+	// the October day counts; a local-month reading would count all three.
+	ny := time.FixedZone("EDT", -4*60*60)
+	if got := core.MonthToDate(pts, time.Date(2026, 9, 30, 20, 0, 0, 0, ny)); got != 4 {
+		t.Fatalf("evening of 30 Sep in New York = %v, want 4", got)
+	}
+	if got := core.MonthToDate(pts, day(9, 30).Add(12*time.Hour)); got != 3 {
+		t.Fatalf("30 Sep UTC = %v, want 3", got)
 	}
 }
 
@@ -450,11 +503,11 @@ func TestFreeTextFieldsAreValidatedEverywhere(t *testing.T) {
 		t.Fatalf("legal purpose refused: %v", err)
 	}
 	bad := "no | pipes"
-	if _, err := h.svc.UpdateRequest(ctx, "pur-three", "ops@example.com", core.RequestEdit{Purpose: &bad}); err == nil {
+	if _, err := h.svc.UpdateRequest(ctx, h.ref(t, "pur-three"), "ops@example.com", core.RequestEdit{Purpose: &bad}); err == nil {
 		t.Fatal("edit with an illegal purpose should be refused")
 	}
 	// Approval writes the purpose as an account tag; the strict fake accepts it.
-	acc, err := h.svc.Approve(ctx, "pur-three", "ops@example.com")
+	acc, err := h.svc.Approve(ctx, h.ref(t, "pur-three"), "ops@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,10 +543,10 @@ func TestSubmitApproveFlow(t *testing.T) {
 		t.Fatalf("per-owner limit should apply to pending requests too, got %v", err)
 	}
 	// Self-approval is refused; another approver works.
-	if _, err := h.svc.Approve(ctx, "req-one", "anna@example.com"); err == nil {
+	if _, err := h.svc.Approve(ctx, h.ref(t, "req-one"), "anna@example.com"); err == nil {
 		t.Fatal("self-approval must be refused")
 	}
-	acc, err := h.svc.Approve(ctx, "req-one", "ops@example.com")
+	acc, err := h.svc.Approve(ctx, h.ref(t, "req-one"), "ops@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +564,7 @@ func TestSubmitApproveFlow(t *testing.T) {
 	if h.note.msgs[len(h.note.msgs)-1].Owner != "anna@example.com" {
 		t.Fatal("requester should be told about the approval")
 	}
-	if _, err := h.svc.Approve(ctx, "req-one", "ops@example.com"); !errors.Is(err, core.ErrNotFound) {
+	if _, err := h.svc.Approve(ctx, core.RequestRef{Name: "req-one"}, "ops@example.com"); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("approving twice should be not found, got %v", err)
 	}
 }
@@ -523,7 +576,7 @@ func TestApprovedRequestFillsTheCreatingRowUntilPlaced(t *testing.T) {
 	if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "slow", Owner: "dev@example.com", TTL: 10 * 24 * time.Hour, BudgetUSD: 100, Purpose: "demo"}, "web"); err != nil {
 		t.Fatal(err)
 	}
-	acc, err := h.svc.Approve(ctx, "slow", "lead@example.com")
+	acc, err := h.svc.Approve(ctx, h.ref(t, "slow"), "lead@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +625,7 @@ func TestFailedCreationKeepsOwnerAndStaleRecordsAreCleaned(t *testing.T) {
 	ctx := context.Background()
 	h.svc.SubmitRequest(ctx, core.RequestInput{Name: "doomed", Owner: "dev@example.com"}, "web")
 	h.prov.FailNext = "EMAIL_ALREADY_EXISTS"
-	if _, err := h.svc.Approve(ctx, "doomed", "lead@example.com"); err != nil {
+	if _, err := h.svc.Approve(ctx, h.ref(t, "doomed"), "lead@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	inv, _ := h.svc.Inventory(ctx, true)
@@ -595,7 +648,7 @@ func TestDenyWithdrawAndExpire(t *testing.T) {
 	if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "deny-me", Owner: "anna@example.com"}, "cli"); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.svc.Deny(ctx, "deny-me", "ops@example.com", "no budget this quarter"); err != nil {
+	if err := h.svc.Deny(ctx, h.ref(t, "deny-me"), "ops@example.com", "no budget this quarter"); err != nil {
 		t.Fatal(err)
 	}
 	last := h.note.msgs[len(h.note.msgs)-1]
@@ -606,7 +659,7 @@ func TestDenyWithdrawAndExpire(t *testing.T) {
 	if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "again", Owner: "anna@example.com"}, "cli"); err != nil {
 		t.Fatalf("request after deny: %v", err)
 	}
-	if err := h.svc.Withdraw(ctx, "again", "anna@example.com"); err != nil {
+	if err := h.svc.Withdraw(ctx, h.ref(t, "again"), "anna@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "stale", Owner: "anna@example.com"}, "cli"); err != nil {
@@ -625,11 +678,21 @@ func TestDenyWithdrawAndExpire(t *testing.T) {
 func TestTTLAndBudgetCeilingsWithAdminOverride(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "long", Owner: "a@example.com", TTL: 120 * 24 * time.Hour}, "web"); err == nil || !strings.Contains(err.Error(), "maximum of 90d") {
-		t.Fatalf("ttl over 90d should be refused, got %v", err)
-	}
-	if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "rich", Owner: "a@example.com", BudgetUSD: 501}, "web"); err == nil || !strings.Contains(err.Error(), "maximum of $500") {
-		t.Fatalf("budget over $500 should be refused, got %v", err)
+	// The refusal shows both sides as the approvers see them, so a value just
+	// over a ceiling does not read as equal to it.
+	for _, tc := range []struct {
+		ttl    time.Duration
+		budget float64
+		want   string
+	}{
+		{120 * 24 * time.Hour, 0, "lifetime 120 days exceeds the maximum of 90 days; an admin can override"},
+		{90*24*time.Hour + 12*time.Hour, 0, "lifetime 2172 hours exceeds the maximum of 90 days; an admin can override"},
+		{0, 501, "budget $501 exceeds the maximum of $500; an admin can override"},
+		{0, 500.40, "budget $500.40 exceeds the maximum of $500; an admin can override"},
+	} {
+		if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "over", Owner: "a@example.com", TTL: tc.ttl, BudgetUSD: tc.budget}, "web"); err == nil || err.Error() != tc.want {
+			t.Errorf("ttl %s, budget %v: refusal = %v, want %q", tc.ttl, tc.budget, err, tc.want)
+		}
 	}
 	// At the ceiling is fine.
 	if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "edge", Owner: "b@example.com", TTL: 90 * 24 * time.Hour, BudgetUSD: 500}, "web"); err != nil {
@@ -651,21 +714,28 @@ func TestTTLAndBudgetCeilingsWithAdminOverride(t *testing.T) {
 	if !stored.OverrideLimits || stored.TTL != 180*24*time.Hour || stored.BudgetUSD != 2000 {
 		t.Fatalf("stored = %+v", stored)
 	}
-	acc, err := h.svc.Approve(ctx, "big", "ops@example.com")
+	acc, err := h.svc.Approve(ctx, h.ref(t, "big"), "ops@example.com")
 	if err != nil || acc.BudgetUSD != 2000 || !acc.ExpiresAt.Equal(t0.Add(180*24*time.Hour)) {
 		t.Fatalf("approval of an overridden request should create it: %+v %v", acc, err)
 	}
 	// Extensions are held to the same lifetime ceiling, counted from creation.
 	h.advance(time.Minute)
-	acc, err = h.svc.Approve(ctx, "edge", "ops@example.com")
+	acc, err = h.svc.Approve(ctx, h.ref(t, "edge"), "ops@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if acc, err = h.svc.PollCreate(ctx, acc.RequestID); err != nil || acc.Status != core.StatusActive {
 		t.Fatalf("place edge: %+v %v", acc, err)
 	}
-	if _, err := h.svc.Extend(ctx, acc.ID, acc.ExpiresAt.Add(24*time.Hour), "d@example.com", false); err == nil || !strings.Contains(err.Error(), "past the 90d ceiling") {
+	if _, err := h.svc.Extend(ctx, acc.ID, acc.ExpiresAt.Add(24*time.Hour), "d@example.com", false); err == nil || !strings.Contains(err.Error(), "past the ceiling of 90 days") {
 		t.Fatalf("extend past the lifetime ceiling should be refused, got %v", err)
+	}
+	// A minute over the ceiling does not read as equal to it, and the limit
+	// shows its time, because it can fall on the requested day.
+	limit := acc.CreatedAt.Add(90 * 24 * time.Hour)
+	want := "edge would live 2161 hours, past the ceiling of 90 days; the latest expiry is " + limit.UTC().Format("2006-01-02 15:04") + " UTC and an admin can override"
+	if _, err := h.svc.Extend(ctx, acc.ID, limit.Add(time.Minute), "d@example.com", false); err == nil || err.Error() != want {
+		t.Fatalf("extend a minute past the ceiling = %v, want %q", err, want)
 	}
 	if got, _ := h.svc.Get(ctx, acc.ID); !got.ExpiresAt.Equal(acc.ExpiresAt) {
 		t.Fatal("a refused extend must not change the expiry")
@@ -691,16 +761,16 @@ func TestUpdateRequestBeforeApproval(t *testing.T) {
 	h.note.msgs = nil
 
 	// Moving the request to an owner at the limit is refused.
-	if _, err := h.svc.UpdateRequest(ctx, "edit-me", "ops@example.com", core.RequestEdit{Owner: "sam@example.com"}); err == nil {
+	if _, err := h.svc.UpdateRequest(ctx, h.ref(t, "edit-me"), "ops@example.com", core.RequestEdit{Owner: "sam@example.com"}); err == nil {
 		t.Fatal("new owner at the limit should be refused")
 	}
 	// Ceilings apply to edits unless overridden.
-	if _, err := h.svc.UpdateRequest(ctx, "edit-me", "ops@example.com", core.RequestEdit{BudgetUSD: 900}); err == nil {
+	if _, err := h.svc.UpdateRequest(ctx, h.ref(t, "edit-me"), "ops@example.com", core.RequestEdit{BudgetUSD: 900}); err == nil {
 		t.Fatal("budget over the ceiling should be refused")
 	}
 	newPurpose := "new purpose"
 	yes, no := true, false
-	r, err := h.svc.UpdateRequest(ctx, "edit-me", "ops@example.com", core.RequestEdit{Owner: "bob@example.com", TTL: 10 * 24 * time.Hour, BudgetUSD: 900, Purpose: &newPurpose, OverrideLimits: &yes})
+	r, err := h.svc.UpdateRequest(ctx, h.ref(t, "edit-me"), "ops@example.com", core.RequestEdit{Owner: "bob@example.com", TTL: 10 * 24 * time.Hour, BudgetUSD: 900, Purpose: &newPurpose, OverrideLimits: &yes})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -715,36 +785,36 @@ func TestUpdateRequestBeforeApproval(t *testing.T) {
 		t.Fatalf("stored = %+v want %+v", stored, r)
 	}
 	last := h.note.msgs[len(h.note.msgs)-1]
-	if last.Owner != "anna@example.com" || !strings.Contains(last.Body, "owner anna@example.com → bob@example.com") || !strings.Contains(last.Body, "lifetime 5d → 10d") {
+	if last.Owner != "anna@example.com" || !strings.Contains(last.Body, "owner anna@example.com → bob@example.com") || !strings.Contains(last.Body, "lifetime 5 days → 10 days") {
 		t.Fatalf("original owner should be told what changed: %+v", last)
 	}
 	// A no-op edit sends nothing.
 	n := len(h.note.msgs)
-	if _, err := h.svc.UpdateRequest(ctx, "edit-me", "ops@example.com", core.RequestEdit{OverrideLimits: &yes}); err != nil || len(h.note.msgs) != n {
+	if _, err := h.svc.UpdateRequest(ctx, h.ref(t, "edit-me"), "ops@example.com", core.RequestEdit{OverrideLimits: &yes}); err != nil || len(h.note.msgs) != n {
 		t.Fatal("unchanged edit should be silent")
 	}
 	// An edit that says nothing about the override keeps it; one that
 	// removes it is refused while the values still need it, and reported
 	// when they do not.
-	if r, err := h.svc.UpdateRequest(ctx, "edit-me", "ops@example.com", core.RequestEdit{Purpose: &newPurpose}); err != nil || !r.OverrideLimits {
+	if r, err := h.svc.UpdateRequest(ctx, h.ref(t, "edit-me"), "ops@example.com", core.RequestEdit{Purpose: &newPurpose}); err != nil || !r.OverrideLimits {
 		t.Fatalf("editing another field must keep the override: %+v %v", r, err)
 	}
-	if _, err := h.svc.UpdateRequest(ctx, "edit-me", "ops@example.com", core.RequestEdit{OverrideLimits: &no}); err == nil {
+	if _, err := h.svc.UpdateRequest(ctx, h.ref(t, "edit-me"), "ops@example.com", core.RequestEdit{OverrideLimits: &no}); err == nil {
 		t.Fatal("removing the override while the budget is over the ceiling should be refused")
 	}
-	if r, err := h.svc.UpdateRequest(ctx, "edit-me", "ops@example.com", core.RequestEdit{BudgetUSD: 100, OverrideLimits: &no}); err != nil || r.OverrideLimits || !strings.Contains(h.note.msgs[len(h.note.msgs)-1].Body, "limit override removed") {
+	if r, err := h.svc.UpdateRequest(ctx, h.ref(t, "edit-me"), "ops@example.com", core.RequestEdit{BudgetUSD: 100, OverrideLimits: &no}); err != nil || r.OverrideLimits || !strings.Contains(h.note.msgs[len(h.note.msgs)-1].Body, "limit override removed") {
 		t.Fatalf("removing the override should be recorded: %+v %v", r, err)
 	}
 	// The owner of the account may not approve it either, even when someone else asked.
-	if _, err := h.svc.Approve(ctx, "edit-me", "bob@example.com"); err == nil || !strings.Contains(err.Error(), "would own") {
+	if _, err := h.svc.Approve(ctx, h.ref(t, "edit-me"), "bob@example.com"); err == nil || !strings.Contains(err.Error(), "would own") {
 		t.Fatalf("owner approving their own account should be refused, got %v", err)
 	}
 	// Approval uses the edited values.
-	acc, err := h.svc.Approve(ctx, "edit-me", "ops@example.com")
+	acc, err := h.svc.Approve(ctx, h.ref(t, "edit-me"), "ops@example.com")
 	if err != nil || acc.Owner != "bob@example.com" || acc.BudgetUSD != 100 || acc.Purpose != "new purpose" {
 		t.Fatalf("approved = %+v %v", acc, err)
 	}
-	if _, err := h.svc.UpdateRequest(ctx, "gone", "ops@example.com", core.RequestEdit{}); !errors.Is(err, core.ErrNotFound) {
+	if _, err := h.svc.UpdateRequest(ctx, core.RequestRef{Name: "gone"}, "ops@example.com", core.RequestEdit{}); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("editing a missing request = %v", err)
 	}
 }
@@ -773,8 +843,8 @@ func TestLifecycleIsWrittenToHistory(t *testing.T) {
 
 	h.svc.SubmitRequest(ctx, core.RequestInput{Name: "hist", Owner: "anna@example.com", TTL: 5 * 24 * time.Hour, BudgetUSD: 20}, "web")
 	newP := "changed"
-	h.svc.UpdateRequest(ctx, "hist", "ops@example.com", core.RequestEdit{Purpose: &newP})
-	a, _ := h.svc.Approve(ctx, "hist", "lead@example.com")
+	h.svc.UpdateRequest(ctx, h.ref(t, "hist"), "ops@example.com", core.RequestEdit{Purpose: &newP})
+	a, _ := h.svc.Approve(ctx, h.ref(t, "hist"), "lead@example.com")
 	a, _ = h.svc.PollCreate(ctx, a.RequestID)
 	h.svc.Extend(ctx, a.ID, a.ExpiresAt.Add(48*time.Hour), "anna@example.com", false)
 	h.svc.RequestClose(ctx, a.ID, "anna@example.com")
@@ -799,9 +869,9 @@ func TestLifecycleIsWrittenToHistory(t *testing.T) {
 	// Deny, withdraw, and request expiry are recorded with their reasons.
 	rec.events = nil
 	h.svc.SubmitRequest(ctx, core.RequestInput{Name: "no-go", Owner: "bob@example.com"}, "cli")
-	h.svc.Deny(ctx, "no-go", "lead@example.com", "not now")
+	h.svc.Deny(ctx, h.ref(t, "no-go"), "lead@example.com", "not now")
 	h.svc.SubmitRequest(ctx, core.RequestInput{Name: "oops", Owner: "bob@example.com"}, "cli")
-	h.svc.Withdraw(ctx, "oops", "bob@example.com")
+	h.svc.Withdraw(ctx, h.ref(t, "oops"), "bob@example.com")
 	h.svc.SubmitRequest(ctx, core.RequestInput{Name: "stale", Owner: "bob@example.com"}, "cli")
 	h.advance(8 * 24 * time.Hour)
 	h.svc.Refresh(ctx)
@@ -851,11 +921,12 @@ func TestApproveClaimsTheRecordFirst(t *testing.T) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var oks, fails int
+	ref := h.ref(t, "twice") // both approvers saw the same version
 	for _, who := range []string{"lead@example.com", "root@example.com"} {
 		wg.Add(1)
 		go func(who string) {
 			defer wg.Done()
-			_, err := h.svc.Approve(ctx, "twice", who)
+			_, err := h.svc.Approve(ctx, ref, who)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -877,7 +948,7 @@ func TestApproveClaimsTheRecordFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.prov.AccessOn = true // gone@example.com is not in the identity store, so Request refuses
-	if _, err := h.svc.Approve(ctx, "ghost", "lead@example.com"); err == nil || !strings.Contains(err.Error(), "not a user") {
+	if _, err := h.svc.Approve(ctx, h.ref(t, "ghost"), "lead@example.com"); err == nil || !strings.Contains(err.Error(), "not a user") {
 		t.Fatalf("approve should surface the creation error, got %v", err)
 	}
 	q, err := h.svc.GetRequest(ctx, "ghost")
@@ -943,7 +1014,7 @@ func TestSubHourTTLRoundsUpInsteadOfVanishing(t *testing.T) {
 	if q.TTL != time.Hour {
 		t.Fatalf("a 20 minute TTL should be stored as one hour, got %s", q.TTL)
 	}
-	acc, err := h.svc.Approve(ctx, "blink", "ops@example.com")
+	acc, err := h.svc.Approve(ctx, h.ref(t, "blink"), "ops@example.com")
 	if err != nil || !acc.ExpiresAt.Equal(h.now.Add(time.Hour)) {
 		t.Fatalf("approval must keep the short TTL, not fall back to the default: %+v %v", acc, err)
 	}
@@ -979,7 +1050,7 @@ func TestBudgetMustBeANumber(t *testing.T) {
 	if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "edit-me", Owner: "alex"}, "web"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.svc.UpdateRequest(ctx, "edit-me", "admin", core.RequestEdit{BudgetUSD: math.Inf(1)}); err == nil {
+	if _, err := h.svc.UpdateRequest(ctx, h.ref(t, "edit-me"), "admin", core.RequestEdit{BudgetUSD: math.Inf(1)}); err == nil {
 		t.Fatal("UpdateRequest accepted an infinite budget")
 	}
 	if tags, _ := h.prov.OUTags(ctx); len(tags) != 1 {
@@ -993,7 +1064,7 @@ func TestApprovedRecordOfPlacedAccountIsCleaned(t *testing.T) {
 	if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "sticky", Owner: "dev@example.com"}, "web"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.svc.Approve(ctx, "sticky", "lead@example.com"); err != nil {
+	if _, err := h.svc.Approve(ctx, h.ref(t, "sticky"), "lead@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	tags, _ := h.prov.OUTags(ctx)

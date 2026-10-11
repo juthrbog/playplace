@@ -59,7 +59,7 @@ notes live in [DESIGN.md](DESIGN.md).
     internal/tui/           Bubble Tea views
     internal/audit/         history sinks: local file and CloudWatch Logs
     internal/web/           templ views, htmx handlers, OIDC sign-in, Slack adapter
-    deploy/                 IAM policy, GitLab pipeline, deployment notes
+    deploy/                 IAM and SCP policies, local dev stack, deployment notes
     scripts/                offline completions, generated-view and archive checks
     tools/package-release/  checksum-verified Homebrew and AUR recipe generation
     .github/workflows/      cross-platform CI and tag-triggered releases
@@ -96,8 +96,8 @@ not establish live IAM, propagation, SCP behavior, or billing effects.
 The `task cli`, `task tui`, and `task serve*` workflows run against LocalStack Pro
 (AWS) and, for sign-in, Dex (a local OpenID Connect provider). They use test AWS
 credentials, not real AWS. Install Docker with Compose and provide a LocalStack
-auth token before starting the walkthrough below. Slack and GitLab integration
-checks also need their respective external services.
+auth token before starting the walkthrough below. The Slack integration check
+also needs a Slack workspace.
 
 ### One-time setup
 
@@ -108,10 +108,14 @@ checks also need their respective external services.
     task cli -- init
 
 Skip the `export` to run without Identity Center: owners become free text and
-no access is granted. If your LocalStack version does not implement Budgets,
-placement now reports a budget error and withholds new owner access; it no longer
-silently ignores missing protection. You can inspect the account and exercise
-closure, but a full ready/access flow requires working Budgets APIs. Use the
+no access is granted. LocalStack Pro 2026.9.1 does not implement Budgets. The
+account is still created and placed, but protection shows `error` and owner
+access is withheld. `approve` and `create` exit with an error that names the
+new account ID, says that the account is placed, and ends with the budget
+error. A full ready and access flow needs working Budgets APIs. You can start
+a closure, but LocalStack sets only the old `Status` field of a closed
+account, not `State`. playplace never confirms that closure, so the account
+stays `unavailable` and every refresh reports it. Use the
 fake-provider and loopback AWS API tests for offline budget/action workflows;
 real SCP enforcement and reverse/reset require a separately authorized sandbox.
 
@@ -130,8 +134,8 @@ queue, so approving needs a different operator: the walk below switches
     task cli -- request big --owner lead@example.com --ttl 120 --budget 900 --override-limits
     task cli -- deny dev-one --reason "smaller budget please"
     task cli -- request dev-one --owner dev@example.com --budget 10
-    PLAYPLACE_OPERATOR=lead@example.com task cli -- approve dev-one   # another person; self-approval is refused
-    task cli -- show dev-one                   # owner, approved-by, expires, spend
+    PLAYPLACE_OPERATOR=lead@example.com task cli -- approve dev-one   # prints the request and asks y/N, refuses self-approval
+    task cli -- show dev-one                   # owner, status, protection, expires, spend
     task cli -- extend dev-one --by 3
     task cli -- extend dev-one --by 200        # refused: past the 90d lifetime ceiling
     task cli -- extend dev-one --by 200 --override-limits
@@ -205,18 +209,13 @@ or `ngrok http 8080`), and run:
     task serve:auth -- --slack-channel <channel-id> \
       --slack-signing-secret $SLACK_SIGNING_SECRET --slack-bot-token $SLACK_BOT_TOKEN
 
-Request an account in the web UI; a message with buttons appears in the
-channel. Click Approve as a Slack user whose email is in `--approvers`. The
-request signature check and endpoint gating are covered by unit tests, so the
-only thing this exercises is the real Slack round trip.
-
-### GitLab
-
-Push the repo, add the CI variables from [the deployment guide](deploy/README.md), protect an
-environment named `approvals`, and run the pipeline from the web with
-`JOB=request`. The job scripts are the same CLI commands as above, so they can
-also be rehearsed locally by exporting `NAME`, `OWNER`, and friends and
-running the script lines by hand.
+Request an account in the web UI. A message with buttons appears in the
+channel. As an admin, edit the budget of the request in the web UI. Then
+click Approve in Slack. playplace refuses the click with a reply that only you
+see. Request another account, and click Approve as a Slack user whose email
+is in `--approvers`. Unit tests cover the request signature check, the
+endpoint gating, and the version check. This manual check covers only the
+real Slack round trip.
 
 ### Unit tests
 

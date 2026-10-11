@@ -19,7 +19,7 @@ func TestFailedCreationRetainsRequestJourney(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.prov.FailNext = "EMAIL_ALREADY_EXISTS"
-	a, err := h.svc.Approve(ctx, r.Name, "lead@example.com")
+	a, err := h.svc.Approve(ctx, r.Ref(), "lead@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,7 +23,8 @@ type app struct {
 	opts    *options
 	log     *slog.Logger
 	svc     *core.Service
-	history audit.Sink // nil when --history none
+	history audit.Sink  // nil when --history none
+	notices *notify.Log // the log notifier, which always runs
 }
 
 // operator names the person running the CLI, for audit tags. Whoever holds
@@ -40,6 +41,23 @@ func operator() string {
 		return name + "@" + host
 	}
 	return name
+}
+
+// deliversNotices reports whether a channel other than the log carries
+// lifecycle notices. Only --slack-webhook does. The Slack app of serve posts
+// approval messages for web requests and no other notice.
+func (o *options) deliversNotices() bool { return o.SlackWebhook != "" }
+
+// setLogger sends everything the app logs to log: service records, lifecycle
+// notices, and CloudWatch history warnings. The TUI uses it, because it owns
+// the terminal and stray output draws over its frame.
+func (a *app) setLogger(log *slog.Logger) {
+	a.log = log
+	a.svc.SetLogger(log)
+	a.notices.Logger = log
+	if cw, ok := a.history.(*audit.CloudWatch); ok {
+		cw.Log = log
+	}
 }
 
 // refresh is the pass most commands run first. Changes are reported on
@@ -96,6 +114,11 @@ func New() *cobra.Command {
 	return root
 }
 
+// newProvider builds the AWS provider. Tests replace it with the fake.
+var newProvider = func(ctx context.Context, cfg awsprovider.Config) (core.Provider, error) {
+	return awsprovider.New(ctx, cfg)
+}
+
 // newApp builds the provider and service.
 func newApp(ctx context.Context, opts *options) (*app, error) {
 	lvl := new(slog.LevelVar)
@@ -108,29 +131,35 @@ func newApp(ctx context.Context, opts *options) (*app, error) {
 	if err != nil {
 		return nil, err
 	}
+	awsCfg, err := opts.awsConfig()
+	if err != nil {
+		return nil, err
+	}
 	if cfg.BudgetPolicyID == "" {
 		log.Warn("budgets are alerts-only; resource creation is not restricted")
 		if cfg.AlertEmail == "" {
 			log.Warn("budget notifications disabled: configure --alert-email")
 		}
 	}
-	prov, err := awsprovider.New(ctx, opts.awsConfig())
+	prov, err := newProvider(ctx, awsCfg)
 	if err != nil {
 		return nil, err
 	}
-	var notifier core.Notifier = notify.Log{Logger: log}
-	if opts.SlackWebhook != "" {
-		notifier = notify.Multi{notifier, notify.Slack{WebhookURL: opts.SlackWebhook}}
+	// The log notifier runs with Slack too, so the log records what was sent.
+	notices := &notify.Log{Logger: log}
+	var notifier core.Notifier = notices
+	if opts.deliversNotices() {
+		notifier = notify.Multi{notices, notify.Slack{WebhookURL: opts.SlackWebhook}}
 	}
 	svc := core.NewService(prov, notifier, cfg, log)
-	a := &app{opts: opts, log: log, svc: svc}
+	a := &app{opts: opts, log: log, svc: svc, notices: notices}
 
 	switch opts.History {
 	case "none", "":
 	case "file":
 		a.history = &audit.File{Path: opts.HistoryFile}
 	case "cloudwatch":
-		awscfg, err := awsprovider.LoadConfig(ctx, opts.awsConfig())
+		awscfg, err := awsprovider.LoadConfig(ctx, awsCfg)
 		if err != nil {
 			return nil, err
 		}

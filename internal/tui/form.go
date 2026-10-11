@@ -15,10 +15,11 @@ import (
 	"playplace/internal/core"
 )
 
-// field is one labelled text input in a form.
+// field is one labelled text input in a form. A note shows after the input.
 type field struct {
 	label string
 	input textinput.Model
+	note  string
 }
 
 // form is a small modal with labelled inputs. Enter submits, tab moves,
@@ -34,11 +35,17 @@ type form struct {
 
 const formLabelWidth = 10
 
-func newField(th theme, label, placeholder, value string, width int) field {
+// fieldChars is the usual character limit of a form field.
+const fieldChars = 80
+
+// newField makes a labelled input that takes at most limit characters. The
+// limit also cuts the value that the field opens with, so it must fit the
+// longest value that the field can hold in storage.
+func newField(th theme, label, placeholder, value string, width, limit int) field {
 	in := textinput.New()
 	in.Prompt = ""
 	in.Placeholder = placeholder
-	in.CharLimit = 80
+	in.CharLimit = limit
 	in.SetWidth(width)
 	in.SetValue(value)
 	st := textinput.DefaultStyles(th.isDark)
@@ -138,7 +145,11 @@ func (m model) formView() string {
 		if i == f.focus {
 			lbl = th.value
 		}
-		lines = append(lines, lbl.Render(pad(fl.label, formLabelWidth))+fl.input.View())
+		line := lbl.Render(pad(fl.label, formLabelWidth)) + fl.input.View()
+		if fl.note != "" {
+			line += " " + lipgloss.NewStyle().Foreground(th.muted).Render(fl.note)
+		}
+		lines = append(lines, line)
 	}
 	lines = append(lines, "")
 	if f.errMsg != "" {
@@ -228,15 +239,14 @@ func (m model) newCreateForm() *form {
 		desc:     "The request waits in the queue until an approver acts on it (a to approve, d to deny).",
 		openedAt: m.now(),
 		fields: []field{
-			newField(th, "name", "dev-alex", "", 30),
-			newField(th, "owner", "engineer email or user name", "", 30),
-			newField(th, "days", fmt.Sprintf("%d (max %d)", int(cfg.DefaultTTL.Hours()/24), int(cfg.MaxTTL.Hours()/24)), "", 16),
-			newField(th, "budget $", fmt.Sprintf("%.0f (max %.0f)", cfg.DefaultBudgetUSD, cfg.MaxBudgetUSD), "", 16),
-			newField(th, "purpose", "what it is for", "", 30),
-			newField(th, "override", "y to go past the ceilings", "", 30),
+			newField(th, "name", "dev-alex", "", 30, fieldChars),
+			newField(th, "owner", "engineer email or user name", "", 30, fieldChars),
+			newField(th, "days", fmt.Sprintf("%d (max %d)", int(cfg.DefaultTTL.Hours()/24), int(cfg.MaxTTL.Hours()/24)), "", 16, fieldChars),
+			newField(th, "budget $", fmt.Sprintf("%.0f (max %.0f)", cfg.DefaultBudgetUSD, cfg.MaxBudgetUSD), "", 16, fieldChars),
+			newField(th, "purpose", "what it is for", "", 30, core.MaxPurpose),
+			newField(th, "override", "y to go past the ceilings", "", 30, fieldChars),
 		},
 	}
-	f.fields[4].input.CharLimit = core.MaxPurpose
 	f.submit = func(v []string) (tea.Cmd, error) {
 		// The operator is the requester even when asking for someone else,
 		// so the self-approval rule and the history name who acted.
@@ -277,57 +287,93 @@ func (m model) newCreateForm() *form {
 // yes reads a y/n form field.
 func yes(v string) bool { return strings.EqualFold(v, "y") || strings.EqualFold(v, "yes") }
 
+// lifetimeValue is the value that the edit form opens with for a lifetime.
+// parseSpan reads it back exactly: whole days as a day count, any other
+// lifetime as whole hours, such as 36h.
+func lifetimeValue(d time.Duration) string {
+	hours := int(math.Ceil(d.Hours()))
+	if hours%24 == 0 {
+		return strconv.Itoa(hours / 24)
+	}
+	return strconv.Itoa(hours) + "h"
+}
+
 // newEditForm changes a pending request before approval, like the Edit
-// button in the web UI. Every field is sent; the service ignores what did
-// not change.
+// button in the web UI. Only a field that differs from its prefill (the
+// value the form opened with) is sent, so an untouched lifetime or budget
+// keeps its exact value.
 func (m model) newEditForm(a *core.Account) *form {
 	th := m.th
-	svc, ctx, operator, name := m.svc, m.ctx, m.opts.Operator, a.Name
+	// The form is filled from the row as loaded; saving refuses a request
+	// that changed since, so unchanged fields never undo another edit.
+	svc, ctx, operator, ref := m.svc, m.ctx, m.opts.Operator, a.RequestRef()
 	override := ""
 	if a.OverrideLimits {
 		override = "y"
 	}
+	prefill := []string{a.Owner, lifetimeValue(a.TTL), strconv.FormatFloat(a.BudgetUSD, 'f', -1, 64), a.Purpose, override}
 	f := &form{
 		title:    "Edit request " + a.Name,
-		desc:     fmt.Sprintf("Asked for by %s. The requester is told what changed.", a.RequestedBy),
+		desc:     fmt.Sprintf("Asked for by %s. playplace sends a notice that lists each change.", a.RequestedBy),
 		openedAt: m.now(),
 		fields: []field{
-			newField(th, "owner", "engineer email or user name", a.Owner, 30),
-			newField(th, "days", "lifetime in days", strconv.Itoa(int(a.TTL.Hours()/24)), 16),
-			newField(th, "budget $", "monthly budget", strconv.FormatFloat(a.BudgetUSD, 'f', -1, 64), 16),
-			newField(th, "purpose", "what it is for", a.Purpose, 30),
-			newField(th, "override", "y to allow values past the ceilings", override, 30),
+			newField(th, "owner", "engineer email or user name", prefill[0], 30, core.MaxTagValue),
+			newField(th, "days", "lifetime in days", prefill[1], 16, fieldChars),
+			newField(th, "budget $", "monthly budget", prefill[2], 16, fieldChars),
+			newField(th, "purpose", "what it is for", prefill[3], 30, core.MaxPurpose),
+			newField(th, "override", "y to allow values past the ceilings", prefill[4], 30, fieldChars),
 		},
 	}
-	f.fields[3].input.CharLimit = core.MaxPurpose
+	if strings.HasSuffix(prefill[1], "h") {
+		f.fields[1].note = "(now " + core.Lifetime(a.TTL) + ")"
+	}
 	f.submit = func(v []string) (tea.Cmd, error) {
-		e := core.RequestEdit{Owner: v[0]}
-		if v[1] != "" {
-			t, err := parseSpan(v[1], time.Time{})
-			if err != nil {
-				return nil, fmt.Errorf("days: %w", err)
-			}
-			e.TTL = t.Sub(time.Time{})
+		e, err := requestEdit(prefill, v)
+		if err != nil {
+			return nil, err
 		}
-		if v[2] != "" {
-			b, err := strconv.ParseFloat(v[2], 64)
-			if err != nil || b <= 0 {
-				return nil, errors.New("budget must be a positive number")
-			}
-			e.BudgetUSD = b
-		}
-		purpose, ov := v[3], yes(v[4])
-		e.Purpose, e.OverrideLimits = &purpose, &ov
 		return func() tea.Msg {
-			q, err := svc.UpdateRequest(ctx, name, operator, e)
+			q, err := svc.UpdateRequest(ctx, ref, operator, e)
 			if err != nil {
 				return actionMsg{err: err}
 			}
-			return actionMsg{flash: fmt.Sprintf("✓ %s: %s, %dd, %s/month", q.Name, q.Owner, int(q.TTL.Hours()/24), money(q.BudgetUSD))}
+			return actionMsg{flash: fmt.Sprintf("✓ %s: %s, %s, %s/month", q.Name, q.Owner, core.Lifetime(q.TTL), core.Dollars(q.BudgetUSD))}
 		}, nil
 	}
 	f.setFocus(0)
 	return f
+}
+
+// requestEdit reads the edit form's values: owner, days, budget, purpose,
+// and override, in that order. A field that still holds its prefill is left
+// out of the edit, and so is an empty days or budget field.
+func requestEdit(prefill, v []string) (core.RequestEdit, error) {
+	var e core.RequestEdit
+	if v[0] != prefill[0] {
+		e.Owner = v[0]
+	}
+	if v[1] != "" && v[1] != prefill[1] {
+		t, err := parseSpan(v[1], time.Time{})
+		if err != nil {
+			return e, fmt.Errorf("days: %w", err)
+		}
+		e.TTL = t.Sub(time.Time{})
+	}
+	if v[2] != "" && v[2] != prefill[2] {
+		b, err := strconv.ParseFloat(v[2], 64)
+		if err != nil || b <= 0 {
+			return e, errors.New("budget must be a positive number")
+		}
+		e.BudgetUSD = b
+	}
+	if v[3] != prefill[3] {
+		purpose := v[3]
+		e.Purpose = &purpose
+	}
+	if ov := yes(v[4]); ov != yes(prefill[4]) {
+		e.OverrideLimits = &ov
+	}
+	return e, nil
 }
 
 func (m model) newExtendForm(a *core.Account) *form {
@@ -340,8 +386,8 @@ func (m model) newExtendForm(a *core.Account) *form {
 		desc:     fmt.Sprintf("Expires %s (%s). Enter days to add or a new date. Lifetime is capped at %dd from creation unless overridden.", a.ExpiresAt.Local().Format("Jan 2, 2006"), expiresIn(a.ExpiresAt, m.now()), int(cfg.MaxTTL.Hours()/24)),
 		openedAt: m.now(),
 		fields: []field{
-			newField(th, "days", "7, or a date like 2026-10-01", "7", 24),
-			newField(th, "override", "y to go past the lifetime ceiling", "", 24),
+			newField(th, "days", "7, or a date like 2026-10-01", "7", 24, fieldChars),
+			newField(th, "override", "y to go past the lifetime ceiling", "", 24, fieldChars),
 		},
 	}
 	f.submit = func(v []string) (tea.Cmd, error) {

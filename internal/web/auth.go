@@ -243,7 +243,9 @@ func (a *OIDCAuth) IsApprover(email string) bool { return a.approvers[strings.To
 
 func (a *OIDCAuth) Authenticate(r *http.Request) (Viewer, bool) {
 	var s session
-	if err := a.readSigned(r, sessionCookie, &s); err != nil || time.Now().After(s.Exp) {
+	// The callback never signs a session without an email; refuse one anyway
+	// so no future cookie shape can sign someone in as nobody.
+	if err := a.readSigned(r, sessionCookie, &s); err != nil || time.Now().After(s.Exp) || s.Email == "" {
 		return Viewer{}, false
 	}
 	return Viewer{Email: s.Email, Name: s.Name, Admin: a.admins[s.Email], Approver: a.approvers[s.Email]}, true
@@ -251,13 +253,22 @@ func (a *OIDCAuth) Authenticate(r *http.Request) (Viewer, bool) {
 
 // ---- signed cookies --------------------------------------------------------
 
-func (a *OIDCAuth) sign(payload []byte) string {
+// mac signs the cookie name with the payload. Both cookies share the key and
+// their JSON overlaps (expiry is "x" in each), so without the name a login
+// flow cookie would verify as a session with an empty identity.
+func (a *OIDCAuth) mac(name string, payload []byte) []byte {
 	mac := hmac.New(sha256.New, a.secret)
+	mac.Write([]byte(name))
+	mac.Write([]byte{0})
 	mac.Write(payload)
-	return base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return mac.Sum(nil)
 }
 
-func (a *OIDCAuth) verify(value string) ([]byte, error) {
+func (a *OIDCAuth) sign(name string, payload []byte) string {
+	return base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(a.mac(name, payload))
+}
+
+func (a *OIDCAuth) verify(name, value string) ([]byte, error) {
 	p, sig, ok := strings.Cut(value, ".")
 	if !ok {
 		return nil, errors.New("malformed cookie")
@@ -270,9 +281,7 @@ func (a *OIDCAuth) verify(value string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	mac := hmac.New(sha256.New, a.secret)
-	mac.Write(payload)
-	if !hmac.Equal(mac.Sum(nil), want) {
+	if !hmac.Equal(a.mac(name, payload), want) {
 		return nil, errors.New("bad signature")
 	}
 	return payload, nil
@@ -288,7 +297,7 @@ func (a *OIDCAuth) setSigned(w http.ResponseWriter, r *http.Request, name string
 	payload, _ := json.Marshal(v)
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
-		Value:    a.sign(payload),
+		Value:    a.sign(name, payload),
 		Path:     "/",
 		Expires:  exp,
 		HttpOnly: true,
@@ -302,7 +311,7 @@ func (a *OIDCAuth) readSigned(r *http.Request, name string, v any) error {
 	if err != nil {
 		return err
 	}
-	payload, err := a.verify(c.Value)
+	payload, err := a.verify(name, c.Value)
 	if err != nil {
 		return err
 	}

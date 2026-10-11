@@ -22,6 +22,9 @@ func (s *Service) advanceBudgetRecovery(ctx context.Context, a *Account, spec Bu
 		} else {
 			r.State = "recovering"
 			execute := func(kind BudgetActionOperation) (budgetProgress, error) {
+				if status := observed.Action.Status; status == "REVERSE_FAILURE" || status == "RESET_FAILURE" {
+					r.resubmitted = status
+				}
 				return r, s.provider.ExecuteBudgetAction(ctx, a.ProviderID, spec, r.ActionID, kind)
 			}
 			if c.Phase == "reverse" {

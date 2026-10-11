@@ -59,6 +59,7 @@ templ layout(pg page, title string) {
 				.row label { display:flex; flex-direction:column; font-size:.8rem; color:var(--muted); gap:.2rem; }
 				.muted { color:var(--muted); }
 				.error { color:var(--bad); }
+				.note { color:var(--warn); }
 				.bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; min-width:6rem; }
 				.bar span { display:block; height:100%; background:var(--ok); }
 				.bar.over span { background:var(--bad); }
@@ -179,8 +180,8 @@ templ pendingRow(pg page, q core.Request) {
 		<td>{ q.Name }</td>
 		<td class="wrap">@breakable(q.Owner)</td>
 		<td class="wrap">@breakable(q.RequestedBy) <span class="muted via">via { q.Via }</span></td>
-		<td>{ fmt.Sprintf("%dd", int(q.TTL.Hours()/24)) }</td>
-		<td>{ fmt.Sprintf("$%.0f", q.BudgetUSD) }</td>
+		<td>{ core.Lifetime(q.TTL) }</td>
+		<td>{ core.Dollars(q.BudgetUSD) }</td>
 		<td class="wrap">
 			{ q.Purpose }
 			if q.OverrideLimits {
@@ -191,9 +192,11 @@ templ pendingRow(pg page, q core.Request) {
 		<td class="actions">
 			if canApprove(pg, q) {
 				<form class="inline" hx-post={ "/requests/" + q.Name + "/approve" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
+					@versionField(q)
 					<button type="submit">Approve</button>
 				</form>
-				<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-prompt="Reason for denying (sent to the requester)">
+				<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-prompt="Reason for denying (shown in the notice and in history)">
+					@versionField(q)
 					<button type="submit" class="danger">Deny</button>
 				</form>
 			} else if pg.Viewer.Approver {
@@ -204,11 +207,18 @@ templ pendingRow(pg page, q core.Request) {
 			}
 			if canWithdraw(pg.Viewer, q) {
 				<form class="inline" hx-post={ "/requests/" + q.Name + "/withdraw" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-confirm={ "Withdraw the request for " + q.Name + "?" }>
+					@versionField(q)
 					<button type="submit">Withdraw</button>
 				</form>
 			}
 		</td>
 	</tr>
+}
+
+// versionField binds a form to the request version this row shows, so the
+// click is refused if the request changed or was replaced since.
+templ versionField(q core.Request) {
+	<input type="hidden" name="version" value={ q.Version() }/>
 }
 
 // breakable renders an identity with a break opportunity after the @, so a
@@ -221,15 +231,20 @@ templ breakable(s string) {
 	}
 }
 
+// pendingEditRow is the inline edit form. Every field holds the exact stored
+// value, and editSave sends only the fields that differ from it. The days
+// input takes part of a day, such as 1.5 for 36 hours, and the budget input
+// takes cents. The server refuses zero days.
 templ pendingEditRow(pg page, q core.Request) {
 	<tr id={ "req-" + q.Name }>
 		<td>{ q.Name }</td>
 		<td colspan="6">
 			<form hx-post={ "/requests/" + q.Name + "/edit" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
+				@versionField(q)
 				<div class="row">
 					<label>owner<input name="owner" value={ q.Owner } size="24"/></label>
-					<label>days<input name="ttl" type="number" min="1" value={ fmt.Sprintf("%d", int(q.TTL.Hours()/24)) } style="width:5rem"/></label>
-					<label>budget $<input name="budget" type="number" min="1" value={ fmt.Sprintf("%.0f", q.BudgetUSD) } style="width:6rem"/></label>
+					<label>{ dayLabel(q.TTL) }<input name="ttl" type="number" min="0" step="any" value={ dayValue(q.TTL) } style="width:5rem"/></label>
+					<label>budget $<input name="budget" type="number" min="0.01" step="0.01" value={ budgetValue(q.BudgetUSD) } style="width:6rem"/></label>
 					<label>purpose<input name="purpose" value={ q.Purpose } size="28" maxlength={ fmt.Sprint(core.MaxPurpose) } pattern={ tagPattern } title="letters, numbers, spaces, and _ . : / = + - @"/></label>
 					<label title="allow values above the ceilings">override limits<input type="checkbox" name="override" checked?={ q.OverrideLimits }/></label>
 					<button type="submit">Save</button>
@@ -288,7 +303,9 @@ templ accountTR(r accountRow) {
 		<td>{ r.Account.Owner }</td>
 		<td>
 			@statusPill(r.Account.Status)
-			if r.Account.LastError != "" {
+			if r.Account.LastError != "" && r.Account.Status == core.StatusCreating {
+				<div class="note">{ r.Account.LastError }</div>
+			} else if r.Account.LastError != "" {
 				<div class="error">{ r.Account.LastError }</div>
 			}
 			if r.Account.RepairError() != nil {
@@ -360,12 +377,15 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 					</dd>
 				}
 				if a.WarnedAt != nil {
-					<dt>owner warned</dt><dd>{ a.WarnedAt.Format("2006-01-02 15:04 MST") }</dd>
+					<dt>expiring notice sent</dt><dd>{ a.WarnedAt.Format("2006-01-02 15:04 MST") }</dd>
 				}
 				if a.CloseRequestedAt != nil {
 					<dt>close requested</dt><dd>{ a.CloseRequestedAt.Format("2006-01-02 15:04 MST") }</dd>
 				}
-				if a.LastError != "" {
+				if a.LastError != "" && a.Status == core.StatusCreating {
+					// A creation that waits in the root for placement: a note, not a failure.
+					<dt>placement</dt><dd class="note">{ a.LastError }</dd>
+				} else if a.LastError != "" {
 					<dt>failure</dt><dd class="error">{ a.LastError }</dd>
 				}
 				if a.RepairError() != nil {

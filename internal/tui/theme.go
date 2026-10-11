@@ -117,6 +117,9 @@ func (t theme) status(a *core.Account, now time.Time) (glyph, label string, c co
 		}
 		return "◌", "closing", t.busy
 	case core.StatusCreating:
+		if a.LastError != "" { // a placement note: it waits outside the OU
+			return "◌", "creating !", t.warning
+		}
 		return "◌", string(a.Status), t.busy
 	case core.StatusUnavailable:
 		return "!", "unavailable", t.danger

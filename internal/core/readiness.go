@@ -15,6 +15,14 @@ const (
 	handoffComplete = "complete"
 )
 
+// HandoffPending reports whether a newly created or adopted account has not
+// reached its initial handoff yet: protection, access or an identified owner
+// is still outstanding, and a later refresh continues. Accounts that
+// predate the handoff tag report false.
+func (a *Account) HandoffPending() bool {
+	return a.handoff == handoffPlacing || a.handoff == handoffPending
+}
+
 // reconcileReadiness progresses an account already in the Playground OU. Both
 // creation polling and Refresh enter here under opMu. Protection/access repair
 // continues for legacy and handed-off accounts; only explicitly enrolled accounts
@@ -38,8 +46,15 @@ func (s *Service) reconcileReadiness(ctx context.Context, a *Account) error {
 	if !a.Managed || a.ProviderState != "ACTIVE" || !a.Status.CanExtend() || a.CloseRequestedAt != nil || !a.ExpiresAt.After(s.Now()) {
 		return nil
 	}
-	if err := s.reconcileBudget(ctx, a); err != nil {
+	settled, err := s.reconcileBudget(ctx, a)
+	if err != nil {
 		return err
+	}
+	if !settled {
+		// Protection is still settling, for example a new action that AWS
+		// shows only on the next pass. That is progress, not failure: grant
+		// nothing new and leave the handoff for a later pass.
+		return nil
 	}
 	// A slow protection check can cross expiry; never issue a new grant then.
 	if !a.ExpiresAt.After(s.Now()) {

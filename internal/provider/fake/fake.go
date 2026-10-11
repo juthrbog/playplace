@@ -14,9 +14,16 @@ import (
 	"playplace/internal/core"
 )
 
+// Fixed organization IDs. An account's parent is one of these or any other
+// string, which stands for an OU outside playplace's control.
+const (
+	RootID = "r-fake"
+	OUID   = "ou-fake"
+)
+
 type account struct {
 	core.RemoteAccount
-	inOU bool
+	parent string
 }
 
 // Provider is safe for concurrent use.
@@ -31,10 +38,17 @@ type Provider struct {
 	DailyCost   float64
 	CostCalls   int // how many times Costs was called, for tests that watch spend on Cost Explorer
 
+	// ActivationPolls is how many CreateStatus calls see a new account as
+	// PENDING_ACTIVATION, as AWS shows it for a few minutes. The count starts
+	// with the call that finishes the creation, or with the first call after
+	// Settle finishes it. 0 means ACTIVE at once.
+	ActivationPolls int
+
 	accounts      map[string]*account
 	requests      map[string]*request
 	Budgets       map[string]float64
 	BudgetStates  map[string]core.BudgetSnapshot
+	Recipients    map[string]string // the address of each account's budget alerts and action
 	BudgetFailure string
 	BudgetCalls   int
 	RetireCalls   int
@@ -56,6 +70,8 @@ type request struct {
 	polls int
 	tags  map[string]string
 	email string
+
+	activation int // CreateStatus calls left until the new account is ACTIVE
 }
 
 func New() *Provider {
@@ -65,6 +81,7 @@ func New() *Provider {
 		requests:     map[string]*request{},
 		Budgets:      map[string]float64{},
 		BudgetStates: map[string]core.BudgetSnapshot{},
+		Recipients:   map[string]string{},
 		DailyCost:    1.5,
 		Users:        map[string]core.User{},
 		Grants:       map[string][]string{},
@@ -169,20 +186,32 @@ func (p *Provider) RevokeAccess(_ context.Context, id string, user core.User) er
 func (p *Provider) Name() string { return "fake" }
 
 func (p *Provider) EnsureOrganization(context.Context) (core.OrgInfo, error) {
-	return core.OrgInfo{OrgID: "o-fake", ManagementAccountID: "000000000000", RootID: "r-fake", PlaygroundOUID: "ou-fake"}, nil
+	return core.OrgInfo{OrgID: "o-fake", ManagementAccountID: "000000000000", RootID: RootID, PlaygroundOUID: OUID, PlaygroundOUName: "Playground"}, nil
 }
 
 // Seed adds an account straight into the OU, for tests that need history.
 func (p *Provider) Seed(r core.RemoteAccount) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// The fake owns its copy, so a test can compare its seed with the state.
+	r.Tags = maps.Clone(r.Tags)
 	if r.Tags == nil {
 		r.Tags = map[string]string{}
 	}
 	if r.Status == "" {
 		r.Status = "ACTIVE"
 	}
-	p.accounts[r.ProviderID] = &account{RemoteAccount: r, inOU: true}
+	p.accounts[r.ProviderID] = &account{RemoteAccount: r, parent: OUID}
+}
+
+// MoveAccount puts an account under another parent, as an operator would:
+// RootID, OUID, or any other ID for an OU playplace does not manage.
+func (p *Provider) MoveAccount(id, parent string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if a, ok := p.accounts[id]; ok {
+		a.parent = parent
+	}
 }
 
 func (p *Provider) RequestAccount(_ context.Context, req core.AccountRequest) (string, error) {
@@ -229,7 +258,26 @@ func (p *Provider) settle(r *request) {
 	r.State, r.ProviderID, r.CompletedAt = core.CreateSucceeded, pid, p.Now()
 	tags := map[string]string{}
 	maps.Copy(tags, r.tags)
-	p.accounts[pid] = &account{RemoteAccount: core.RemoteAccount{ProviderID: pid, Name: r.Name, Email: r.email, Status: "ACTIVE", JoinedAt: p.Now(), Tags: tags}}
+	status := "ACTIVE"
+	if p.ActivationPolls > 0 {
+		// ActivationPolls calls see the account pending. The call after
+		// them sees it ACTIVE.
+		status, r.activation = "PENDING_ACTIVATION", p.ActivationPolls+1
+	}
+	p.accounts[pid] = &account{RemoteAccount: core.RemoteAccount{ProviderID: pid, Name: r.Name, Email: r.email, Status: status, JoinedAt: p.Now(), Tags: tags}, parent: RootID}
+}
+
+// activate counts one CreateStatus call toward the activation of a new
+// account. Settle does not count, so it finishes a creation but not its
+// activation.
+func (p *Provider) activate(r *request) {
+	if r.activation == 0 {
+		return
+	}
+	r.activation--
+	if a, ok := p.accounts[r.ProviderID]; ok && r.activation == 0 && a.Status == "PENDING_ACTIVATION" {
+		a.Status = "ACTIVE"
+	}
 }
 
 func (p *Provider) CreateStatus(_ context.Context, id string) (core.CreateRequest, error) {
@@ -240,6 +288,7 @@ func (p *Provider) CreateStatus(_ context.Context, id string) (core.CreateReques
 		return core.CreateRequest{}, fmt.Errorf("no such request %s", id)
 	}
 	p.settle(r)
+	p.activate(r)
 	return r.CreateRequest, nil
 }
 
@@ -274,15 +323,23 @@ func (p *Provider) GetAccount(_ context.Context, id string) (core.RemoteAccount,
 }
 
 func (p *Provider) ListPlaygroundAccounts(context.Context) ([]core.RemoteAccount, error) {
+	return p.children(OUID), nil
+}
+
+func (p *Provider) ListRootAccounts(context.Context) ([]core.RemoteAccount, error) {
+	return p.children(RootID), nil
+}
+
+func (p *Provider) children(parent string) []core.RemoteAccount {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	var out []core.RemoteAccount
 	for _, a := range p.accounts {
-		if a.inOU {
+		if a.parent == parent {
 			out = append(out, cloneRemote(a.RemoteAccount))
 		}
 	}
-	return out, nil
+	return out
 }
 
 func (p *Provider) PlaceAccount(_ context.Context, id string, tags map[string]string) error {
@@ -292,10 +349,13 @@ func (p *Provider) PlaceAccount(_ context.Context, id string, tags map[string]st
 	if !ok {
 		return fmt.Errorf("no such account %s", id)
 	}
+	if a.parent != RootID && a.parent != OUID {
+		return fmt.Errorf("account %s is under %s, not the organization root", id, a.parent)
+	}
 	if err := checkTags(a.Tags, tags); err != nil {
 		return err
 	}
-	a.inOU = true
+	a.parent = OUID
 	maps.Copy(a.Tags, tags)
 	return nil
 }
@@ -359,6 +419,10 @@ func (p *Provider) EnsureBudget(_ context.Context, id string, spec core.BudgetSp
 		return core.BudgetProtection{}, err
 	}
 	p.Budgets[id] = spec.LimitUSD
+	// Like AWS, a new recipient does not change when or how the action acts.
+	// An existing action still returns its observation below, so health
+	// stays as it is.
+	p.Recipients[id] = spec.Email
 	s := p.BudgetStates[id]
 	s.LimitUSD = spec.LimitUSD
 	defer func() { p.BudgetStates[id] = s }()
@@ -373,7 +437,10 @@ func (p *Provider) EnsureBudget(_ context.Context, id string, spec core.BudgetSp
 		if spec.Recovery != nil {
 			return core.BudgetProtection{}, fmt.Errorf("action missing with recovery present")
 		}
+		// Like AWS: the new action exists in STANDBY at once, but its
+		// configuration is observed only on the next pass.
 		s.ActionID, s.ActionStatus = "fake-"+id, "STANDBY"
+		return core.BudgetProtection{State: "setup-pending", ActionID: s.ActionID}, nil
 	}
 	// Simulate remote completion, not the recovery policy: only an explicit
 	// ExecuteBudgetAction starts a reverse/reset. Core alone reads approval,

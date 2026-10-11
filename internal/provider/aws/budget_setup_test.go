@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -88,6 +89,46 @@ func TestMissingBudgetAndNotificationsAreCreated(t *testing.T) {
 	}
 }
 
+// A budget created while --alert-email was empty has no owned notifications.
+// When the flag is set later, the existing budget gets both of them.
+func TestExistingBudgetGainsAlertsWhenEmailIsSet(t *testing.T) {
+	spec := budgetSpec()
+	spec.PolicyID, spec.RoleARN = "", ""
+	var mu sync.Mutex
+	var created []bt.Notification
+	p := budgetHTTP(t, func(name string, in map[string]any) (any, int) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch name {
+		case "DescribeBudget":
+			return map[string]any{"Budget": &bt.Budget{BudgetName: budgetName(budgetTestID), BudgetType: bt.BudgetTypeCost, TimeUnit: bt.TimeUnitMonthly, BudgetLimit: &bt.Spend{Amount: aws.String("100"), Unit: aws.String("USD")}, FilterExpression: linkedAccountFilter(budgetTestID), Metrics: []bt.Metric{bt.MetricUnblendedCost}}}, 200
+		case "DescribeNotificationsForBudget":
+			// Only an operator alert on another threshold.
+			return map[string]any{"Notifications": []bt.Notification{{NotificationType: bt.NotificationTypeActual, ComparisonOperator: bt.ComparisonOperatorGreaterThan, Threshold: 35, ThresholdType: bt.ThresholdTypePercentage}}}, 200
+		case "CreateNotification":
+			n := in["Notification"].(map[string]any)
+			subs := in["Subscribers"].([]any)
+			if len(subs) != 1 || subs[0].(map[string]any)["Address"] != spec.Email {
+				t.Errorf("wrong subscribers: %v", in)
+			}
+			created = append(created, bt.Notification{NotificationType: bt.NotificationType(n["NotificationType"].(string)), ComparisonOperator: bt.ComparisonOperator(n["ComparisonOperator"].(string)), Threshold: n["Threshold"].(float64), ThresholdType: bt.ThresholdType(n["ThresholdType"].(string))})
+			return map[string]any{}, 200
+		default:
+			return unexpectedBudgetAPI(t, name)
+		}
+	})
+	r, err := p.EnsureBudget(context.Background(), budgetTestID, spec)
+	if err != nil || !r.Configured || r.State != "alerts-only" {
+		t.Fatalf("alerts on an existing budget: %+v %v", r, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := ownedNotifications()
+	if len(created) != len(want) || !sameNotification(created[0], want[0]) || !sameNotification(created[1], want[1]) {
+		t.Fatalf("created %+v, want %+v", created, want)
+	}
+}
+
 func TestActionRecipientRotationDoesNotRewriteAnExecutedTrigger(t *testing.T) {
 	spec := budgetSpec()
 	action := budgetAction(spec, bt.ActionStatusExecutionSuccess)
@@ -113,7 +154,7 @@ func TestActionRecipientRotationDoesNotRewriteAnExecutedTrigger(t *testing.T) {
 		}
 	})
 	r, err := p.reconcileBudgetAction(context.Background(), budgetTestInfo, budgetTestID, spec)
-	if err != nil || r.Configured {
-		t.Fatalf("must observe repaired configuration on next pass: %+v %v", r, err)
+	if err != nil || r.Action == nil || r.Action.Status != string(bt.ActionStatusExecutionSuccess) || !r.Action.RestrictionAttached {
+		t.Fatalf("recipient rotation must keep the observed restriction: %+v %v", r, err)
 	}
 }

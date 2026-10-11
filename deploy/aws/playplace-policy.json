@@ -10,6 +10,7 @@
         "organizations:DescribeCreateAccountStatus",
         "organizations:ListRoots",
         "organizations:ListOrganizationalUnitsForParent",
+        "organizations:DescribeOrganizationalUnit",
         "organizations:ListAccountsForParent",
         "organizations:ListParents",
         "organizations:ListCreateAccountStatus",
@@ -28,22 +29,6 @@
         "organizations:UntagResource"
       ],
       "Resource": "*"
-    },
-    {
-      "Sid": "OrganizationsBootstrapOptional",
-      "Effect": "Allow",
-      "Action": [
-        "organizations:CreateOrganization",
-        "organizations:CreateOrganizationalUnit"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "OrganizationsBootstrapServiceRoleOptional",
-      "Effect": "Allow",
-      "Action": "iam:CreateServiceLinkedRole",
-      "Resource": "arn:aws:iam::*:role/aws-service-role/organizations.amazonaws.com/*",
-      "Condition": {"StringEquals": {"iam:AWSServiceName": "organizations.amazonaws.com"}}
     },
     {
       "Sid": "BudgetsPerAccount",

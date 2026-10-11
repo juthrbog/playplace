@@ -12,11 +12,12 @@ Intervals and waits (`--every`, `--close-alert-after`, `create --timeout`) need 
 
 | flag | default | meaning |
 |---|---|---|
-| `--ou-name` | `Playground` | organizational unit that holds playground accounts |
+| `--ou-name` | `Playground` | name of the organizational unit that holds playground accounts. It must be a direct child of the organization root. For an OU nested in another OU, use `--ou-id`. Only `playplace init` creates the OU, and other commands fail when it is missing. Run `init` only when no Playground OU exists yet, because it creates a new, empty OU under the root |
+| `--ou-id` | | ID of the organizational unit that holds playground accounts, for example `ou-ab12-cd34ef56`. The OU can be at any depth, also nested in other OUs. Playplace reads it by ID and does not use `--ou-name`. Playplace refuses to start when you also set `--ou-name`. `init` never creates an OU for it. The OU must hold only accounts that you want playplace to manage. On the first refresh, playplace takes over every active account in the OU that does not have the `playplace:managed=true` tag. The account keeps each valid playplace owner, expires and budget tag, and gets the defaults for the rest. playplace closes the account when its lifetime ends. It starts the closure at once if the account has expired or has a `playplace:close-requested` tag. Move every other account out of the OU before you set `--ou-id`. Then run `init` before any other command, and check the OU name and the accounts that it lists. See [the deployment guide](deploy.md#the-playground-ou) |
 | `--email-pattern` | `aws+pp-{name}@example.com` | root email for new accounts; `{name}` is replaced |
-| `--default-ttl` | `14d` | lifetime when a request does not say |
-| `--default-budget` | `50` | monthly budget in USD when a request does not say |
-| `--warn-before` | `3d` | how far ahead of expiry to warn the owner |
+| `--default-ttl` | `14d` | lifetime when a request does not say; must be positive and at most `--max-ttl` |
+| `--default-budget` | `50` | monthly budget in USD when a request does not say; at most `--max-budget` |
+| `--warn-before` | `3d` | how far ahead of expiry to send the *expiring* [notice](#notices); must be shorter than `--default-ttl`; `0` turns the notice off |
 | `--close-alert-after` | `24h` | positive duration before unconfirmed closure triggers an alert and reconciliation error; checked on each refresh |
 | `--alert-email` | | single recipient for AWS Budgets alerts; required for enforcement |
 | `--budget-scp-id` | | separately deployed provisioning-deny SCP; empty means alerts-only |
@@ -34,7 +35,7 @@ budgets stop provisioning.
 | `--max-ttl` | `90d` | longest lifetime a request may ask for; admins can override; `0` removes the limit |
 | `--max-budget` | `500` | largest monthly budget a request may ask for; admins can override; `0` removes the limit |
 | `--max-per-owner` | `1` | open accounts plus pending requests one person may hold; `0` removes the limit |
-| `--request-ttl` | `7d` | how long a request waits for approval before it is dropped |
+| `--request-ttl` | `7d` | how long a request waits for approval before it is dropped; must be positive |
 | `--allow-self-approval` | off | let requesters approve their own requests |
 
 ## Owner access
@@ -53,7 +54,7 @@ These belong to `playplace serve`.
 | flag | default | meaning |
 |---|---|---|
 | `--addr` | `:8080` | listen address |
-| `--every` | `1m` | refresh interval, with a unit |
+| `--every` | `1m` | refresh interval, with a unit. Keep it at `30m` or less. Budget protection that is still settling after two hours fails the pass, and a budget recovery can take four passes. See [Budget protection](budgets.md) |
 | `--no-worker` | off | serve the UI without the periodic refresh; run `reconcile` elsewhere |
 | `--base-url` | | public URL, used in notifications and Slack messages |
 | `--oidc-preset` | | `google` fills in the issuer |
@@ -65,8 +66,11 @@ These belong to `playplace serve`.
 | `--approvers` | | comma-separated emails that may approve and deny |
 | `--session-secret` | random | HMAC key for session cookies; set `PLAYPLACE_SESSION_SECRET` so sessions survive restarts |
 
-Without any `--oidc-*` flag the UI has no sign-in and every visitor is an
-admin. Use that only on a private network.
+Sign-in turns on when `--oidc-issuer` or `--oidc-preset` is set. Without
+either, the UI has no sign-in and every visitor is an admin. Use that only on
+a private network. If any other sign-in flag in this table is set without an
+issuer, `serve` refuses to start, so a lost issuer setting cannot open the UI
+to everyone.
 
 Sign-in rejects an ID token whose `email_verified` claim is `false`. A token
 without the claim is accepted, which suits Google and most workplace
@@ -87,10 +91,35 @@ Point the Slack app's interactivity URL at `BASE_URL/slack/interact`.
 
 | flag | default | meaning |
 |---|---|---|
-| `--slack-webhook` | | incoming webhook for lifecycle notifications |
+| `--slack-webhook` | | Slack incoming webhook. playplace posts every lifecycle notice to its channel. Without it, notices go only to the log. See [Notices](#notices) |
 | `--history` | `file` | `file`, `cloudwatch`, or `none` |
 | `--history-file` | `~/.playplace/history.jsonl` | for `--history file` |
 | `--history-log-group` | `/playplace/history` | for `--history cloudwatch` |
+
+### Notices
+
+A lifecycle notice is a short message that playplace sends when a request or
+an account changes. playplace sends one for a new, approved, edited, denied,
+or expired request, for a ready, expiring, closed, or overdue account, and
+for a change in budget protection. Every command that changes a request or
+an account can send one, not only `serve`.
+
+playplace writes each notice to its log at `warn`, so the default
+`--log-level` shows it. With `--slack-webhook`, playplace also posts the
+notice to the webhook's channel and keeps the log line. The log then records
+what playplace sent. If the post fails, the log has the text of the notice
+next to the `notify` error. The deployment guide alerts on error logs, so a
+notice at `warn` does not raise an alert.
+
+playplace does not send a notice to a person. A notice names the account
+owner, or `approvers` for a new request. The requester is not a recipient.
+The Slack app (see [Slack](#slack)) posts approval messages for web
+requests only. It does not carry notices.
+
+Without `--slack-webhook`, `serve` logs one warning at startup. Other
+commands do not warn. They run on every call or, like `reconcile`, on a
+schedule, so the same warning would repeat on every run. Their notices are in
+their own log output. In the TUI, notices show in the notifications window.
 
 ## AWS
 
@@ -99,4 +128,4 @@ Point the Slack app's interactivity URL at `BASE_URL/slack/interact`.
 | `--aws-profile` | named profile |
 | `--aws-region` | region for Organizations calls |
 | `--aws-endpoint` | endpoint override, for LocalStack |
-| `--log-level` | `debug`, `info`, `warn`, or `error` |
+| `--log-level` | `debug`, `info`, `warn` (the default), or `error`. [Notices](#notices) log at `warn`, so `error` hides them |

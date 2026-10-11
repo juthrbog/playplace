@@ -6,6 +6,7 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
@@ -201,17 +202,12 @@ func (s *Server) rows(ctx context.Context, v Viewer, showAll bool, force bool) (
 	if err := s.svc.WarmCosts(ctx, ids, force); err != nil {
 		s.log.Warn("costs", "err", err)
 	}
-	now := time.Now()
-	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	now := s.svc.Now()
 	rows := make([]accountRow, 0, len(mine))
 	for _, a := range mine {
 		r := accountRow{Account: a}
 		if pts, ok := s.svc.CostsCached(a.ProviderID, 31); ok {
-			for _, c := range pts {
-				if !c.Date.Before(monthStart) {
-					r.Spend += c.AmountUSD
-				}
-			}
+			r.Spend = core.MonthToDate(pts, now)
 		}
 		rows = append(rows, r)
 	}
@@ -275,14 +271,40 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	s.pendingAndTable(w, r)
 }
 
+// requestRef is the request a form acts on: the name from the path and the
+// version the page rendered into the form's hidden field.
+func requestRef(r *http.Request) core.RequestRef {
+	return core.RequestRef{Name: r.PathValue("name"), Version: r.FormValue("version")}
+}
+
+// failRequest reports a refused decision on a request. When the request
+// changed or ended after the page was loaded, the pending card is rendered
+// again with the error, so the viewer sees what is waiting now.
+func (s *Server) failRequest(w http.ResponseWriter, r *http.Request, err error) {
+	stale := errors.Is(err, core.ErrRequestChanged) || errors.Is(err, core.ErrNotFound)
+	if !stale || r.Header.Get("HX-Request") != "true" {
+		s.fail(w, r, err)
+		return
+	}
+	s.log.Warn("request failed", "path", r.URL.Path, "err", err)
+	// Core drops the cache when it refuses a version. withdraw looks the
+	// request up before core sees the version, so a request that is gone
+	// arrives here with the cache untouched.
+	s.svc.Invalidate()
+	w.Header().Set("HX-Reswap", "none")
+	w.Header().Set("X-Form-Error", "1")
+	s.render(w, r, errorFragment(err.Error()))
+	s.render(w, r, pendingCard(s.pageFor(r)))
+}
+
 func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 	v := ViewerFrom(r.Context())
 	if !v.Approver {
 		s.forbid(w, r)
 		return
 	}
-	if _, err := s.svc.Approve(r.Context(), r.PathValue("name"), v.Email); err != nil {
-		s.fail(w, r, err)
+	if _, err := s.svc.Approve(r.Context(), requestRef(r), v.Email); err != nil {
+		s.failRequest(w, r, err)
 		return
 	}
 	s.pendingAndTable(w, r)
@@ -298,8 +320,8 @@ func (s *Server) deny(w http.ResponseWriter, r *http.Request) {
 	if reason == "" {
 		reason = r.Header.Get("HX-Prompt")
 	}
-	if err := s.svc.Deny(r.Context(), r.PathValue("name"), v.Email, reason); err != nil {
-		s.fail(w, r, err)
+	if err := s.svc.Deny(r.Context(), requestRef(r), v.Email, reason); err != nil {
+		s.failRequest(w, r, err)
 		return
 	}
 	s.pendingAndTable(w, r)
@@ -353,42 +375,58 @@ func (s *Server) editSave(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	e, err := RequestEditFromForm(r)
+	// The form was filled from the record that its version names. If the
+	// record changed since, UpdateRequest refuses the version, whatever the
+	// edit holds.
+	q, err := s.svc.GetRequest(r.Context(), r.PathValue("name"))
+	if err != nil {
+		s.failRequest(w, r, err)
+		return
+	}
+	e, err := RequestEditFromForm(r, q)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	if _, err := s.svc.UpdateRequest(r.Context(), r.PathValue("name"), v.Email, e); err != nil {
-		s.fail(w, r, err)
+	if _, err := s.svc.UpdateRequest(r.Context(), requestRef(r), v.Email, e); err != nil {
+		s.failRequest(w, r, err)
 		return
 	}
 	s.pendingAndTable(w, r)
 }
 
-// RequestEditFromForm reads owner, days, budget, purpose, and override. Bad
+// RequestEditFromForm reads owner, days, budget, purpose, and override from
+// an edit form, where from is the request that filled the form. A field that
+// still holds its prefill (the value the form opened with) is left out of
+// the edit, so an untouched lifetime or budget keeps its exact value. Bad
 // numbers are errors, as on the request form, not silently ignored fields.
 // The edit form always carries the override checkbox, so its absence means
 // the box was unticked.
-func RequestEditFromForm(r *http.Request) (core.RequestEdit, error) {
-	override := r.FormValue("override") == "on"
-	e := core.RequestEdit{Owner: strings.TrimSpace(r.FormValue("owner")), OverrideLimits: &override}
-	if val := r.FormValue("ttl"); val != "" {
+func RequestEditFromForm(r *http.Request, from core.Request) (core.RequestEdit, error) {
+	var e core.RequestEdit
+	if owner := strings.TrimSpace(r.FormValue("owner")); owner != from.Owner {
+		e.Owner = owner
+	}
+	if val := r.FormValue("ttl"); val != "" && val != dayValue(from.TTL) {
 		d, err := parseDuration(val)
 		if err != nil {
 			return e, err
 		}
 		e.TTL = d
 	}
-	if val := r.FormValue("budget"); val != "" {
+	if val := r.FormValue("budget"); val != "" && val != budgetValue(from.BudgetUSD) {
 		b, err := parseBudget(val)
 		if err != nil {
 			return e, err
 		}
 		e.BudgetUSD = b
 	}
-	if _, ok := r.Form["purpose"]; ok {
+	if _, ok := r.Form["purpose"]; ok && r.FormValue("purpose") != from.Purpose {
 		p := r.FormValue("purpose")
 		e.Purpose = &p
+	}
+	if override := r.FormValue("override") == "on"; override != from.OverrideLimits {
+		e.OverrideLimits = &override
 	}
 	return e, nil
 }
@@ -397,15 +435,27 @@ func (s *Server) withdraw(w http.ResponseWriter, r *http.Request) {
 	v := ViewerFrom(r.Context())
 	q, err := s.svc.GetRequest(r.Context(), r.PathValue("name"))
 	if err != nil {
-		s.fail(w, r, err)
+		s.failRequest(w, r, err)
 		return
 	}
+	// Permission is checked on the current record; Withdraw then refuses
+	// it unless it is still the version the page showed. A viewer whose
+	// page is stale can fail the permission check because the request
+	// changed hands: an admin gave it to another owner, or it ended and
+	// someone else submitted a new one with the same name. That viewer gets
+	// the stale-page refusal and a fresh card, not a 403. The message names
+	// nobody, because not every such viewer is allowed to see the request.
+	ref := requestRef(r)
 	if !canWithdraw(v, q) {
+		if ref.Version != q.Version() {
+			s.failRequest(w, r, fmt.Errorf("%w: the request for %s you loaded has changed or ended; look again", core.ErrRequestChanged, ref.Name))
+			return
+		}
 		s.forbid(w, r)
 		return
 	}
-	if err := s.svc.Withdraw(r.Context(), q.Name, v.Email); err != nil {
-		s.fail(w, r, err)
+	if err := s.svc.Withdraw(r.Context(), ref, v.Email); err != nil {
+		s.failRequest(w, r, err)
 		return
 	}
 	s.pendingAndTable(w, r)

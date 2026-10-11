@@ -314,7 +314,7 @@ func (m *model) poll() tea.Cmd {
 // loadWith stamps the result with the current sequence number. Init cannot
 // change the model, so it calls this directly and its load keeps sequence 0.
 func (m model) loadWith(forceInventory, forceCosts bool) tea.Cmd {
-	svc, ctx, seq := m.svc, m.ctx, m.loadSeq
+	svc, ctx, seq, clock := m.svc, m.ctx, m.loadSeq, m.now
 	return func() tea.Msg {
 		accounts, err := svc.Inventory(ctx, forceInventory)
 		if err != nil {
@@ -328,20 +328,17 @@ func (m model) loadWith(forceInventory, forceCosts bool) tea.Cmd {
 		}
 		_ = svc.WarmCosts(ctx, ids, forceCosts)
 
-		now := time.Now()
-		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+		now := clock()
 		today := now.UTC().Truncate(24 * time.Hour)
 		rows := make([]row, 0, len(accounts))
 		for _, a := range accounts {
 			r := row{Account: a}
 			if pts, ok := svc.CostsCached(a.ProviderID, 31); ok && a.ProviderID != "" {
 				r.Points = pts
+				r.MTD = core.MonthToDate(pts, now)
 				byDay := map[string]float64{}
 				for _, p := range pts {
 					byDay[p.Date.UTC().Format("2006-01-02")] = p.AmountUSD
-					if !p.Date.Before(monthStart) {
-						r.MTD += p.AmountUSD
-					}
 				}
 				if len(pts) > 0 {
 					for d := today.Add(-29 * 24 * time.Hour); !d.After(today); d = d.Add(24 * time.Hour) {
@@ -727,7 +724,8 @@ func (m model) openWithdraw() (tea.Model, tea.Cmd) {
 		return m, m.setFlash("select a pending request to withdraw", true)
 	}
 	a := r.Account
-	svc, ctx, name, who := m.svc, m.ctx, a.Name, m.opts.Operator
+	// The dialog acts on the row as loaded; a changed request is refused.
+	svc, ctx, ref, name, who := m.svc, m.ctx, a.RequestRef(), a.Name, m.opts.Operator
 	m.dialog = &dialog{
 		title:       "Withdraw " + a.Name,
 		body:        fmt.Sprintf("Withdraw the request for %s by %s? It leaves the queue without a notice to approvers.", a.Name, a.RequestedBy),
@@ -737,7 +735,7 @@ func (m model) openWithdraw() (tea.Model, tea.Cmd) {
 		openedAt:    m.now(),
 		confirm: func() tea.Cmd {
 			return func() tea.Msg {
-				if err := svc.Withdraw(ctx, name, who); err != nil {
+				if err := svc.Withdraw(ctx, ref, who); err != nil {
 					return actionMsg{err: err}
 				}
 				return actionMsg{flash: "✓ withdrew " + name}
@@ -799,8 +797,10 @@ func (m model) openApprove() (tea.Model, tea.Cmd) {
 		return m, m.setFlash("select a pending request to approve", true)
 	}
 	a := r.Account
-	svc, ctx, name, who := m.svc, m.ctx, a.Name, m.opts.Operator
-	body := fmt.Sprintf("Approve %s for %s: %s/month for %d days?", a.Name, a.Owner, money(a.BudgetUSD), int(a.TTL.Hours()/24))
+	// The dialog shows the row as loaded and approves exactly that version,
+	// so it shows the exact budget and lifetime, not the compact table form.
+	svc, ctx, ref, who := m.svc, m.ctx, a.RequestRef(), m.opts.Operator
+	body := fmt.Sprintf("Approve %s for %s: %s/month for %s?", a.Name, a.Owner, core.Dollars(a.BudgetUSD), core.Lifetime(a.TTL))
 	if a.Purpose != "" {
 		body += " Purpose: " + a.Purpose
 	}
@@ -815,7 +815,7 @@ func (m model) openApprove() (tea.Model, tea.Cmd) {
 		openedAt: m.now(),
 		confirm: func() tea.Cmd {
 			return func() tea.Msg {
-				acc, err := svc.Approve(ctx, name, who)
+				acc, err := svc.Approve(ctx, ref, who)
 				if err != nil {
 					return actionMsg{err: err}
 				}
@@ -832,17 +832,17 @@ func (m model) openDeny() (tea.Model, tea.Cmd) {
 		return m, m.setFlash("select a pending request to deny", true)
 	}
 	a := r.Account
-	svc, ctx, name, who := m.svc, m.ctx, a.Name, m.opts.Operator
+	svc, ctx, ref, name, who := m.svc, m.ctx, a.RequestRef(), a.Name, m.opts.Operator
 	m.dialog = &dialog{
 		title:       "Deny " + a.Name,
-		body:        fmt.Sprintf("Deny the request for %s by %s? The requester will be notified.", a.Name, a.RequestedBy),
+		body:        fmt.Sprintf("Deny the request for %s by %s? playplace sends a notice that it was denied.", a.Name, a.RequestedBy),
 		buttons:     [2]string{"Deny", "Cancel"},
 		selected:    1,
 		destructive: true,
 		openedAt:    m.now(),
 		confirm: func() tea.Cmd {
 			return func() tea.Msg {
-				if err := svc.Deny(ctx, name, who, "denied in the TUI"); err != nil {
+				if err := svc.Deny(ctx, ref, who, "denied in the TUI"); err != nil {
 					return actionMsg{err: err}
 				}
 				return actionMsg{flash: "✓ denied " + name}

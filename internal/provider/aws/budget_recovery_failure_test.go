@@ -87,8 +87,8 @@ func TestRecoveryFailuresPreserveApprovalAndMutationOrder(t *testing.T) {
 			if _, err := h.svc.SetBudget(ctx, budgetTestID, 120, "admin", "overlap", false); err == nil {
 				t.Fatal("overlapping approval accepted")
 			}
-			if _, err := h.svc.Refresh(ctx); err == nil {
-				t.Fatal("accepted reverse is not completion")
+			if _, err := h.svc.Refresh(ctx); err != nil || h.snapshot().tags[core.TagBudgetHealth] != "recovering" {
+				t.Fatalf("accepted reverse is not completion: %v", err)
 			}
 			r = h.snapshot()
 			if !slices.Equal(r.mutations, []string{"persist-reverse", "update", "reverse"}) {
@@ -114,8 +114,8 @@ func TestRecoveryResumesExistingResetIntentWithoutReversingNewExecution(t *testi
 				r.tags[core.TagBudgetRecovery] = old
 			})
 			ctx := context.Background()
-			if _, err := h.svc.Refresh(ctx); err == nil {
-				t.Fatal("reset acceptance reported complete")
+			if _, err := h.svc.Refresh(ctx); err != nil || h.snapshot().tags[core.TagBudgetHealth] != "recovering" {
+				t.Fatalf("reset acceptance reported complete: %v", err)
 			}
 			if got := h.snapshot().mutations; !slices.Equal(got, []string{"reset"}) {
 				t.Fatalf("legacy reset did not resume: %v", got)
@@ -151,7 +151,7 @@ func TestRecoveryApprovalDoesNotCrossMonthsOrActionIdentity(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			h := newRecoveryFlow(t)
 			ctx := context.Background()
-			if a, err := h.svc.SetBudget(ctx, budgetTestID, 100, "admin", "testing", false); a == nil || err == nil {
+			if a, err := h.svc.SetBudget(ctx, budgetTestID, 100, "admin", "testing", false); a == nil || err != nil || a.BudgetHealth != "recovering" {
 				t.Fatalf("approval: %+v %v", a, err)
 			}
 			h.mu.Lock()

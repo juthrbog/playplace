@@ -90,9 +90,10 @@ func validMoney(n float64) bool {
 }
 
 // BudgetProtection carries budget configuration observations. An enforced
-// adapter returns Action only after observing the desired configuration;
-// core owns recovery and derives protection health from that observation.
-// Configured protection is not a spending cap.
+// adapter returns Action only after it observes the desired trigger
+// (threshold, notification type and approval model). A recipient change does
+// not hold back the observation. Core owns recovery and derives protection
+// health from that observation. Configured protection is not a spending cap.
 type BudgetProtection struct {
 	State      string
 	ActionID   string
@@ -100,8 +101,9 @@ type BudgetProtection struct {
 	Action     *BudgetActionObservation
 }
 
-// A nil observation means action setup/repair is not yet confirmed. An observed
-// empty or unknown status is different: core must report it as an error.
+// A nil observation means action setup or a trigger repair is not yet
+// confirmed. An observed empty or unknown status is different: core must
+// report it as an error.
 type BudgetActionObservation struct {
 	Status              string
 	RestrictionAttached bool
@@ -113,6 +115,10 @@ type budgetProgress struct {
 	BudgetProtection
 	recoveryPhase string
 	recoveryDone  bool
+	// resubmitted names an AWS failure status (REVERSE_FAILURE, RESET_FAILURE)
+	// whose operation this pass sent again. A retried failure is not
+	// progress, so the pass still fails.
+	resubmitted string
 }
 
 type BudgetActionOperation string
@@ -135,7 +141,18 @@ func (s *Service) budgetSpec(a *Account) (BudgetSpec, error) {
 	return BudgetSpec{LimitUSD: a.BudgetUSD, Email: s.cfg.AlertEmail, PolicyID: s.cfg.BudgetPolicyID, RoleARN: s.cfg.BudgetActionRole, Recovery: r, Now: s.Now()}, err
 }
 
-func (s *Service) reconcileBudget(ctx context.Context, a *Account) error {
+// protectionSettleAlert is how long protection can stay settling, that is in a
+// state that a later pass completes (setup-pending, restricting, recovering,
+// retiring), before reconciliation reports it as a failure. Normal progress
+// takes two to four passes: minutes with the serve worker, under an hour with
+// a 15-minute scheduled reconcile. The overdue error and the docs say "two
+// hours": change them together.
+const protectionSettleAlert = 2 * time.Hour
+
+// reconcileBudget reports settled when protection is observed configured.
+// Unsettled protection without an error is progress: callers must not grant
+// new access or hand off the account yet, and must not report a failure.
+func (s *Service) reconcileBudget(ctx context.Context, a *Account) (settled bool, err error) {
 	spec, err := s.budgetSpec(a)
 	var p BudgetProtection
 	if err == nil {
@@ -151,7 +168,8 @@ func (s *Service) reconcileBudget(ctx context.Context, a *Account) error {
 	if err == nil && p.Action != nil {
 		progress, err = s.advanceBudgetRecovery(ctx, a, spec, p)
 	}
-	return s.recordBudgetProtection(ctx, a, spec, progress, err)
+	err = s.recordBudgetProtection(ctx, a, spec, progress, err)
+	return err == nil && progress.Configured, err
 }
 
 // retireBudget runs independently of closure confirmation tags, so failures and
@@ -223,8 +241,20 @@ func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec B
 		s.Invalidate()
 		if a.BudgetHealth != state {
 			s.audit(ctx, "budget-protection", a, ActorSystem, "", "Budget protection: "+state, map[string]string{"action_id": p.ActionID, "error": message})
-			if state == "error" || state == "restricted" || state == "retired" || a.BudgetHealth == "restricted" || a.BudgetHealth == "recovering" || a.BudgetHealth == "error" || a.BudgetHealth == "setup-pending" {
-				s.notifyAll(ctx, "Playground budget: "+a.Name, "Budget protection is "+state+". "+message, a.Owner, a.ProviderID)
+			// Finishing setup is not news: the ready notice covers a new
+			// account, and a repaired configuration changes nothing for people.
+			if state == "error" || state == "restricted" || state == "retired" || a.BudgetHealth == "restricted" || a.BudgetHealth == "recovering" || a.BudgetHealth == "error" {
+				body := "Budget protection is " + state + ". " + message
+				switch {
+				case a.BudgetHealth == "error" && state == "setup-pending":
+					// The step from setup-pending to ready is silent, so this
+					// notice is the last one for a repair that succeeds.
+					body = "Budget protection is being repaired (setup-pending). No further notice is sent when it is ready."
+				case a.BudgetHealth == "error" && state == "restricting":
+					// restricting ends in restricted, which sends its own notice.
+					body = "Budget protection is being repaired (restricting). AWS is applying the budget restriction, and a notice follows when it is in place."
+				}
+				s.notifyAll(ctx, "Playground budget: "+a.Name, body, a.Owner, a.ProviderID)
 			}
 		}
 		a.BudgetHealth, a.BudgetError = state, string(short)
@@ -241,10 +271,22 @@ func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec B
 	if err != nil {
 		return fmt.Errorf("budget for %s: %w", a.Name, err)
 	}
-	if !p.Configured {
-		return fmt.Errorf("budget for %s: %s; reconciliation will retry", a.Name, state)
+	if p.resubmitted != "" {
+		return fmt.Errorf("budget for %s: AWS reported %s. Playplace sent the operation again, and the next pass checks it", a.Name, p.resubmitted)
 	}
-	return nil
+	if p.Configured {
+		return nil
+	}
+	// Settling protection is progress, not failure. For example, AWS shows a
+	// new action only on the next pass. BudgetChecked records when this state
+	// began, and an unreadable value counts as overdue. Fail the pass only when
+	// the state lasts too long, so that protection that never settles still
+	// alerts.
+	since, perr := time.Parse(time.RFC3339, a.BudgetChecked)
+	if perr == nil && s.Now().Sub(since) < protectionSettleAlert {
+		return nil
+	}
+	return fmt.Errorf("budget for %s: protection is still %s after more than two hours (since %q). Inspect the account's budget action in AWS Budgets", a.Name, state, a.BudgetChecked)
 }
 
 // SetBudget is an operator operation. HTTP callers MUST authorize Admin first;
@@ -280,7 +322,8 @@ func (s *Service) SetBudget(ctx context.Context, ref string, amount float64, act
 		return nil, errors.New("a budget recovery is pending; reconcile it before another change")
 	}
 	if amount == a.BudgetUSD {
-		return a, s.reconcileBudget(ctx, a)
+		_, err := s.reconcileBudget(ctx, a)
+		return a, err
 	}
 	spec, err := s.budgetSpec(a)
 	if err != nil {
@@ -326,9 +369,10 @@ func (s *Service) SetBudget(ctx context.Context, ref string, amount float64, act
 	}
 	s.Invalidate()
 	s.audit(ctx, "budget-changed", a, actor, "", reason, map[string]string{"old": fmt.Sprintf("%.2f", old), "new": fmt.Sprintf("%.2f", amount), "override": strconv.FormatBool(override)})
-	err = s.reconcileBudget(ctx, a)
-	if err != nil {
-		return a, fmt.Errorf("budget change saved; protection reconciliation pending: %w", err)
+	// A recovery or limit change that a later pass completes is not an
+	// error: a.BudgetHealth tells the caller where protection stands.
+	if _, err := s.reconcileBudget(ctx, a); err != nil {
+		return a, fmt.Errorf("budget change saved, but the protection update failed and reconciliation will retry it: %w", err)
 	}
 	return a, nil
 }

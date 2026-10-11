@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -92,6 +93,17 @@ func do(t *testing.T, ts *httptest.Server, method, path, user string, admin bool
 	return doAs(t, ts, method, path, user, admin, false, form, htmx)
 }
 
+// versionIn reads the request version a page rendered into the forms of a
+// pending row, which is what a browser submits with the click.
+func versionIn(t *testing.T, body, name string) url.Values {
+	t.Helper()
+	m := regexp.MustCompile(`(?s)id="req-` + regexp.QuoteMeta(name) + `".*?name="version" value="([^"]+)"`).FindStringSubmatch(body)
+	if m == nil {
+		t.Fatalf("no version for %s in:\n%s", name, body)
+	}
+	return url.Values{"version": {m[1]}}
+}
+
 func TestUnauthenticatedIsSentToLogin(t *testing.T) {
 	ts, _ := newServer(t)
 	res, _ := do(t, ts, "GET", "/", "", false, nil, false)
@@ -130,7 +142,7 @@ func TestExtendIsCappedForEngineersNotAdmins(t *testing.T) {
 	// annas-box joined at t0 and expires in 3 days; 100 days pushes its
 	// lifetime past the 90 day ceiling.
 	res, body := do(t, ts, "POST", "/accounts/111111111111/extend", "anna@example.com", false, url.Values{"by": {"100d"}}, true)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, "past the 90d ceiling") {
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "past the ceiling of 90 days") {
 		t.Fatalf("engineer extend past the ceiling should be refused with an explanation, got %d:\n%s", res.StatusCode, body)
 	}
 	if exp := prov.Tags("111111111111")[core.TagExpires]; exp != t0.Add(72*time.Hour).Format(time.RFC3339) {
@@ -246,7 +258,8 @@ func TestRequestApprovalFlow(t *testing.T) {
 		t.Fatalf("engineer approve should be 403, got %d", res.StatusCode)
 	}
 	// Bob cannot approve his own request even if he were an approver.
-	if _, body := doAs(t, ts, "POST", "/requests/bobs-box/approve", "bob@example.com", false, true, url.Values{}, true); !strings.Contains(body, "cannot approve it") {
+	_, body = doAs(t, ts, "GET", "/", "bob@example.com", false, true, nil, false)
+	if _, body := doAs(t, ts, "POST", "/requests/bobs-box/approve", "bob@example.com", false, true, versionIn(t, body, "bobs-box"), true); !strings.Contains(body, "cannot approve it") {
 		t.Fatalf("self-approval should be refused:\n%s", body)
 	}
 	// A configured approver (not admin) sees the queue and approves.
@@ -257,8 +270,8 @@ func TestRequestApprovalFlow(t *testing.T) {
 	if strings.Contains(body, "Sync with AWS") {
 		t.Fatal("an approver who is not admin must not get the sync button")
 	}
-	res, _ = doAs(t, ts, "POST", "/requests/bobs-box/approve", "lead@example.com", false, true, url.Values{}, true)
-	if res.StatusCode != http.StatusOK {
+	res, _ = doAs(t, ts, "POST", "/requests/bobs-box/approve", "lead@example.com", false, true, versionIn(t, body, "bobs-box"), true)
+	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
 		t.Fatalf("approve = %d", res.StatusCode)
 	}
 	prov.Settle()
@@ -275,7 +288,9 @@ func TestRequestApprovalFlow(t *testing.T) {
 
 	// Deny path with a reason from the htmx prompt header; withdraw by requester.
 	do(t, ts, "POST", "/requests", "carl@example.com", false, url.Values{"name": {"carls-box"}}, true)
-	req, _ := http.NewRequest("POST", ts.URL+"/requests/carls-box/deny", strings.NewReader(""))
+	_, body = doAs(t, ts, "GET", "/", "lead@example.com", false, true, nil, false)
+	req, _ := http.NewRequest("POST", ts.URL+"/requests/carls-box/deny", strings.NewReader(versionIn(t, body, "carls-box").Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User", "lead@example.com")
 	req.Header.Set("X-Approver", "1")
 	req.Header.Set("HX-Request", "true")
@@ -287,10 +302,12 @@ func TestRequestApprovalFlow(t *testing.T) {
 		t.Fatal("denied request should be gone")
 	}
 	do(t, ts, "POST", "/requests", "carl@example.com", false, url.Values{"name": {"carls-two"}}, true)
-	if res, _ := do(t, ts, "POST", "/requests/carls-two/withdraw", "anna@example.com", false, url.Values{}, true); res.StatusCode != http.StatusForbidden {
+	_, body = do(t, ts, "GET", "/", "carl@example.com", false, nil, false)
+	carls := versionIn(t, body, "carls-two")
+	if res, _ := do(t, ts, "POST", "/requests/carls-two/withdraw", "anna@example.com", false, carls, true); res.StatusCode != http.StatusForbidden {
 		t.Fatal("only the requester or an admin may withdraw")
 	}
-	if res, _ := do(t, ts, "POST", "/requests/carls-two/withdraw", "carl@example.com", false, url.Values{}, true); res.StatusCode != http.StatusOK {
+	if res, _ := do(t, ts, "POST", "/requests/carls-two/withdraw", "carl@example.com", false, carls, true); res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
 		t.Fatal("requester withdraw should work")
 	}
 	// Admins may request on someone else's behalf.
@@ -313,7 +330,7 @@ func TestSelfApprovalSettingShowsTheButton(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(body, "/requests/solo/approve") || strings.Contains(body, ">yours<") {
 		t.Fatalf("with self-approval on, the requester should see Approve:\n%s", body)
 	}
-	if res, _ := do(t, ts, "POST", "/requests/solo/approve", "", false, url.Values{}, true); res.StatusCode != http.StatusOK {
+	if res, _ := do(t, ts, "POST", "/requests/solo/approve", "", false, versionIn(t, body, "solo"), true); res.StatusCode != http.StatusOK {
 		t.Fatalf("approve = %d", res.StatusCode)
 	}
 	if q, _ := svc.PendingRequests(context.Background()); len(q) != 0 {
@@ -378,18 +395,31 @@ func TestAdminEditsPendingRequestInline(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(body, `value="bob@example.com"`) || !strings.Contains(body, `value="5"`) || !strings.Contains(body, `value="old"`) {
 		t.Fatalf("edit form should be prefilled:\n%s", body)
 	}
-	res, body = do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, url.Values{"owner": {"bob@example.com"}, "ttl": {"12"}, "budget": {"40"}, "purpose": {"new"}}, true)
-	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" || !strings.Contains(body, "12d") || !strings.Contains(body, "$40") || !strings.Contains(body, ">new") {
+	form := versionIn(t, body, "tweak")
+	form.Set("owner", "bob@example.com")
+	form.Set("ttl", "12")
+	form.Set("budget", "40")
+	form.Set("purpose", "new")
+	res, body = do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, form, true)
+	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" || !strings.Contains(body, "<td>12 days</td>") || !strings.Contains(body, "<td>$40</td>") || !strings.Contains(body, ">new") {
 		t.Fatalf("save should re-render the pending card with new values: %d %v\n%s", res.StatusCode, res.Header, body)
+	}
+	// Saving the same form again is refused: it was filled from the old
+	// values and would undo the change just made.
+	if res, body := do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, form, true); res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "was edited after you loaded it") || !strings.Contains(body, `id="pending"`) {
+		t.Fatalf("stale edit form should be refused with a fresh pending card: %v\n%s", res.Header, body)
 	}
 	q, err := core.NewService(prov, nil, core.DefaultConfig(), nil).GetRequest(context.Background(), "tweak")
 	if err != nil || q.TTL != 12*24*time.Hour || q.BudgetUSD != 40 || q.Purpose != "new" || q.RequestedBy != "bob@example.com" {
 		t.Fatalf("stored = %+v %v", q, err)
 	}
 	// Over the ceiling without override is an error that keeps the form.
-	res, _ = do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, url.Values{"budget": {"900"}}, true)
-	if res.Header.Get("X-Form-Error") != "1" {
-		t.Fatal("over-ceiling edit should be refused")
+	_, body = do(t, ts, "GET", "/requests/tweak/edit", "ops@example.com", true, nil, true)
+	over := versionIn(t, body, "tweak")
+	over.Set("budget", "900")
+	res, body = do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, over, true)
+	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "exceeds the maximum") {
+		t.Fatalf("over-ceiling edit should be refused:\n%s", body)
 	}
 	// Cancel returns the plain row.
 	_, body = do(t, ts, "GET", "/requests/tweak/row", "ops@example.com", true, nil, true)
@@ -552,6 +582,57 @@ func TestSessionCookieSigning(t *testing.T) {
 	}
 }
 
+func TestLoginFlowCookieIsNotASession(t *testing.T) {
+	a := &OIDCAuth{secret: []byte("test-secret"), cfg: OIDCConfig{RedirectURL: "http://localhost/cb", SessionTTL: time.Hour}}
+	// Anyone can start a login and receive a signed flow cookie.
+	rec := httptest.NewRecorder()
+	a.login(rec, httptest.NewRequest("GET", "/auth/login", nil))
+	var flowValue string
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == flowCookie {
+			flowValue = c.Value
+		}
+	}
+	if flowValue == "" {
+		t.Fatal("login set no flow cookie")
+	}
+	// A replay is a raw Cookie header: the client chooses the name.
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", sessionCookie+"="+flowValue)
+	if v, ok := a.Authenticate(req); ok {
+		t.Fatalf("flow cookie replayed as a session signed in %+v", v)
+	}
+
+	// A correctly signed session without an email is refused too.
+	rec = httptest.NewRecorder()
+	a.setSigned(rec, req, sessionCookie, session{Exp: time.Now().Add(time.Hour)}, time.Now().Add(time.Hour))
+	req2 := httptest.NewRequest("GET", "/", nil)
+	req2.AddCookie(rec.Result().Cookies()[0])
+	if v, ok := a.Authenticate(req2); ok {
+		t.Fatalf("session without an email signed in %+v", v)
+	}
+
+	// The email check above would also stop the first replay, so test the
+	// signature on its own: a value signed as one cookie never verifies as
+	// the other.
+	if _, err := a.verify(sessionCookie, flowValue); err == nil {
+		t.Fatal("flow value verified as a session")
+	}
+
+	// The other way round: a session replayed as the flow cookie has an
+	// empty state, which an empty state parameter would match. It must stop
+	// at the cookie, before the callback reaches the provider.
+	rec = httptest.NewRecorder()
+	a.setSigned(rec, req, sessionCookie, session{Email: "ops@example.com", Exp: time.Now().Add(time.Hour)}, time.Now().Add(time.Hour))
+	cb := httptest.NewRequest("GET", "/auth/callback", nil)
+	cb.Header.Set("Cookie", flowCookie+"="+rec.Result().Cookies()[0].Value)
+	rec = httptest.NewRecorder()
+	a.callback(rec, cb)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "sign-in expired") {
+		t.Fatalf("session replayed as flow cookie: %d %q", rec.Code, rec.Body.String())
+	}
+}
+
 func TestWithdrawButtonIgnoresEmailCase(t *testing.T) {
 	ts, _ := newServer(t)
 	// Identity Center may report the owner with different casing than the
@@ -563,7 +644,7 @@ func TestWithdrawButtonIgnoresEmailCase(t *testing.T) {
 	if !strings.Contains(body, "/requests/case-box/withdraw") {
 		t.Fatalf("withdraw button should show regardless of email case:\n%s", body)
 	}
-	if res, _ := do(t, ts, "POST", "/requests/case-box/withdraw", "bob@example.com", false, url.Values{}, true); res.StatusCode != http.StatusOK {
+	if res, _ := do(t, ts, "POST", "/requests/case-box/withdraw", "bob@example.com", false, versionIn(t, body, "case-box"), true); res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
 		t.Fatalf("withdraw = %d", res.StatusCode)
 	}
 }
@@ -575,18 +656,23 @@ func TestEditRejectsBadNumbersAndKeepsOverride(t *testing.T) {
 	if res, _ := doAs(t, ts, "POST", "/requests", "root@example.com", true, true, url.Values{"name": {"over"}, "owner": {"carl@example.com"}, "budget": {"900"}, "override": {"on"}}, true); res.StatusCode != http.StatusOK {
 		t.Fatalf("request = %d", res.StatusCode)
 	}
+	_, page := doAs(t, ts, "GET", "/requests/over/edit", "root@example.com", true, true, nil, true)
+	edit := func(v url.Values) url.Values {
+		v.Set("version", versionIn(t, page, "over").Get("version"))
+		return v
+	}
 	// A bad budget is an error, not a silently unchanged field.
-	res, body := doAs(t, ts, "POST", "/requests/over/edit", "root@example.com", true, true, url.Values{"owner": {"carl@example.com"}, "budget": {"lots"}, "override": {"on"}}, true)
+	res, body := doAs(t, ts, "POST", "/requests/over/edit", "root@example.com", true, true, edit(url.Values{"owner": {"carl@example.com"}, "budget": {"lots"}, "override": {"on"}}), true)
 	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "budget must be a positive number") {
 		t.Fatalf("bad budget should be reported: %v\n%s", res.Header, body)
 	}
 	// Unticking override while the budget is over the ceiling is refused.
-	res, body = doAs(t, ts, "POST", "/requests/over/edit", "root@example.com", true, true, url.Values{"owner": {"carl@example.com"}, "budget": {"900"}}, true)
+	res, body = doAs(t, ts, "POST", "/requests/over/edit", "root@example.com", true, true, edit(url.Values{"owner": {"carl@example.com"}, "budget": {"900"}}), true)
 	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "exceeds the maximum") {
 		t.Fatalf("removing the override should be refused: %v\n%s", res.Header, body)
 	}
 	// Saving with the box still ticked keeps it.
-	res, body = doAs(t, ts, "POST", "/requests/over/edit", "root@example.com", true, true, url.Values{"owner": {"carl@example.com"}, "budget": {"900"}, "purpose": {"more"}, "override": {"on"}}, true)
+	res, body = doAs(t, ts, "POST", "/requests/over/edit", "root@example.com", true, true, edit(url.Values{"owner": {"carl@example.com"}, "budget": {"900"}, "purpose": {"more"}, "override": {"on"}}), true)
 	if res.Header.Get("X-Form-Error") != "" || !strings.Contains(body, "limits overridden") {
 		t.Fatalf("override should survive an edit: %v\n%s", res.Header, body)
 	}

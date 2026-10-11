@@ -16,7 +16,7 @@ import (
 // Config tunes lifecycle behaviour.
 type Config struct {
 	DefaultTTL       time.Duration // how long a new account lives
-	WarnBefore       time.Duration // how far ahead of expiry to warn the owner
+	WarnBefore       time.Duration // how far ahead of expiry to send the expiring notice
 	CloseAlertAfter  time.Duration // unconfirmed closure age that makes reconciliation fail
 	DefaultBudgetUSD float64       // monthly budget when none is given
 	EmailPattern     string        // e.g. "aws+pp-{name}@example.com"
@@ -129,6 +129,81 @@ func (s *Service) Init(ctx context.Context) (OrgInfo, error) {
 	return s.provider.EnsureOrganization(ctx)
 }
 
+// Forecast holds the active accounts in the playground OU and the creations
+// that wait in the organization root, with what the next refresh does to
+// them, as it reads them. init prints it, so that an operator who names the
+// wrong OU sees which accounts playplace takes over, closes or moves before
+// it does. It leaves out the accounts in the OU that are not active: AWS is
+// already closing most of them, and the refresh only tracks that closure.
+type Forecast struct {
+	// Unmanaged are the active accounts in the playground OU without the
+	// playplace:managed=true tag. The refresh adopts each of them, unless the
+	// account has close intent (its closure starts at once) or damaged tags
+	// (it is left alone). An adopted account keeps each valid playplace
+	// owner, expires and budget tag. Without them, it gets the owner
+	// "unknown", the default lifetime or the default budget.
+	Unmanaged []*Account
+	// Managed are the active accounts in the playground OU with the
+	// playplace:managed=true tag. The refresh resumes their management, and
+	// it starts the closure of each one that expired or has close intent. An
+	// operator who quarantined an account in another OU sees it here when
+	// that OU is named by mistake.
+	Managed []*Account
+	// Waiting are the creations of playplace that wait in the organization
+	// root. The refresh moves each of them into the playground OU. It places
+	// an account only once, so it never moves one to another OU later. One
+	// that is PENDING_ACTIVATION moves on the first refresh after AWS
+	// activates it.
+	Waiting []*Account
+	// Blocked are creations of playplace in the organization root with
+	// damaged tags. The refresh leaves them there, and reports the damage on
+	// each pass until someone repairs the tags.
+	Blocked []*Account
+}
+
+// Forecast reads the active accounts in the playground OU and the creations
+// that wait in the organization root. It changes nothing.
+func (s *Service) Forecast(ctx context.Context) (Forecast, error) {
+	var f Forecast
+	remote, err := s.provider.ListPlaygroundAccounts(ctx)
+	if err != nil {
+		return f, fmt.Errorf("list playground accounts: %w", err)
+	}
+	root, err := s.provider.ListRootAccounts(ctx)
+	if err != nil {
+		return f, fmt.Errorf("list root accounts: %w", err)
+	}
+	now := s.Now()
+	inOU := map[string]bool{}
+	for _, r := range remote {
+		inOU[r.ProviderID] = true
+		switch {
+		case r.Status != "ACTIVE":
+		case r.Tags[TagManaged] == "true":
+			f.Managed = append(f.Managed, FromRemote(r, s.cfg, now))
+		default:
+			f.Unmanaged = append(f.Unmanaged, FromRemote(r, s.cfg, now))
+		}
+	}
+	// The same checks as the first step of Refresh and place. A closed or
+	// closing account in the root is never placed, and one with damaged tags
+	// stays there.
+	for _, r := range root {
+		if inOU[r.ProviderID] || !awaitingPlacement(r) || (r.Status != "ACTIVE" && r.Status != "PENDING_ACTIVATION") {
+			continue
+		}
+		if a := FromRemote(r, s.cfg, now); a.RepairError() != nil {
+			f.Blocked = append(f.Blocked, a)
+		} else {
+			f.Waiting = append(f.Waiting, a)
+		}
+	}
+	for _, list := range [][]*Account{f.Unmanaged, f.Managed, f.Waiting, f.Blocked} {
+		sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+	}
+	return f, nil
+}
+
 // Invalidate drops the cached inventory so the next read hits the provider.
 func (s *Service) Invalidate() {
 	s.mu.Lock()
@@ -138,9 +213,10 @@ func (s *Service) Invalidate() {
 
 // ---- inventory -------------------------------------------------------------
 
-// Inventory lists every playground account: OU members plus creations that
-// are still in flight or failed recently. The result is cached for
-// InventoryTTL unless force is set.
+// Inventory lists every playground account: OU members, creations that are
+// still in flight or failed recently, and creations that wait in the
+// organization root for placement. The result is cached for InventoryTTL
+// unless force is set.
 func (s *Service) Inventory(ctx context.Context, force bool) ([]*Account, error) {
 	s.mu.Lock()
 	if !force && s.inv != nil && s.Now().Sub(s.invAt) < s.cfg.InventoryTTL {
@@ -153,6 +229,13 @@ func (s *Service) Inventory(ctx context.Context, force bool) ([]*Account, error)
 	remote, err := s.provider.ListPlaygroundAccounts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list playground accounts: %w", err)
+	}
+	// The root listing only adds unplaced creations. Without it the OU and
+	// the queue still list, and Refresh reports the same failure.
+	root, err := s.provider.ListRootAccounts(ctx)
+	if err != nil {
+		s.log.Warn("unplaced creations not listed", "err", err)
+		root = nil
 	}
 	reqs, err := s.provider.ListCreateRequests(ctx)
 	if err != nil {
@@ -168,6 +251,14 @@ func (s *Service) Inventory(ctx context.Context, force bool) ([]*Account, error)
 	for _, r := range remote {
 		inOU[r.ProviderID] = true
 		out = append(out, FromRemote(r, s.cfg, now))
+	}
+	inRoot := map[string]bool{}
+	unplaced := map[string]RemoteAccount{}
+	for _, r := range root {
+		inRoot[r.ProviderID] = true
+		if !inOU[r.ProviderID] && awaitingPlacement(r) {
+			unplaced[r.ProviderID] = r
+		}
 	}
 	approved := map[string]Request{} // create request id -> approved record
 	for _, r := range records {
@@ -195,14 +286,22 @@ func (s *Service) Inventory(ctx context.Context, force bool) ([]*Account, error)
 				out = append(out, derive(r))
 			}
 		case CreateSucceeded:
-			// Landed at the provider but not placed in the OU yet; refresh
-			// will finish it. Show it as creating meanwhile.
-			if !inOU[r.ProviderID] && now.Sub(r.CompletedAt) <= 24*time.Hour {
+			if u, ok := unplaced[r.ProviderID]; ok {
+				out = append(out, s.unplacedAccount(u, &r, now))
+				delete(unplaced, r.ProviderID)
+			} else if !inOU[r.ProviderID] && !inRoot[r.ProviderID] && now.Sub(r.CompletedAt) <= placementGrace {
+				// AWS can list a new account a little after it reports the
+				// creation done, and the root listing can fail. Show the
+				// creation meanwhile so that its name stays taken.
 				a := derive(r)
 				a.ProviderID = r.ProviderID
 				out = append(out, a)
 			}
 		}
+	}
+	// AWS stops listing old creation requests; the account still waits.
+	for _, u := range unplaced {
+		out = append(out, s.unplacedAccount(u, nil, now))
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
 
@@ -266,17 +365,21 @@ func (s *Service) Get(ctx context.Context, id string) (*Account, error) {
 var ErrNotFound = errors.New("not found")
 
 // Resolve finds an account by exact id, then by name among open accounts,
-// then by id prefix. It errors if a prefix is ambiguous.
+// then by id prefix. It errors if a prefix is ambiguous. An exact id wins
+// over every name: a name may look like another account's id, and the
+// newer row must not take that account's place.
 func (s *Service) Resolve(ctx context.Context, ref string) (*Account, error) {
 	all, err := s.Inventory(ctx, false)
 	if err != nil {
 		return nil, err
 	}
-	var matches []*Account
 	for _, a := range all {
 		if a.ID == ref {
 			return a, nil
 		}
+	}
+	var matches []*Account
+	for _, a := range all {
 		if a.Name == ref && a.Status.IsOpen() {
 			return a, nil
 		}
@@ -344,7 +447,10 @@ func checkBudget(v float64) error {
 	return nil
 }
 
-// checkLimits enforces the TTL and budget ceilings unless overridden.
+// checkLimits enforces the TTL and budget ceilings unless overridden. The
+// refusal shows both sides as the forms and the approvers see them. Lifetime
+// rounds up to the hour, so a lifetime over a ceiling in whole hours never
+// reads as equal to it.
 func (s *Service) checkLimits(in RequestInput) error {
 	if err := checkBudget(in.BudgetUSD); err != nil {
 		return err
@@ -353,10 +459,10 @@ func (s *Service) checkLimits(in RequestInput) error {
 		return nil
 	}
 	if s.cfg.MaxTTL > 0 && in.TTL > s.cfg.MaxTTL {
-		return fmt.Errorf("ttl %dd exceeds the maximum of %dd; an admin can override", int(in.TTL.Hours()/24), int(s.cfg.MaxTTL.Hours()/24))
+		return fmt.Errorf("lifetime %s exceeds the maximum of %s; an admin can override", Lifetime(in.TTL), Lifetime(s.cfg.MaxTTL))
 	}
 	if s.cfg.MaxBudgetUSD > 0 && in.BudgetUSD > s.cfg.MaxBudgetUSD {
-		return fmt.Errorf("budget $%.0f exceeds the maximum of $%.0f; an admin can override", in.BudgetUSD, s.cfg.MaxBudgetUSD)
+		return fmt.Errorf("budget %s exceeds the maximum of %s; an admin can override", Dollars(in.BudgetUSD), Dollars(s.cfg.MaxBudgetUSD))
 	}
 	return nil
 }
@@ -402,7 +508,7 @@ func (s *Service) Request(ctx context.Context, in RequestInput) (*Account, error
 	if err != nil {
 		return nil, err
 	}
-	if err := s.checkNameFree(all, in.Name, in.Email); err != nil {
+	if err := s.checkNameFree(all, in.Name, in.Email, in.journeyID); err != nil {
 		return nil, err
 	}
 
@@ -436,7 +542,7 @@ func (s *Service) Request(ctx context.Context, in RequestInput) (*Account, error
 	s.Invalidate()
 	s.log.Info("requested", "account", a.Name, "request", reqID)
 	if in.ApprovedBy != "" && in.ApprovedBy == in.RequestedBy && !in.viaQueue {
-		s.audit(ctx, "created", a, in.ApprovedBy, "cli", fmt.Sprintf("%s created %s directly for %s: %s/month, %d days", in.ApprovedBy, a.Name, a.Owner, money(a.BudgetUSD), int(in.TTL.Hours()/24)),
+		s.audit(ctx, "created", a, in.ApprovedBy, "cli", fmt.Sprintf("%s created %s directly for %s: %s/month, %s", in.ApprovedBy, a.Name, a.Owner, Dollars(a.BudgetUSD), Lifetime(in.TTL)),
 			map[string]string{"request_id": reqID, "budget": strconv.FormatFloat(a.BudgetUSD, 'f', -1, 64), "days": strconv.Itoa(int(in.TTL.Hours() / 24))})
 	}
 	return a, nil
@@ -445,17 +551,25 @@ func (s *Service) Request(ctx context.Context, in RequestInput) (*Account, error
 // checkNameFree refuses a name that an open account already uses. It also
 // refuses the name of a closed account when the root email would be derived
 // from it, because AWS never frees an account's root email, so the creation
-// would be accepted and then fail. A pending request with the name is fine:
-// it is the one being approved. Failed creations do not hold a name.
-func (s *Service) checkNameFree(all []*Account, name, email string) error {
+// would be accepted and then fail. A pending request holds its name too,
+// except against its own approval: journeyID names the request being
+// approved, and is empty for a direct creation or a new request. Approve
+// marks the record approved first, so the exception only covers a read that
+// still sees the old pending record. Failed creations do not hold a name.
+func (s *Service) checkNameFree(all []*Account, name, email, journeyID string) error {
 	derived := strings.ReplaceAll(s.cfg.EmailPattern, "{name}", name)
 	for _, a := range all {
 		if a.Name != name {
 			continue
 		}
 		switch {
-		case a.Status == StatusPending, a.Status == StatusFailed:
+		case a.Status == StatusFailed:
 			continue
+		case a.Status == StatusPending:
+			if journeyID != "" && a.JourneyID == journeyID {
+				continue
+			}
+			return fmt.Errorf("a request named %s is waiting for approval; approve, deny, or withdraw it first", name)
 		case a.Status == StatusClosed:
 			if email == "" || email == derived || email == a.Email {
 				return fmt.Errorf("a closed account named %s used root email %s, and AWS never frees an email; pick another name", name, a.Email)
@@ -467,8 +581,23 @@ func (s *Service) checkNameFree(all []*Account, name, email string) error {
 	return nil
 }
 
+// CreatedError is the error of PollCreate when AWS created the account and a
+// later step failed. Account names the account and has its provider ID.
+// Placed reports whether playplace finished the placement of the account in
+// the Playground OU. Err is the failure of the step.
+type CreatedError struct {
+	Account *Account
+	Placed  bool
+	Err     error
+}
+
+func (e *CreatedError) Error() string { return e.Err.Error() }
+
+func (e *CreatedError) Unwrap() error { return e.Err }
+
 // PollCreate checks one creation request and, on success, places the new
 // account in the OU with its tags and budget. Loop on it to wait in place.
+// When a step after the creation fails, the error is a *CreatedError.
 func (s *Service) PollCreate(ctx context.Context, requestID string) (*Account, error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
@@ -480,19 +609,51 @@ func (s *Service) PollCreate(ctx context.Context, requestID string) (*Account, e
 	case CreateSucceeded:
 		remote, err := s.provider.GetAccount(ctx, r.ProviderID)
 		if err != nil {
-			return nil, err
+			a := FromCreateRequest(r)
+			a.ProviderID = r.ProviderID
+			return nil, &CreatedError{Account: a, Err: err}
+		}
+		now := s.Now()
+		if remote.Status == "PENDING_ACTIVATION" && awaitingPlacement(remote) {
+			// AWS can report the creation done before it activates the
+			// account. The poll shows the account as the inventory does, so
+			// within placementGrace a wait keeps polling.
+			return s.unplacedAccount(remote, &r, now), nil
 		}
 		// Polling an old creation must not move or prepare an unavailable or
 		// closing account. Refresh owns closure progression.
-		a := FromRemote(remote, s.cfg, s.Now())
+		a := FromRemote(remote, s.cfg, now)
 		if remote.Status != "ACTIVE" || a.CloseRequestedAt != nil {
 			return a, nil
 		}
-		a, err = s.place(ctx, a)
-		if err != nil {
-			return a, err
+		if err := a.RepairError(); err != nil {
+			return a, &CreatedError{Account: a, Placed: a.Managed && !awaitingPlacement(remote), Err: err}
 		}
-		return a, s.reconcileReadiness(ctx, a)
+		// Only a creation that was never placed is placed. Afterwards Refresh
+		// owns the account, and one moved out of the OU is never moved back.
+		if !awaitingPlacement(remote) {
+			if !a.Managed {
+				// For example an emulator that drops the CreateAccount tags.
+				// Reporting it as active would hide that nothing places it.
+				return a, &CreatedError{Account: a, Err: fmt.Errorf("account %s (%s) has no playplace creation tags, so playplace does not place or manage it", a.Name, a.ProviderID)}
+			}
+			return a, nil
+		}
+		if _, err := s.place(ctx, a); err != nil {
+			return nil, &CreatedError{Account: a, Err: err}
+		}
+		// Another process can have placed the account and finished its
+		// handoff since the read above. Readiness must see the live handoff
+		// tag, as in Refresh.
+		fresh, err := s.provider.GetAccount(ctx, a.ProviderID)
+		if err != nil {
+			return a, &CreatedError{Account: a, Placed: true, Err: fmt.Errorf("read %s after placement: %w", a.Name, err)}
+		}
+		a = FromRemote(fresh, s.cfg, s.Now())
+		if err := s.reconcileReadiness(ctx, a); err != nil {
+			return a, &CreatedError{Account: a, Placed: true, Err: err}
+		}
+		return a, nil
 	case CreateFailed:
 		a := s.creationAccount(ctx, r)
 		s.audit(ctx, "failed", a, ActorSystem, "", fmt.Sprintf("AWS could not create %s: %s", a.Name, r.FailureReason), map[string]string{"reason": r.FailureReason, "request_id": r.RequestID})
@@ -520,6 +681,48 @@ func (s *Service) creationAccount(ctx context.Context, cr CreateRequest) *Accoun
 	return a
 }
 
+// placementGrace is how long a finished creation may wait in the
+// organization root before the inventory and Refresh call it stuck.
+const placementGrace = time.Hour
+
+// awaitingPlacement reports whether a playplace creation was never placed.
+// Request writes handoff=placing into the creation tags and readiness
+// replaces it after the move, so a placed account never matches again,
+// wherever someone moves it later. Legacy accounts without the tag do not
+// match either.
+func awaitingPlacement(r RemoteAccount) bool {
+	return r.Tags[TagManaged] == "true" && r.Tags[TagHandoff] == handoffPlacing
+}
+
+// unplacedAccount shows a creation that AWS finished and that still waits in
+// the organization root. Until placement it has no budget, no OU guardrails
+// and no expiry handling. cr links it to its creation request when AWS
+// still lists that.
+func (s *Service) unplacedAccount(r RemoteAccount, cr *CreateRequest, now time.Time) *Account {
+	a := FromRemote(r, s.cfg, now)
+	if cr != nil {
+		a.ID, a.RequestID, a.CreatedAt = cr.RequestID, cr.RequestID, cr.RequestedAt
+	}
+	if r.Status == "PENDING_ACTIVATION" && a.CloseRequestedAt == nil && now.Sub(r.JoinedAt) <= placementGrace {
+		// AWS activates a new account within minutes, and Refresh does not
+		// report this state before the grace ends.
+		a.Status, a.LastError = StatusCreating, ""
+		return a
+	}
+	if a.Status != StatusActive && a.Status != StatusExpiring {
+		return a // closed, closing or unavailable says more than creating
+	}
+	a.Status = StatusCreating
+	if now.Sub(r.JoinedAt) > placementGrace {
+		// The inventory cannot tell whether a reconcile ran since, for
+		// example with a slow reconcile schedule, so this does not claim
+		// that placement failed.
+		a.LastError = fmt.Sprintf("AWS created this account on %s. It waits outside the Playground OU for the next reconcile. Until then it has no budget, OU guardrail, or expiry. If this message stays, check the reconcile errors.",
+			r.JoinedAt.UTC().Format("2006-01-02 15:04 MST"))
+	}
+	return a
+}
+
 // place moves a freshly created account into the OU and writes tags.
 // Readiness is reconciled separately, including after a partial move failure.
 func (s *Service) place(ctx context.Context, a *Account) (*Account, error) {
@@ -527,15 +730,42 @@ func (s *Service) place(ctx context.Context, a *Account) (*Account, error) {
 		return a, err
 	}
 	defer s.Invalidate() // a failed tag write may still have moved the account
-	if err := s.provider.PlaceAccount(ctx, a.ProviderID, a.Tags()); err != nil {
+	// The creation tags already say placing, and readiness owns the marker
+	// from here. Writing it again from a stale listing would undo a handoff
+	// that another process finished, and repeat the placed and ready notices.
+	tags := a.Tags()
+	delete(tags, TagHandoff)
+	if err := s.provider.PlaceAccount(ctx, a.ProviderID, tags); err != nil {
 		return nil, fmt.Errorf("place %s: %w", a.Name, err)
 	}
 	a.Managed = true
-	// The approved request record has done its job once the account is placed.
-	if err := s.provider.RemoveOUTags(ctx, []string{RequestTagPrefix + a.Name}); err != nil {
-		s.log.Warn("approved record not removed", "account", a.Name, "err", err)
-	}
+	s.dropApprovedRecord(ctx, a)
 	return a, nil
+}
+
+// dropApprovedRecord removes the approved request record of a placed
+// account; it has done its job. Only the record of this account's journey
+// goes: a record under the same name may be someone else's pending request,
+// and a name never joins journeys. A record left behind is dropped by
+// expireRequests a day after the creation succeeded.
+func (s *Service) dropApprovedRecord(ctx context.Context, a *Account) {
+	if a.JourneyID == "" {
+		return
+	}
+	records, err := s.allRequests(ctx)
+	if err != nil {
+		s.log.Warn("approved record not removed", "account", a.Name, "err", err)
+		return
+	}
+	for _, r := range records {
+		if r.Name != a.Name || !r.Approved || r.JourneyID != a.JourneyID {
+			continue
+		}
+		if err := s.provider.RemoveOUTags(ctx, []string{r.Key()}); err != nil {
+			s.log.Warn("approved record not removed", "account", a.Name, "err", err)
+		}
+		return
+	}
 }
 
 // grantAccess gives the owner console access and records the principal in a
@@ -629,8 +859,11 @@ func (s *Service) checkLifetime(a *Account, until time.Time, override bool) erro
 	}
 	limit := start.Add(s.cfg.MaxTTL)
 	if until.After(limit) {
-		return fmt.Errorf("%s would live %dd, past the %dd ceiling; the latest expiry is %s and an admin can override",
-			a.Name, int(until.Sub(start).Hours()/24), int(s.cfg.MaxTTL.Hours()/24), limit.Format("2006-01-02"))
+		// Lifetime rounds up to the hour, so a lifetime just over the ceiling
+		// never reads as equal to it. The limit can fall on the requested
+		// day, so it shows the time too.
+		return fmt.Errorf("%s would live %s, past the ceiling of %s; the latest expiry is %s and an admin can override",
+			a.Name, Lifetime(until.Sub(start)), Lifetime(s.cfg.MaxTTL), limit.UTC().Format("2006-01-02 15:04 UTC"))
 	}
 	return nil
 }
@@ -742,7 +975,7 @@ type Summary struct {
 	Placed   []string // creations that landed and were moved into the OU
 	Adopted  []string // OU accounts that lacked our tags and got defaults
 	Granted  []string // owners given console access
-	Warned   []string // owners warned about expiry
+	Warned   []string // accounts that got the expiring notice
 	Closed   []string // closed at the provider
 	Deferred []string // closure is not yet confirmed (quota, processing, or failure)
 	Overdue  []string // unconfirmed closures older than CloseAlertAfter
@@ -774,7 +1007,8 @@ func (s Summary) String() string {
 
 // Refresh is the reconciliation pass every command runs first. It finishes
 // creations that landed, adopts untagged OU accounts, retries requested
-// closes, warns owners ahead of expiry, and closes expired accounts.
+// closes, sends the expiring notice ahead of expiry, and closes expired
+// accounts.
 func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
@@ -791,33 +1025,40 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 		inOU[r.ProviderID] = true
 	}
 
-	// 1. Creations that succeeded but were never placed (the requester did
-	//    not wait, or was interrupted).
-	reqs, err := s.provider.ListCreateRequests(ctx)
+	// 1. Creations that AWS finished but that were never placed (the
+	//    requester did not wait, was interrupted, or placement failed). They
+	//    wait in the organization root for as long as it takes; an account
+	//    that was placed once is never moved back, wherever it is now.
+	root, err := s.provider.ListRootAccounts(ctx)
 	if err != nil {
-		errs = append(errs, fmt.Errorf("list create requests: %w", err))
+		errs = append(errs, fmt.Errorf("list root accounts: %w", err))
 	}
-	for _, r := range reqs {
-		if r.State != CreateSucceeded || inOU[r.ProviderID] || now.Sub(r.CompletedAt) > s.cfg.FailedRetention {
+	for _, acct := range root {
+		if inOU[acct.ProviderID] || !awaitingPlacement(acct) {
+			continue // someone else's account, or placed and moved out since
+		}
+		if acct.Status != "ACTIVE" {
+			// PENDING_ACTIVATION passes quickly; a closed or closing account
+			// has nothing left to place.
+			if acct.Status != "CLOSED" && acct.Status != "PENDING_CLOSURE" && now.Sub(acct.JoinedAt) > placementGrace {
+				errs = append(errs, fmt.Errorf("account %s (%s) is %s in the organization root and cannot be placed in the Playground OU", acct.Name, acct.ProviderID, acct.Status))
+			}
 			continue
 		}
-		acct, err := s.provider.GetAccount(ctx, r.ProviderID)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		candidate := FromRemote(acct, s.cfg, now)
-		if !candidate.Managed || candidate.ProviderState != "ACTIVE" {
-			continue // someone else's CreateAccount, or not available for placement
-		}
-		placed, err := s.place(ctx, candidate)
-		if err != nil {
+		if _, err := s.place(ctx, FromRemote(acct, s.cfg, now)); err != nil {
 			errs = append(errs, err)
 			continue
 		}
 		sum.Placed = append(sum.Placed, acct.Name)
-		acct.Tags = placed.Tags() // retain handoff eligibility in this pass
-		remote = append(remote, acct)
+		// The root listing can be stale: another process can have placed the
+		// account and finished its handoff since. Readiness must see the live
+		// handoff tag.
+		fresh, err := s.provider.GetAccount(ctx, acct.ProviderID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("read %s after placement: %w", acct.Name, err))
+			continue
+		}
+		remote = append(remote, fresh)
 	}
 
 	for _, r := range remote {
@@ -934,7 +1175,7 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 			s.notify(ctx, a, "Playground account expiring",
 				fmt.Sprintf("Account %s (%s) expires %s. Extend it or it will be closed.", a.Name, a.ProviderID, a.ExpiresAt.Format("2006-01-02")))
 			sum.Warned = append(sum.Warned, a.Name)
-			s.audit(ctx, "warned", a, ActorSystem, "", fmt.Sprintf("%s was warned that %s expires %s", a.Owner, a.Name, a.ExpiresAt.Format("2006-01-02")), nil)
+			s.audit(ctx, "warned", a, ActorSystem, "", fmt.Sprintf("sent the expiring notice for %s (owner %s): expires %s", a.Name, a.Owner, a.ExpiresAt.Format("2006-01-02")), nil)
 		}
 	}
 	if err := s.expireRequests(ctx, &sum); err != nil {
@@ -1011,6 +1252,39 @@ func (s *Service) GetRequest(ctx context.Context, name string) (Request, error) 
 	return Request{}, fmt.Errorf("%w: no pending request named %s", ErrNotFound, name)
 }
 
+// ErrRequestChanged is returned when a pending request no longer holds what
+// the actor saw. The actor should look at the request again and act anew.
+var ErrRequestChanged = errors.New("request changed")
+
+// pendingAt returns the pending request ref names, and refuses it when its
+// version is not the one the actor saw: the request was edited since, or
+// it ended and someone submitted a new one under the same name. Every
+// decision on a request goes through here, so a stale page, TUI row, or
+// Slack message can never act on values its reader did not see.
+//
+// A refusal drops the cached inventory. The actor's view was stale, and the
+// cache can be stale too when another process changed the queue, so the
+// view the interface shows next reads the queue live and carries the
+// current version.
+func (s *Service) pendingAt(ctx context.Context, ref RequestRef) (Request, error) {
+	r, err := s.GetRequest(ctx, ref.Name)
+	if err == nil && ref.Version == r.Version() {
+		return r, nil
+	}
+	s.Invalidate()
+	if err != nil {
+		return Request{}, err
+	}
+	switch {
+	case ref.Version == "":
+		return Request{}, fmt.Errorf("%w: no version given for the request for %s; load it again and retry", ErrRequestChanged, ref.Name)
+	case !strings.HasPrefix(ref.Version, r.JourneyID+"."):
+		return Request{}, fmt.Errorf("%w: the request for %s you loaded has ended, and %s submitted a new one with the same name; review it before you act", ErrRequestChanged, ref.Name, r.RequestedBy)
+	default:
+		return Request{}, fmt.Errorf("%w: the request for %s was edited after you loaded it; review the new values before you act", ErrRequestChanged, ref.Name)
+	}
+}
+
 // SubmitRequest validates a request and puts it in the queue. It applies
 // the same checks as Request plus the per-owner limit, then notifies approvers.
 func (s *Service) SubmitRequest(ctx context.Context, in RequestInput, via string) (Request, error) {
@@ -1060,7 +1334,7 @@ func (s *Service) SubmitRequest(ctx context.Context, in RequestInput, via string
 			held++
 		}
 	}
-	if err := s.checkNameFree(all, in.Name, ""); err != nil {
+	if err := s.checkNameFree(all, in.Name, "", ""); err != nil {
 		return Request{}, err
 	}
 	if s.cfg.MaxPerOwner > 0 && held >= s.cfg.MaxPerOwner {
@@ -1083,10 +1357,10 @@ func (s *Service) SubmitRequest(ctx context.Context, in RequestInput, via string
 	}
 	s.Invalidate()
 	s.log.Info("request queued", "name", r.Name, "owner", r.Owner, "via", via)
-	s.audit(ctx, "requested", pendingAccount(r, s.Now()), r.RequestedBy, via, fmt.Sprintf("%s requested %s for %s: %s/month, %d days", r.RequestedBy, r.Name, r.Owner, money(r.BudgetUSD), int(r.TTL.Hours()/24)),
+	s.audit(ctx, "requested", pendingAccount(r, s.Now()), r.RequestedBy, via, fmt.Sprintf("%s requested %s for %s: %s/month, %s", r.RequestedBy, r.Name, r.Owner, Dollars(r.BudgetUSD), Lifetime(r.TTL)),
 		map[string]string{"budget": strconv.FormatFloat(r.BudgetUSD, 'f', -1, 64), "days": strconv.Itoa(int(r.TTL.Hours() / 24)), "purpose": r.Purpose, "override": strconv.FormatBool(r.OverrideLimits)})
 	var body strings.Builder
-	fmt.Fprintf(&body, "%s requested playground account %s for %s: %s/month, %d days.", r.RequestedBy, r.Name, r.Owner, money(r.BudgetUSD), int(r.TTL.Hours()/24))
+	fmt.Fprintf(&body, "%s requested playground account %s for %s: %s/month, %s.", r.RequestedBy, r.Name, r.Owner, Dollars(r.BudgetUSD), Lifetime(r.TTL))
 	if r.OverrideLimits {
 		body.WriteString(" Limits overridden by an admin.")
 	}
@@ -1123,13 +1397,15 @@ func (s *Service) checkQueueRoom(ctx context.Context) error {
 // The record is marked approved before the account is requested, so a
 // second approver, in this process or another, finds nothing pending. If the
 // creation then fails the mark is removed and the request is pending again.
-func (s *Service) Approve(ctx context.Context, name, approver string) (*Account, error) {
+// ref must carry the version the approver saw; see pendingAt.
+func (s *Service) Approve(ctx context.Context, ref RequestRef, approver string) (*Account, error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
-	r, err := s.GetRequest(ctx, name)
+	r, err := s.pendingAt(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
+	name := r.Name
 	if err := CheckApprover(r, approver, s.cfg.AllowSelfApproval); err != nil {
 		return nil, err
 	}
@@ -1158,7 +1434,7 @@ func (s *Service) Approve(ctx context.Context, name, approver string) (*Account,
 		s.Invalidate()
 		return nil, err
 	}
-	s.audit(ctx, "approved", a, approver, "", fmt.Sprintf("%s approved %s for %s: %s/month, %d days", approver, r.Name, r.Owner, money(r.BudgetUSD), int(r.TTL.Hours()/24)),
+	s.audit(ctx, "approved", a, approver, "", fmt.Sprintf("%s approved %s for %s: %s/month, %s", approver, r.Name, r.Owner, Dollars(r.BudgetUSD), Lifetime(r.TTL)),
 		map[string]string{"request_id": a.RequestID, "requested_by": r.RequestedBy})
 	// Keep the record, marked approved, until the account is placed. The
 	// inventory uses it to show owner, budget, and expiry while AWS works.
@@ -1205,13 +1481,16 @@ type RequestEdit struct {
 // UpdateRequest rewrites a pending request with the edited values. The same
 // checks as SubmitRequest apply: name stays, owner must resolve, ceilings
 // hold unless overridden, and a new owner must have room under the limit.
-func (s *Service) UpdateRequest(ctx context.Context, name, editor string, e RequestEdit) (Request, error) {
+// ref must carry the version the edit form was filled from, so an edit
+// never silently undoes another editor's change.
+func (s *Service) UpdateRequest(ctx context.Context, ref RequestRef, editor string, e RequestEdit) (Request, error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
-	r, err := s.GetRequest(ctx, name)
+	r, err := s.pendingAt(ctx, ref)
 	if err != nil {
 		return Request{}, err
 	}
+	name := r.Name
 	before := r
 	if e.Owner != "" && !strings.EqualFold(e.Owner, r.Owner) {
 		owner := strings.TrimSpace(e.Owner)
@@ -1271,10 +1550,10 @@ func (s *Service) UpdateRequest(ctx context.Context, name, editor string, e Requ
 		changes = append(changes, "owner "+before.Owner+" → "+r.Owner)
 	}
 	if before.TTL != r.TTL {
-		changes = append(changes, fmt.Sprintf("lifetime %dd → %dd", int(before.TTL.Hours()/24), int(r.TTL.Hours()/24)))
+		changes = append(changes, fmt.Sprintf("lifetime %s → %s", Lifetime(before.TTL), Lifetime(r.TTL)))
 	}
 	if before.BudgetUSD != r.BudgetUSD {
-		changes = append(changes, fmt.Sprintf("budget %s → %s", money(before.BudgetUSD), money(r.BudgetUSD)))
+		changes = append(changes, fmt.Sprintf("budget %s → %s", Dollars(before.BudgetUSD), Dollars(r.BudgetUSD)))
 	}
 	if before.Purpose != r.Purpose {
 		changes = append(changes, "purpose updated")
@@ -1294,14 +1573,16 @@ func (s *Service) UpdateRequest(ctx context.Context, name, editor string, e Requ
 	return r, nil
 }
 
-// Deny removes a pending request and tells the requester why.
-func (s *Service) Deny(ctx context.Context, name, approver, reason string) error {
+// Deny removes a pending request and sends a notice with the reason. ref
+// must carry the version the approver saw; see pendingAt.
+func (s *Service) Deny(ctx context.Context, ref RequestRef, approver, reason string) error {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
-	r, err := s.GetRequest(ctx, name)
+	r, err := s.pendingAt(ctx, ref)
 	if err != nil {
 		return err
 	}
+	name := r.Name
 	if err := s.provider.RemoveOUTags(ctx, []string{r.Key()}); err != nil {
 		return fmt.Errorf("remove request: %w", err)
 	}
@@ -1316,14 +1597,16 @@ func (s *Service) Deny(ctx context.Context, name, approver, reason string) error
 	return nil
 }
 
-// Withdraw lets the requester (or an operator) pull a pending request.
-func (s *Service) Withdraw(ctx context.Context, name, by string) error {
+// Withdraw lets the requester (or an operator) pull a pending request. ref
+// must carry the version the actor saw; see pendingAt.
+func (s *Service) Withdraw(ctx context.Context, ref RequestRef, by string) error {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
-	r, err := s.GetRequest(ctx, name)
+	r, err := s.pendingAt(ctx, ref)
 	if err != nil {
 		return err
 	}
+	name := r.Name
 	if err := s.provider.RemoveOUTags(ctx, []string{r.Key()}); err != nil {
 		return fmt.Errorf("remove request: %w", err)
 	}
@@ -1359,7 +1642,8 @@ func (s *Service) expireRequests(ctx context.Context, sum *Summary) error {
 			failedLongAgo := known && c.State == CreateFailed && now.Sub(c.CompletedAt) > s.cfg.FailedRetention
 			// Placement removes the record; if that call failed the record
 			// would hold a queue slot until the provider forgets the
-			// creation. The inventory stops using it a day after success.
+			// creation. A finished creation is shown from its own tags, so
+			// the record can go a day after success.
 			placedLongAgo := known && c.State == CreateSucceeded && now.Sub(c.CompletedAt) > 24*time.Hour
 			if stale || failedLongAgo || placedLongAgo {
 				keys = append(keys, r.Key())
@@ -1380,18 +1664,11 @@ func (s *Service) expireRequests(ctx context.Context, sum *Summary) error {
 	// the provider accepted it; durable unknown-outcome handling is separate.
 	for _, r := range expired {
 		sum.Expired = append(sum.Expired, r.Name)
-		s.audit(ctx, "request-expired", pendingAccount(r, now), ActorSystem, "", fmt.Sprintf("nobody acted on the request for %s within %d days; dropped", r.Name, int(s.cfg.RequestTTL.Hours()/24)), nil)
+		s.audit(ctx, "request-expired", pendingAccount(r, now), ActorSystem, "", fmt.Sprintf("nobody acted on the request for %s within %s; dropped", r.Name, Lifetime(s.cfg.RequestTTL)), nil)
 		s.notifyAll(ctx, "Playground request expired: "+r.Name,
-			fmt.Sprintf("Nobody approved the request for %s within %d days; it was dropped. Submit it again if still needed.", r.Name, int(s.cfg.RequestTTL.Hours()/24)), r.Owner, "req:"+r.Name)
+			fmt.Sprintf("Nobody approved the request for %s within %s; it was dropped. Submit it again if still needed.", r.Name, Lifetime(s.cfg.RequestTTL)), r.Owner, "req:"+r.Name)
 	}
 	return nil
-}
-
-func money(v float64) string {
-	if v == float64(int(v)) {
-		return fmt.Sprintf("$%d", int(v))
-	}
-	return fmt.Sprintf("$%.2f", v)
 }
 
 func (s *Service) notifyAll(ctx context.Context, subject, body, owner, id string) {

@@ -25,6 +25,7 @@ type options struct {
 	AWSProfile       string
 	AWSEndpoint      string
 	OUName           string
+	OUID             string
 	PermissionSet    string
 	EmailPattern     string
 	AlertEmail       string
@@ -43,6 +44,10 @@ type options struct {
 	MaxBudget        float64
 	RequestTTL       string
 	SelfApprove      bool
+
+	// flags are the bound flags. They tell a value that the operator gave
+	// from a default.
+	flags *pflag.FlagSet
 }
 
 func defaultHistoryFile() string {
@@ -55,20 +60,22 @@ func defaultHistoryFile() string {
 
 func (o *options) bind(cmd *cobra.Command) {
 	f := cmd.PersistentFlags()
+	o.flags = f
 	f.BoolVar(&o.NoRefresh, "no-refresh", false, "skip the refresh pass (finish creations, sweep expiry, retry closes) before the command")
 	f.StringVar(&o.LogLevel, "log-level", "warn", "debug, info, warn, or error")
 	f.StringVar(&o.AWSRegion, "aws-region", "", "AWS region for Organizations calls")
 	f.StringVar(&o.AWSProfile, "aws-profile", "", "AWS named profile")
 	f.StringVar(&o.AWSEndpoint, "aws-endpoint", "", "AWS endpoint override, e.g. http://localhost:4566 for LocalStack")
-	f.StringVar(&o.OUName, "ou-name", "Playground", "organizational unit that holds playground accounts")
+	f.StringVar(&o.OUName, "ou-name", "Playground", "name of the organizational unit that holds playground accounts, directly under the organization root")
+	f.StringVar(&o.OUID, "ou-id", "", "ID of the organizational unit that holds playground accounts, at any depth. Use it instead of --ou-name, not with it")
 	f.StringVar(&o.PermissionSet, "permission-set", "", "IAM Identity Center permission set (name or ARN) granted to owners; empty disables access grants and owner validation")
 	f.StringVar(&o.EmailPattern, "email-pattern", "aws+pp-{name}@example.com", "root email for new accounts, {name} is replaced")
 	f.StringVar(&o.AlertEmail, "alert-email", "", "recipient for AWS Budgets alerts (required for enforcement)")
 	f.StringVar(&o.BudgetPolicyID, "budget-scp-id", "", "separately deployed provisioning-deny SCP; empty selects alerts-only budgets")
 	f.StringVar(&o.BudgetActionRole, "budget-action-role", "", "management-account IAM role used by AWS Budgets to attach/reverse the SCP")
-	f.StringVar(&o.SlackWebhook, "slack-webhook", "", "Slack incoming webhook for lifecycle notifications")
+	f.StringVar(&o.SlackWebhook, "slack-webhook", "", "Slack incoming webhook that receives lifecycle notices")
 	f.StringVar(&o.DefaultTTL, "default-ttl", "14d", "lifetime of a new account")
-	f.StringVar(&o.WarnBefore, "warn-before", "3d", "how far ahead of expiry to warn owners")
+	f.StringVar(&o.WarnBefore, "warn-before", "3d", "how far ahead of expiry to send the expiring notice")
 	f.StringVar(&o.CloseAlertAfter, "close-alert-after", "24h", "alert and fail reconciliation when closure remains unconfirmed this long (positive duration, e.g. 24h)")
 	f.Float64Var(&o.Budget, "default-budget", 50, "monthly budget in USD for a new account")
 	f.StringVar(&o.History, "history", "file", "where lifecycle history is kept: file, cloudwatch, or none")
@@ -134,19 +141,72 @@ func (o *options) coreConfig() (core.Config, error) {
 	if math.IsNaN(cfg.MaxBudgetUSD) || math.IsInf(cfg.MaxBudgetUSD, 0) || cfg.MaxBudgetUSD < 0 {
 		return cfg, fmt.Errorf("max-budget must be finite and nonnegative")
 	}
+	// Core fills in the default before it checks the ceiling, so a default
+	// above the ceiling refuses every request that leaves the budget empty.
+	if cfg.MaxBudgetUSD > 0 && cfg.DefaultBudgetUSD > cfg.MaxBudgetUSD {
+		return cfg, fmt.Errorf("default-budget (%g) is above max-budget (%g), so every request without a budget would be refused", cfg.DefaultBudgetUSD, cfg.MaxBudgetUSD)
+	}
 	cfg.MaxPerOwner = o.MaxPerOwner
 	cfg.AllowSelfApproval = o.SelfApprove
+	if err := o.checkLifetimes(cfg); err != nil {
+		return cfg, err
+	}
 	return cfg, nil
 }
 
-func (o *options) awsConfig() awsprovider.Config {
-	return awsprovider.Config{
+// checkLifetimes refuses lifetime settings that core would act on in a
+// destructive way. parseDuration accepts 0 because --max-ttl uses it for
+// "no limit", but core has no such meaning for the others:
+//
+//   - DefaultTTL 0: every new account expires at creation, and refresh adopts
+//     and then closes every untagged account in the OU in the same pass
+//     (core.FromRemote sets ExpiresAt = now + DefaultTTL).
+//   - RequestTTL 0: expireRequests drops every pending request on the next
+//     pass, because any age is greater than zero.
+//   - WarnBefore >= DefaultTTL: the one-shot expiring notice goes out at
+//     creation, so it never goes out near the real expiry.
+//   - DefaultTTL > MaxTTL (when MaxTTL is set): every request that keeps the
+//     default lifetime is refused at the ceiling.
+//
+// The error text quotes the flags as the operator gave them.
+func (o *options) checkLifetimes(cfg core.Config) error {
+	switch {
+	case cfg.DefaultTTL <= 0:
+		return fmt.Errorf("default-ttl must be positive; %q would close every new and adopted account at once", o.DefaultTTL)
+	case cfg.RequestTTL <= 0:
+		return fmt.Errorf("request-ttl must be positive; %q would drop every pending request on the next refresh", o.RequestTTL)
+	case cfg.WarnBefore >= cfg.DefaultTTL:
+		return fmt.Errorf("warn-before (%s) must be shorter than default-ttl (%s), or the expiring notice goes out at creation instead of near expiry", o.WarnBefore, o.DefaultTTL)
+	case cfg.MaxTTL > 0 && cfg.DefaultTTL > cfg.MaxTTL:
+		return fmt.Errorf("default-ttl (%s) is above max-ttl (%s), so every request without a lifetime would be refused", o.DefaultTTL, o.MaxTTL)
+	}
+	return nil
+}
+
+// awsConfig builds the provider configuration. It refuses an --ou-id that
+// AWS would not accept. It also refuses --ou-name next to --ou-id, because
+// the provider finds the OU by ID and would ignore the name. A blank
+// --ou-name counts as unset, as a blank value in an environment template
+// does for the sign-in flags.
+func (o *options) awsConfig() (awsprovider.Config, error) {
+	cfg := awsprovider.Config{
 		Region:           o.AWSRegion,
 		Profile:          o.AWSProfile,
 		Endpoint:         o.AWSEndpoint,
 		PlaygroundOUName: o.OUName,
+		PlaygroundOUID:   strings.TrimSpace(o.OUID),
 		PermissionSet:    o.PermissionSet,
 	}
+	if cfg.PlaygroundOUID == "" {
+		return cfg, nil
+	}
+	if err := awsprovider.ValidateOUID(cfg.PlaygroundOUID); err != nil {
+		return cfg, fmt.Errorf("ou-id: %w", err)
+	}
+	if o.flags != nil && o.flags.Changed("ou-name") && strings.TrimSpace(o.OUName) != "" {
+		return cfg, fmt.Errorf("--ou-name (%q) and --ou-id (%s) are both set. Playplace finds the OU by --ou-id and would ignore --ou-name, so set only one of them. Remove --ou-name and PLAYPLACE_OU_NAME", o.OUName, cfg.PlaygroundOUID)
+	}
+	return cfg, nil
 }
 
 // parseDuration reads a lifetime. A bare number is days; "7d" and Go

@@ -1,6 +1,8 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -54,6 +56,75 @@ type Request struct {
 
 // Key is the OU tag key for this request.
 func (r Request) Key() string { return RequestTagPrefix + r.Name }
+
+// RequestRef names the pending request an actor saw: its name, which finds
+// the record, and its version, which proves the record still holds what the
+// actor saw. Approve, Deny, Withdraw, and UpdateRequest refuse a ref whose
+// version no longer matches.
+type RequestRef struct {
+	Name    string
+	Version string
+}
+
+// Ref is the reference an interface hands back when the actor acts on r.
+func (r Request) Ref() RequestRef { return RequestRef{Name: r.Name, Version: r.Version()} }
+
+// Version identifies this request journey and the values an actor sees. It
+// is the journey id, then a digest of every field of the pending record, so
+// it changes on resubmission (a new journey) and on any edit, and it needs
+// no storage. Fields are normalized as Encode writes them, so a record and
+// its decoded copy have the same version.
+func (r Request) Version() string {
+	h := sha256.New()
+	for _, f := range []string{
+		r.Name,
+		r.Owner,
+		strconv.Itoa(int(math.Ceil(r.TTL.Hours()))),
+		strconv.FormatFloat(r.BudgetUSD, 'f', -1, 64),
+		r.RequestedBy,
+		strconv.FormatInt(r.RequestedAt.Unix(), 10),
+		r.Via,
+		strings.TrimSpace(r.Purpose),
+		strconv.FormatBool(r.OverrideLimits),
+		r.JourneyID,
+	} {
+		h.Write([]byte(field(f)))
+	}
+	return r.JourneyID + "." + hex.EncodeToString(h.Sum(nil)[:8])
+}
+
+// Lifetime shows a requested lifetime exactly, as Version binds it: whole
+// hours, rounded up. Whole days show as days, other lifetimes as hours, so a
+// 36-hour request never shows as "1 day". Every interface that shows a
+// pending request to an approver uses it.
+func Lifetime(d time.Duration) string {
+	hours := int(math.Ceil(d.Hours()))
+	switch {
+	case hours == 24:
+		return "1 day"
+	case hours%24 == 0:
+		return fmt.Sprintf("%d days", hours/24)
+	case hours == 1:
+		return "1 hour"
+	default:
+		return fmt.Sprintf("%d hours", hours)
+	}
+}
+
+// Dollars shows a budget exactly, as Version binds it: whole dollars
+// without cents, cents with two digits, and a finer amount with every digit
+// it has. Every interface that shows a pending request to an approver uses
+// it, and so do the notices.
+func Dollars(v float64) string {
+	if v == math.Trunc(v) {
+		return fmt.Sprintf("$%.0f", v)
+	}
+	cents := strconv.FormatFloat(v, 'f', 2, 64)
+	if back, err := strconv.ParseFloat(cents, 64); err == nil && back == v {
+		return "$" + cents
+	}
+	return "$" + strconv.FormatFloat(v, 'f', -1, 64)
+}
 
 // ExpiresAt is when the account would expire if approved now.
 func (r Request) ExpiresAt(now time.Time) time.Time { return now.Add(r.TTL) }
@@ -269,5 +340,6 @@ func pendingAccount(r Request, now time.Time) *Account {
 
 		TTL:            r.TTL,
 		OverrideLimits: r.OverrideLimits,
+		RequestVersion: r.Version(),
 	}
 }

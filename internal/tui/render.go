@@ -508,12 +508,15 @@ func (m model) lifecycleLines(a *core.Account, width int) []string {
 	kv := func(k, v string, st lipgloss.Style) string { return th.label.Render(pad(k, 9)) + st.Render(v) }
 	var out []string
 	if a.WarnedAt != nil {
-		out = append(out, kv("warned", a.WarnedAt.Local().Format("2006-01-02 15:04"), lipgloss.NewStyle().Foreground(th.warning)))
+		out = append(out, kv("expiring", "notice sent "+a.WarnedAt.Local().Format("2006-01-02 15:04"), lipgloss.NewStyle().Foreground(th.warning)))
 	}
 	if a.CloseRequestedAt != nil {
 		out = append(out, kv("closing", "requested "+a.CloseRequestedAt.Local().Format("2006-01-02 15:04")+", waiting on AWS quota", lipgloss.NewStyle().Foreground(th.busy)))
 	}
-	if a.LastError != "" {
+	if a.LastError != "" && a.Status == core.StatusCreating {
+		// A creation that waits in the root for placement: a note, not a failure.
+		out = append(out, kv("placing", ansi.Truncate(a.LastError, width-9, "…"), lipgloss.NewStyle().Foreground(th.warning)))
+	} else if a.LastError != "" {
 		out = append(out, kv("failure", ansi.Truncate(a.LastError, width-9, "…"), th.errText))
 	}
 	for _, tag := range slices.Sorted(maps.Keys(a.TagErrors)) {

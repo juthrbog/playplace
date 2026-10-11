@@ -10,7 +10,7 @@ handles account provisioning, access, expiry warnings, and closure monitoring.
 
 Every playground has an owner, a lifetime, a monthly budget, and an approval
 trail. Interact through the web UI, a terminal dashboard, or the CLI, with
-optional Slack approvals and GitLab workflows.
+optional Slack approvals.
 
 ## What it provides
 
@@ -23,7 +23,7 @@ optional Slack approvals and GitLab workflows.
   and accounts per owner. Set up AWS Budgets alerts and view recent spend.
   Optionally deny covered provisioning APIs at 100% actual spend, with admin
   budget increases that lift and rearm the restriction.
-- **Expiry management.** Warn owners before expiry, allow bounded extensions,
+- **Expiry management.** Send a notice before expiry, allow bounded extensions,
   request closure when time is up, and flag closures that remain unconfirmed.
   Retire owned budget actions after confirmed closure while retaining billing alerts.
 - **Visibility and history.** See account status, spend, pending requests, and
@@ -90,7 +90,7 @@ organization's configuration is set.
 playplace request dev-alex --owner alex@example.com --ttl 5 --budget 20 \
   --purpose "try a new service"
 playplace requests
-playplace approve dev-alex
+playplace approve dev-alex     # shows the request and asks y/N, or pass -y
 
 # Inspect and manage an account.
 playplace list
@@ -112,13 +112,13 @@ syncs, and `?` shows all keys.
 
 See the [CLI reference](docs/cli.md) and [configuration reference](docs/configuration.md).
 
-### Slack and GitLab
+### Slack
 
-- **Slack:** configured channels receive requests with **Approve** and **Deny**
-  buttons. Decisions use the same queue and approver rules as the web UI.
-- **GitLab:** optional pipeline jobs let users request accounts and authorized
-  approvers approve or deny them, without distributing management credentials.
-  A scheduled job can run reconciliation.
+A configured channel receives requests made in the web UI, with **Approve**
+and **Deny** buttons. Decisions use the same queue and approver rules as the
+web UI. Lifecycle notices, such as the *approved*, *denied*, and *expiring*
+notices, go to the channel of `--slack-webhook`. playplace does not send them
+to people.
 
 See [deployment instructions](deploy/README.md) and the
 [Slack setup notes](DESIGN.md#slack-approvals-optional).
@@ -166,6 +166,9 @@ Follow the [deployment guide](deploy/README.md) to:
 2. Configure the Playground OU, account email pattern, budget alert recipient,
    and optional Identity Center permission set. `playplace init` creates the
    organization and OU if missing; run it only in the intended management account.
+   Other commands never create them and fail when the OU is missing. `init`
+   also lists the active accounts in the OU and the new accounts that wait
+   in the organization root, with what the next refresh does to each.
 3. Separately deploy the [purchase and trail SCP](deploy/aws/playground-safeguards-scp.json)
    and review existing account obligations **before granting playground access**.
 4. Run `playplace serve` behind HTTPS with OIDC sign-in, approvers, and admins
@@ -175,7 +178,8 @@ Follow the [deployment guide](deploy/README.md) to:
    separately deployed provisioning SCP and AWS Budgets execution role.
 6. Alert on failed or missed refreshes. Use one serialized control-plane writer;
    do not overlap scheduled reconciliation with service/CLI mutations. Configure
-   shared history and lifecycle notifications as needed.
+   shared history as needed. Set `--slack-webhook` so lifecycle notices reach a
+   Slack channel. Without it, notices go only to the service log.
 
 For a local walkthrough using LocalStack and Dex instead of real AWS, see
 [Development](DEVELOPMENT.md#testing-the-flows-locally).
@@ -204,7 +208,7 @@ before using playplace with real accounts.
 | [Requesting an account](docs/requesting.md) | Engineer workflow |
 | [Approving requests](docs/approving.md) | Approver and admin workflow |
 | [CLI](docs/cli.md) · [Configuration](docs/configuration.md) | Commands, flags, and environment variables |
-| [Deployment](deploy/README.md) | IAM, hosting, GitLab, and billing safeguards |
+| [Deployment](deploy/README.md) | IAM, hosting, and billing safeguards |
 | [Design](DESIGN.md) | Architecture, lifecycle rules, and interface decisions |
 | [Development](DEVELOPMENT.md) | Build setup, local testing, and contributor workflows |
 | [Releasing](docs/releasing.md) | CI, release snapshots, Homebrew, and AUR packaging |

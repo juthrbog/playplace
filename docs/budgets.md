@@ -33,6 +33,7 @@ Playplace retires its owned action once the member is confirmed `CLOSED`:
    errors and completion use the lifecycle notifier.
 
 The budget and notification subscribers are retained to monitor residual bills.
+A later change of `--alert-email` does not reach them.
 No reverse/reset, whole-budget deletion, direct SCP detachment, trail deletion,
 member-role assumption or member-resource cleanup is performed. Unrelated actions
 are preserved; if any remain, that budget can still incur action-enabled fees.
@@ -43,7 +44,9 @@ until retirement completes. Deploy the updated `playplace-budget-actions-policy.
 its additional `budgets:DeleteBudgetAction` grant is restricted to `playplace-*`
 action ARNs carrying `playplace:managed=true`. Permission failures or AWS resource
 locks are retried, not worked around by reversing the action. Accounts moved out
-of the OU or no longer discoverable require manual follow-up.
+of the OU or no longer discoverable require manual follow-up: playplace never
+moves an account back into the OU. See
+[Move an account out of the Playground OU](deploy.md#move-an-account-out-of-the-playground-ou).
 
 The DeleteBudgetAction API reference does not specify the effect on an already
 applied SCP. Verify deletion of both standby and executed actions, resulting
@@ -58,8 +61,9 @@ Deploy infrastructure separately, using management-account credentials:
 1. Enable service control policies in your organization and preserve normal
    allow policies, including `FullAWSAccess` where needed.
 2. Review and create `deploy/aws/budget-provisioning-deny-scp.json` as a customer
-   managed SCP. **Do not attach it to the Playground OU or root.** AWS Budgets
-   attaches it to individual accounts only when their thresholds are crossed.
+   managed SCP. **Do not attach it to the Playground OU, to an OU above it, or
+   to the root.** AWS Budgets attaches it to individual accounts only when
+   their thresholds are crossed.
 3. Create a management-account IAM role named `PlayplaceBudgetActions`, using
    `deploy/aws/budget-actions-trust.json` and
    `deploy/aws/budget-actions-execution-policy.json`. Replace
@@ -81,11 +85,12 @@ Deploy infrastructure separately, using management-account credentials:
 6. Run one controlled reconciliation and inspect protection health for all
    existing accounts before relying on enforcement. Newly configured AWS actions
    must be observed on a subsequent pass before new owner access is granted.
+   The first pass reports `setup-pending`. That is not a failure.
    Budget/action failure now withholds new grants, rather than silently allowing
    an account to proceed without its budget. Already-issued access is not revoked
    solely because a budget health check fails.
 
-The initial **account ready** notification waits for observed protection, successful
+The initial *ready* notice waits for observed protection, successful
 managed owner access when enabled, and no active budget restriction. It can arrive
 on a later reconciliation after setup or access retries. New creations and newly
 adopted accounts receive this initial handoff once; already-managed accounts do not
@@ -167,8 +172,10 @@ calculated spend to zero; playplace checks spending **before** changing the
 budget and persists that evidence. It does not interpret the temporary zero as
 new available budget.
 
-Recovery is asynchronous. A CLI error saying **change saved; reconciliation
-pending** means the intent was saved, not rolled back. Run reconciliation or let
+Recovery is asynchronous. A successful `budget` command prints `protection
+recovering`, and later passes finish the recovery. A CLI error that starts with
+**budget change saved** means that the intent was saved, not rolled back, but
+the protection update failed. Reconciliation retries it. Run reconciliation or let
 the worker continue; inspect `show ACCOUNT` or the account page. Do not repeatedly
 submit new increases while recovery is pending. A restart resumes the phase;
 an action that re-executes after reset is not reversed again using the old
@@ -201,16 +208,41 @@ state rather than reattaching last month's restriction from local state.
   `alerts-disabled`, `setup-pending`, `ready`, `restricting`, `restricted`,
   `recovering`, `retiring`, `retired`, or `error`. The displayed timestamp records a state/error change,
   **not a heartbeat**. Monitor missed/failed reconciliation independently.
+- Settling protection is a state that a later pass completes: `setup-pending`,
+  `restricting`, `recovering` or `retiring`. It does not fail reconciliation.
+  If one state lasts more than two hours after its timestamp, each pass fails
+  with `protection is still STATE after more than two hours` until it settles.
+  Then inspect the account's budget action in AWS Budgets.
 - `--alert-email` is mandatory in enforcement mode. In alerts-only mode an empty
   value is explicitly reported as `alerts-disabled`, with a startup warning.
 - Playplace owns **EMAIL subscribers on the exact 80% actual and 100% forecast
   greater-than percentage notifications** of its `playplace-*` budgets. Recipient
-  changes reconcile existing budgets too, including legacy ones. SNS subscribers
-  on those notifications and all other notification thresholds are preserved.
-  Keep additional manually managed email alerts on separate thresholds.
-- Action recipients are reconciled independently; AWS may lock updates during
-  transitions. Errors remain visible and are retried. Forecast alerts require
-  usage history and should not be relied on for newly created accounts.
+  changes reconcile existing budgets too, including legacy ones. A budget without
+  these notifications, for example one created while `--alert-email` was empty,
+  gets both when the flag is set. SNS subscribers on those notifications and all
+  other notification thresholds are preserved. Keep additional manually managed
+  email alerts on separate thresholds.
+- A change of `--alert-email` from one address to another starts a **recipient
+  rotation**. In one pass, playplace replaces the old address on the owned
+  notifications and on the owned action of each active, unexpired account
+  without a close request. The new recipient does not change when or how AWS
+  acts. When AWS accepts the update, budget health and its timestamp stay as
+  they were, and no budget notice is sent. A `restricted` account stays
+  `restricted`. If AWS rejects the update, for example while it locks the
+  action during a transition, that pass fails. Health shows `error`, a budget
+  notice is sent, and a later pass retries the update. In alerts-only mode,
+  setting or clearing the flag is not a rotation: health moves between
+  `alerts-disabled` and `alerts-only`, and its timestamp changes. A repair of
+  the action's trigger (its threshold, notification type or approval model) is
+  also different: it changes when AWS acts, so health goes through
+  `setup-pending` until a later pass observes the action.
+- A rotation does not reach closed, closing or expired accounts. Their budgets
+  keep the old address on the owned alerts, and on the owned action until
+  playplace retires it. The alerts of a closed account keep watching residual
+  bills. If the old mailbox stops working, change these alerts in AWS Budgets.
+- AWS can lock action updates during transitions. Errors remain visible and are
+  retried. Forecast alerts need usage history, so do not rely on them for new
+  accounts.
 - Missing, duplicate, unowned, or mismatched actions and unexpected attachments
   fail visibly. No general-purpose policy detach is used as a repair shortcut.
   Changing/removing the configured SCP requires a deliberate migration; it does
@@ -218,12 +250,22 @@ state rather than reattaching last month's restriction from local state.
 - Execution, reverse and reset failures remain errors. Reverse/reset operations
   with a matching durable intent are retried; an execution failure or manual
   reversal without such an intent requires operator review in AWS Budgets.
+  A reverse or reset that AWS reports as failed is not settling protection.
+  Playplace sends it again, and that pass fails at once. Health stays
+  `recovering`.
   After an out-of-band reversal, **Reset** is required to rearm the action for
   the current period. Do not delete ownership/recovery tags to silence errors.
 - Budget state changes are audited. Error/restriction/recovery transitions also
   use the configured lifecycle notifier (for example `--slack-webhook`); AWS
   action notifications use `--alert-email`. Delivery is best-effort, not an
   exactly-once guarantee.
+  A repair from `error` is announced when it starts. A repair through
+  `setup-pending` sends no notice when it ends. A repair through
+  `restricting` sends the `restricted` notice when the restriction is in
+  place, and one through `recovering` sends a notice when it ends. Finished
+  setup sends no budget notice, because the *ready* notice covers a new
+  account. A recipient rotation that AWS accepts sends no budget notice,
+  because health does not change.
 
 ### Damaged account guardrail tags
 

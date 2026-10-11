@@ -2,7 +2,11 @@ package web
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"time"
+
+	"playplace/internal/core"
 )
 
 func tableURL(showAll bool) string {
@@ -55,6 +59,30 @@ func barWidth(spend, budget float64) string {
 // dayCount renders a duration as a whole number of days.
 func dayCount(d time.Duration) string {
 	return fmt.Sprintf("%d", int(d.Hours()/24))
+}
+
+// dayValue is the value that the edit form opens with for a request
+// lifetime: the stored whole hours as days, with a fraction when needed,
+// such as 1.5 for 36 hours. A number input holds it, and parseDuration reads
+// it back exactly.
+func dayValue(d time.Duration) string {
+	return strconv.FormatFloat(math.Ceil(d.Hours())/24, 'f', -1, 64)
+}
+
+// dayLabel names the edit form's days input. A lifetime that is not a whole
+// number of days also shows exactly, such as "days (now 36 hours)", next to
+// the fraction that the input holds.
+func dayLabel(d time.Duration) string {
+	if int(math.Ceil(d.Hours()))%24 == 0 {
+		return "days"
+	}
+	return "days (now " + core.Lifetime(d) + ")"
+}
+
+// budgetValue is the value that the edit form opens with for a budget, with
+// every digit it has, such as 12.5.
+func budgetValue(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
 // tagPattern is the HTML pattern for values AWS accepts in tags. Browsers

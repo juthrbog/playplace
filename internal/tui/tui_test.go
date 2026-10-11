@@ -15,6 +15,7 @@ import (
 
 	"playplace/internal/audit"
 	"playplace/internal/core"
+	"playplace/internal/notify"
 	"playplace/internal/provider/fake"
 )
 
@@ -513,7 +514,7 @@ func TestEditAndWithdrawPendingRequests(t *testing.T) {
 	if q, err := svc.GetRequest(ctx, "pend"); err != nil || q.BudgetUSD != 30 || q.TTL != 5*24*time.Hour || q.Owner != "dana@example.com" {
 		t.Fatalf("edit should change only the budget: %+v %v", q, err)
 	}
-	if !strings.Contains(plain(m.content()), "✓ pend: dana@example.com, 5d, $30/month") {
+	if out := plain(m.content()); !strings.Contains(out, "✓ pend: dana@example.com, 5 days,") || !strings.Contains(out, "$30/month") {
 		t.Fatalf("edit flash missing:\n%s", plain(m.content()))
 	}
 
@@ -616,6 +617,39 @@ func TestServiceWarningsBecomeToastsAndNotifications(t *testing.T) {
 	}
 }
 
+// notify.Log writes a lifecycle notice at Warn so that the CLI shows it. In
+// the TUI it is routine news: it arrives as info with its subject and body,
+// and the toast does not take the warning color. A failed delivery logs at
+// Error under the same message and stays an error.
+func TestLifecycleNoticesArriveAsInfo(t *testing.T) {
+	svc, _ := seeded(t)
+	feed := NewFeed()
+	m := newModel(context.Background(), svc, Options{Feed: feed})
+	m.now = func() time.Time { return t0 }
+	m = step(t, m, tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = run(t, m, m.load(true))
+
+	log := slog.New(feed.Handler())
+	notices := &notify.Log{Logger: log}
+	if err := notices.Notify(context.Background(), core.Message{Subject: "Playground request approved: dev-alex", Body: "ops approved dev-alex for alex.", Owner: "alex"}); err != nil {
+		t.Fatal(err)
+	}
+	msg := m.waitNotice()()
+	n, ok := msg.(noticeMsg)
+	if !ok || n.level != noticeInfo || n.text != "Playground request approved: dev-alex. ops approved dev-alex for alex." {
+		t.Fatalf("lifecycle notice should arrive as info with its subject and body, got %#v", msg)
+	}
+	m = step(t, m, msg)
+	if frame := plain(m.content()); !strings.Contains(frame, "· Playground request approved: dev-alex.") || strings.Contains(frame, "! Playground") {
+		t.Fatalf("toast should show the notice as info:\n%s", frame)
+	}
+
+	log.Error(notify.LogMessage, "subject", "Playground request approved: dev-alex", "err", "slack webhook returned 500")
+	if n, ok := m.waitNotice()().(noticeMsg); !ok || n.level != noticeError || !strings.Contains(n.text, "notify: subject=Playground request approved: dev-alex, err=slack webhook returned 500") {
+		t.Fatalf("a failed delivery should stay an error, got %#v", n)
+	}
+}
+
 // pendingFixture seeds a request queued by someone else and selects it.
 func pendingFixture(t *testing.T) (model, *core.Service, *fake.Provider) {
 	t.Helper()
@@ -651,6 +685,120 @@ func TestApproveDialogDefaultsToCancel(t *testing.T) {
 	}
 	if strings.Contains(plain(m.content()), "approved pend") {
 		t.Fatal("enter on the default button must not approve")
+	}
+}
+
+// The approve dialog shows the row as loaded; if the request changes while
+// it is open, y refuses instead of approving values the operator never saw.
+func TestApproveDialogActsOnTheLoadedRow(t *testing.T) {
+	m, svc, prov := pendingFixture(t)
+	before, _ := prov.ListCreateRequests(context.Background())
+	m = step(t, m, tea.KeyPressMsg{Code: 'a'})
+	if m.dialog == nil || !strings.Contains(m.dialog.body, "$20/month") {
+		t.Fatalf("a should show the loaded values: %+v", m.dialog)
+	}
+	q, err := svc.GetRequest(context.Background(), "pend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpdateRequest(context.Background(), q.Ref(), "root@example.com", core.RequestEdit{BudgetUSD: 400}); err != nil {
+		t.Fatal(err)
+	}
+	m.dialog.openedAt = t0.Add(-time.Second)
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'y'})
+	m = run(t, next.(model), cmd)
+	if !strings.Contains(plain(m.content()), "request changed: the request for pend was") {
+		t.Fatalf("a changed request should be refused:\n%s", plain(m.content()))
+	}
+	if after, _ := prov.ListCreateRequests(context.Background()); len(after) != len(before) {
+		t.Fatal("no account may be created from a stale dialog")
+	}
+	// Every action result schedules this reload. After it, the next dialog
+	// shows the edit and approves it.
+	m = run(t, m, m.poll())
+	for i, r := range m.visible {
+		if r.Account.Name == "pend" {
+			m.grid.cursor = i
+		}
+	}
+	m = step(t, m, tea.KeyPressMsg{Code: 'a'})
+	if m.dialog == nil || !strings.Contains(m.dialog.body, "$400/month") {
+		t.Fatalf("the reloaded row should show the edit: %+v", m.dialog)
+	}
+	m.dialog.openedAt = t0.Add(-time.Second)
+	next, cmd = m.Update(tea.KeyPressMsg{Code: 'y'})
+	m = run(t, next.(model), cmd)
+	if after, _ := prov.ListCreateRequests(context.Background()); len(after) != len(before)+1 {
+		t.Fatalf("approving the reloaded row should create the account:\n%s", plain(m.content()))
+	}
+}
+
+// Deny, withdraw, and the edit form act on the row as loaded, as approve
+// does. If the request changes while the dialog or form is open, the action
+// is refused and the request keeps the change.
+func TestDenyWithdrawAndEditActOnTheLoadedRow(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  rune
+	}{{"deny", 'd'}, {"withdraw", 'w'}, {"edit", 'e'}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			m, svc, _ := pendingFixture(t)
+			m = step(t, m, tea.KeyPressMsg{Code: tc.key})
+			confirm := tea.KeyPressMsg{Code: 'y'}
+			switch {
+			case m.dialog != nil:
+				m.dialog.openedAt = t0.Add(-time.Second)
+			case m.form != nil:
+				// The form still holds the loaded budget of $20; saving it
+				// must not undo the edit below.
+				m.form.openedAt = t0.Add(-time.Second)
+				m.form.fields[3].input.SetValue("from the stale form")
+				confirm = tea.KeyPressMsg{Code: tea.KeyEnter}
+			default:
+				t.Fatalf("%c opened nothing:\n%s", tc.key, plain(m.content()))
+			}
+			q, err := svc.GetRequest(ctx, "pend")
+			if err != nil {
+				t.Fatal(err)
+			}
+			edited, err := svc.UpdateRequest(ctx, q.Ref(), "root@example.com", core.RequestEdit{BudgetUSD: 400})
+			if err != nil {
+				t.Fatal(err)
+			}
+			next, cmd := m.Update(confirm)
+			m = run(t, next.(model), cmd)
+			if !strings.Contains(plain(m.content()), "request changed: the request for pend was") {
+				t.Fatalf("a changed request should be refused:\n%s", plain(m.content()))
+			}
+			if now, err := svc.GetRequest(ctx, "pend"); err != nil || now.Version() != edited.Version() {
+				t.Fatalf("a stale %s changed the request: %+v %v", tc.name, now, err)
+			}
+		})
+	}
+}
+
+// The approve dialog binds to the exact budget and lifetime, so it shows
+// them exactly, not in the compact form of the table.
+func TestApproveDialogShowsTheExactValues(t *testing.T) {
+	ctx := context.Background()
+	m, svc, _ := pendingFixture(t)
+	q, err := svc.GetRequest(ctx, "pend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpdateRequest(ctx, q.Ref(), "root@example.com", core.RequestEdit{BudgetUSD: 412.5, TTL: 36 * time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	m = run(t, m, m.poll())
+	for i, r := range m.visible {
+		if r.Account.Name == "pend" {
+			m.grid.cursor = i
+		}
+	}
+	m = step(t, m, tea.KeyPressMsg{Code: 'a'})
+	if m.dialog == nil || !strings.Contains(m.dialog.body, "$412.50/month for 36 hours?") {
+		t.Fatalf("the dialog should show the exact values: %+v", m.dialog)
 	}
 }
 

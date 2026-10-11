@@ -21,7 +21,7 @@ func TestJourneySurvivesEditApprovalPlacementAndRestart(t *testing.T) {
 	if r.JourneyID == "" {
 		t.Fatal("submission has no journey identity")
 	}
-	edited, err := h.svc.UpdateRequest(ctx, r.Name, "admin@example.com", core.RequestEdit{Owner: "bob@example.com"})
+	edited, err := h.svc.UpdateRequest(ctx, r.Ref(), "admin@example.com", core.RequestEdit{Owner: "bob@example.com"})
 	if err != nil || edited.JourneyID != r.JourneyID {
 		t.Fatalf("edit = %+v, %v", edited, err)
 	}
@@ -32,7 +32,7 @@ func TestJourneySurvivesEditApprovalPlacementAndRestart(t *testing.T) {
 	if err != nil || pending.JourneyID != r.JourneyID {
 		t.Fatalf("reloaded = %+v, %v", pending, err)
 	}
-	a, err := restarted.Approve(ctx, r.Name, "lead@example.com")
+	a, err := restarted.Approve(ctx, pending.Ref(), "lead@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,9 +76,9 @@ func TestReusedRequestNameStartsDistinctJourneyEvenAtSameTime(t *testing.T) {
 			}
 			switch terminal {
 			case "deny":
-				err = h.svc.Deny(ctx, "demo", "lead", "no")
+				err = h.svc.Deny(ctx, first.Ref(), "lead", "no")
 			case "withdraw":
-				err = h.svc.Withdraw(ctx, "demo", "anna@example.com")
+				err = h.svc.Withdraw(ctx, first.Ref(), "anna@example.com")
 			case "expire":
 				h.advance(8 * 24 * time.Hour)
 				_, err = h.svc.Refresh(ctx)

@@ -1,10 +1,16 @@
 package web
 
 import (
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
+
+	"playplace/internal/core"
+	"playplace/internal/provider/fake"
 )
 
 func TestExistingBudgetIsAdminOnly(t *testing.T) {
@@ -25,6 +31,41 @@ func TestExistingBudgetIsAdminOnly(t *testing.T) {
 	res, _ := do(t, ts, "POST", "/accounts/111111111111/budget", "admin@example.com", true, form, false)
 	if res.StatusCode != http.StatusSeeOther || prov.Budgets["111111111111"] != 100 {
 		t.Fatalf("admin budget change failed: %d", res.StatusCode)
+	}
+}
+
+// With enforcement, a sync that creates a budget action and a budget increase
+// that starts recovery are progress, not form errors.
+func TestEnforcedSyncAndRecoveryAreNotErrors(t *testing.T) {
+	prov := fake.New()
+	prov.Now = func() time.Time { return t0 }
+	prov.Seed(core.RemoteAccount{ProviderID: "111111111111", Name: "annas-box", Email: "a@example.com", JoinedAt: t0, Tags: map[string]string{
+		core.TagManaged: "true", core.TagOwner: "anna@example.com", core.TagExpires: t0.Add(72 * time.Hour).Format(time.RFC3339), core.TagBudget: "50",
+	}})
+	cfg := core.DefaultConfig()
+	cfg.InventoryTTL = 0
+	cfg.BudgetPolicyID, cfg.BudgetActionRole, cfg.AlertEmail = "p-budget123", "arn:aws:iam::000000000000:role/Budgets", "ops@example.com"
+	svc := core.NewService(prov, nil, cfg, nil)
+	svc.Now = func() time.Time { return t0 }
+	ts := httptest.NewServer(New(svc, slog.New(slog.DiscardHandler), headerAuth{}, nil, nil).Handler())
+	t.Cleanup(ts.Close)
+
+	res, body := do(t, ts, "POST", "/refresh", "admin@example.com", true, url.Values{}, true)
+	if res.Header.Get("X-Form-Error") != "" || !strings.Contains(body, "setup-pending") {
+		t.Fatalf("first sync with a new budget action failed: %s", body)
+	}
+	if res, body = do(t, ts, "POST", "/refresh", "admin@example.com", true, url.Values{}, true); res.Header.Get("X-Form-Error") != "" || !strings.Contains(body, "ready") {
+		t.Fatalf("second sync did not observe protection: %s", body)
+	}
+	snap := prov.BudgetStates["111111111111"]
+	snap.ActionStatus, snap.SpendKnown, snap.SpendUSD = "EXECUTION_SUCCESS", true, 60
+	prov.BudgetStates["111111111111"] = snap
+	res, body = do(t, ts, "POST", "/accounts/111111111111/budget", "admin@example.com", true, url.Values{"budget": {"100"}, "reason": {"more testing"}}, true)
+	if res.Header.Get("X-Form-Error") != "" || res.Header.Get("HX-Redirect") != "/accounts/111111111111" {
+		t.Fatalf("saved increase with recovery in progress shown as an error: %s", body)
+	}
+	if prov.Tags("111111111111")[core.TagBudgetHealth] != "recovering" {
+		t.Fatalf("recovery did not start: %v", prov.Tags("111111111111"))
 	}
 }
 

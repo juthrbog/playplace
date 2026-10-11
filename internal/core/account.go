@@ -21,7 +21,7 @@ const (
 	StatusPending     Status = "pending"     // requested, waiting for an approver
 	StatusCreating    Status = "creating"    // provider is still creating it
 	StatusActive      Status = "active"      // in the OU, usable
-	StatusExpiring    Status = "expiring"    // owner has been warned
+	StatusExpiring    Status = "expiring"    // the expiring notice was sent
 	StatusClosing     Status = "closing"     // close requested, waiting for confirmed closure
 	StatusClosed      Status = "closed"      // provider explicitly reports CLOSED
 	StatusUnavailable Status = "unavailable" // suspended, pending activation, or unknown provider state
@@ -43,7 +43,7 @@ const (
 	TagOwner          = "playplace:owner"            // who is responsible
 	TagExpires        = "playplace:expires"          // RFC3339
 	TagBudget         = "playplace:budget"           // monthly USD, e.g. "50"
-	TagWarnedAt       = "playplace:warned-at"        // RFC3339, set once the owner was warned
+	TagWarnedAt       = "playplace:warned-at"        // RFC3339, set once the expiring notice was sent
 	TagCloseRequested = "playplace:close-requested"  // RFC3339, close intent
 	TagClosedAt       = "playplace:closed-at"        // RFC3339, closure observed and reported
 	TagCloseAlertedAt = "playplace:close-alerted-at" // RFC3339, overdue closure warning sent
@@ -93,7 +93,11 @@ type Account struct {
 	// and edit the asked-for lifetime without a second read of the queue.
 	TTL            time.Duration `json:"ttl,omitempty"`
 	OverrideLimits bool          `json:"override_limits,omitempty"`
+	RequestVersion string        `json:"request_version,omitempty"` // Request.Version of the row's record
 }
+
+// RequestRef is the reference to act on a pending row as it was loaded.
+func (a *Account) RequestRef() RequestRef { return RequestRef{Name: a.Name, Version: a.RequestVersion} }
 
 // Tags renders the account's lifecycle facts as provider tags.
 func (a *Account) Tags() map[string]string {

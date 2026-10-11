@@ -6,7 +6,6 @@ import (
 	"maps"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -24,7 +23,14 @@ type recoveryRemote struct {
 	spendKnown, attached     bool
 	action                   bt.Action
 	failPhase, failOperation string
-	mutations                []string
+	// lockOperation fails that call with ResourceLockedException, as AWS
+	// does while it locks an action during a transition.
+	lockOperation string
+	mutations     []string
+	// alerts is the EMAIL recipient of each owned budget notification, by
+	// notification type. actionUpdates records each UpdateBudgetAction input.
+	alerts        map[string]string
+	actionUpdates []map[string]any
 }
 
 type recoveryFlow struct {
@@ -34,13 +40,16 @@ type recoveryFlow struct {
 	now      time.Time
 	provider *Provider
 	svc      *core.Service
+	email    string // --alert-email of the next restart
+	notes    []core.Message
 }
 
 func newRecoveryFlow(t *testing.T) *recoveryFlow {
 	spec := budgetSpec()
-	h := &recoveryFlow{t: t, now: spec.Now, remote: recoveryRemote{
+	h := &recoveryFlow{t: t, now: spec.Now, email: spec.Email, remote: recoveryRemote{
 		limit: 50, spend: 60, spendKnown: true, attached: true,
 		action: budgetAction(spec, bt.ActionStatusExecutionSuccess),
+		alerts: map[string]string{string(bt.NotificationTypeActual): spec.Email, string(bt.NotificationTypeForecasted): spec.Email},
 		tags:   map[string]string{core.TagManaged: "true", core.TagOwner: "owner", core.TagBudget: "50", core.TagBudgetPolicy: spec.PolicyID, core.TagBudgetHealth: "restricted", core.TagExpires: spec.Now.Add(60 * 24 * time.Hour).Format(time.RFC3339)},
 	}}
 	h.provider = budgetHTTP(t, h.respond)
@@ -51,9 +60,9 @@ func newRecoveryFlow(t *testing.T) *recoveryFlow {
 func (h *recoveryFlow) restart() {
 	cfg := core.DefaultConfig()
 	spec := budgetSpec()
-	cfg.BudgetPolicyID, cfg.BudgetActionRole, cfg.AlertEmail = spec.PolicyID, spec.RoleARN, spec.Email
+	cfg.BudgetPolicyID, cfg.BudgetActionRole, cfg.AlertEmail = spec.PolicyID, spec.RoleARN, h.email
 	cfg.InventoryTTL = 0
-	h.svc = core.NewService(h.provider, nil, cfg, nil)
+	h.svc = core.NewService(h.provider, h, cfg, nil)
 	h.svc.Now = func() time.Time { h.mu.Lock(); defer h.mu.Unlock(); return h.now }
 }
 
@@ -68,7 +77,22 @@ func (h *recoveryFlow) snapshot() recoveryRemote {
 	defer h.mu.Unlock()
 	r := h.remote
 	r.tags, r.mutations = maps.Clone(r.tags), slices.Clone(r.mutations)
+	r.alerts, r.actionUpdates = maps.Clone(r.alerts), slices.Clone(r.actionUpdates)
 	return r
+}
+
+// Notify records lifecycle notices, so tests can count them.
+func (h *recoveryFlow) Notify(_ context.Context, m core.Message) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.notes = append(h.notes, m)
+	return nil
+}
+
+func (h *recoveryFlow) notices() []core.Message {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.notes)
 }
 
 func (h *recoveryFlow) respond(name string, in map[string]any) (any, int) {
@@ -82,8 +106,14 @@ func (h *recoveryFlow) respond(name string, in map[string]any) (any, int) {
 	if r.failOperation == name {
 		return denied()
 	}
+	if r.lockOperation == name {
+		return map[string]any{"__type": "ResourceLockedException", "Message": "injected lock"}, 400
+	}
 	switch name {
 	case "ListAccountsForParent":
+		if in["ParentId"] == budgetTestInfo.RootID {
+			return map[string]any{"Accounts": []any{}}, 200 // nothing waits for placement
+		}
 		return map[string]any{"Accounts": []map[string]any{{"Id": budgetTestID, "Name": "recovery-flow", "Email": "root@example.com", "State": "ACTIVE", "JoinedTimestamp": float64(spec.Now.Unix())}}}, 200
 	case "ListCreateAccountStatus":
 		return map[string]any{"CreateAccountStatuses": []any{}}, 200
@@ -150,7 +180,30 @@ func (h *recoveryFlow) respond(name string, in map[string]any) (any, int) {
 	case "DescribeNotificationsForBudget":
 		return map[string]any{"Notifications": ownedNotifications()}, 200
 	case "DescribeSubscribersForNotification":
-		return map[string]any{"Subscribers": []bt.Subscriber{{SubscriptionType: bt.SubscriptionTypeEmail, Address: aws.String(spec.Email)}}}, 200
+		kind := in["Notification"].(map[string]any)["NotificationType"].(string)
+		return map[string]any{"Subscribers": []bt.Subscriber{{SubscriptionType: bt.SubscriptionTypeEmail, Address: aws.String(r.alerts[kind])}}}, 200
+	case "UpdateSubscriber":
+		kind := in["Notification"].(map[string]any)["NotificationType"].(string)
+		if in["OldSubscriber"].(map[string]any)["Address"] != r.alerts[kind] {
+			h.t.Errorf("replaced a subscriber that does not exist: %v", in)
+		}
+		r.alerts[kind] = in["NewSubscriber"].(map[string]any)["Address"].(string)
+		r.mutations = append(r.mutations, "rotate-alert")
+		return map[string]any{}, 200
+	case "UpdateBudgetAction":
+		r.actionUpdates = append(r.actionUpdates, in)
+		if subs, ok := in["Subscribers"].([]any); ok {
+			r.action.Subscribers = nil
+			for _, v := range subs {
+				sub := v.(map[string]any)
+				r.action.Subscribers = append(r.action.Subscribers, bt.Subscriber{SubscriptionType: bt.SubscriptionType(sub["SubscriptionType"].(string)), Address: aws.String(sub["Address"].(string))})
+			}
+		}
+		if threshold, ok := in["ActionThreshold"].(map[string]any); ok {
+			r.action.ActionThreshold = &bt.ActionThreshold{ActionThresholdType: bt.ThresholdType(threshold["ActionThresholdType"].(string)), ActionThresholdValue: threshold["ActionThresholdValue"].(float64)}
+		}
+		r.mutations = append(r.mutations, "update-action")
+		return map[string]any{}, 200
 	case "DescribeBudgetActionsForBudget":
 		return map[string]any{"Actions": []bt.Action{r.action}}, 200
 	case "ListPoliciesForTarget":
@@ -194,8 +247,8 @@ func TestRecoveryPersistsResetBeforeMutationAcrossRestarts(t *testing.T) {
 	h := newRecoveryFlow(t)
 	ctx := context.Background()
 	a, err := h.svc.SetBudget(ctx, budgetTestID, 100, "admin", "approved testing", false)
-	if a == nil || err == nil || !strings.Contains(err.Error(), "change saved") {
-		t.Fatalf("saved pending change: %+v %v", a, err)
+	if a == nil || err != nil || a.BudgetHealth != "recovering" {
+		t.Fatalf("saved change with recovery in progress: %+v %v", a, err)
 	}
 	r := h.snapshot()
 	intent, err := core.DecodeBudgetRecovery(r.tags[core.TagBudgetRecovery])
@@ -217,15 +270,15 @@ func TestRecoveryPersistsResetBeforeMutationAcrossRestarts(t *testing.T) {
 	}
 	h.change(func(r *recoveryRemote) { r.failPhase = "" })
 	h.restart()
-	if _, err := h.svc.Refresh(ctx); err == nil {
-		t.Fatal("phase persistence is still pending recovery")
+	if _, err := h.svc.Refresh(ctx); err != nil || h.snapshot().tags[core.TagBudgetHealth] != "recovering" {
+		t.Fatalf("phase persistence is still recovery in progress: %v", err)
 	}
 	if got := h.snapshot().mutations; !slices.Equal(got, []string{"persist-reverse", "update", "reverse", "persist-reset"}) {
 		t.Fatalf("reset executed in phase-write pass: %v", got)
 	}
 	h.restart()
-	if _, err := h.svc.Refresh(ctx); err == nil {
-		t.Fatal("accepted reset is not completion")
+	if _, err := h.svc.Refresh(ctx); err != nil || h.snapshot().tags[core.TagBudgetHealth] != "recovering" {
+		t.Fatalf("accepted reset is not completion: %v", err)
 	}
 	h.change(func(r *recoveryRemote) { r.action.Status = bt.ActionStatusStandby })
 	h.restart()

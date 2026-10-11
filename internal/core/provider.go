@@ -12,7 +12,9 @@ type OrgInfo struct {
 	ManagementAccountID string
 	RootID              string
 	PlaygroundOUID      string
-	Created             bool // true if EnsureOrganization created the org on this call
+	PlaygroundOUName    string // the OU's name, for display
+	Created             bool   // true if EnsureOrganization created the organization on this call
+	OUCreated           bool   // true if EnsureOrganization created the playground OU on this call
 }
 
 // AccountRequest is what the provider needs to start creating an account.
@@ -59,6 +61,22 @@ type CostPoint struct {
 	AmountUSD float64   `json:"amount_usd"`
 }
 
+// MonthToDate sums the points in the calendar month of now. Cost Explorer
+// reports whole UTC days, so the month is the UTC month: west of UTC the
+// local month would start a day late on the evening of the last day.
+func MonthToDate(points []CostPoint, now time.Time) float64 {
+	now = now.UTC()
+	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 1, 0)
+	var sum float64
+	for _, p := range points {
+		if !p.Date.Before(start) && p.Date.Before(end) {
+			sum += p.AmountUSD
+		}
+	}
+	return sum
+}
+
 // ErrCloseQuota is returned by CloseAccount when the provider's rolling
 // closure quota is exhausted. The close intent stays in tags and is retried.
 var ErrCloseQuota = errors.New("account closure quota reached; will retry on a later refresh")
@@ -88,7 +106,11 @@ func (u User) Identity() string {
 type Provider interface {
 	Name() string
 
-	// EnsureOrganization creates the organization and playground OU if missing.
+	// EnsureOrganization creates the organization and playground OU if
+	// missing. Only `playplace init` calls it. Every other method must find
+	// both and fail, without creating anything, when either is missing. A
+	// provider that is set up with an existing OU ID creates nothing and
+	// only verifies that OU.
 	EnsureOrganization(ctx context.Context) (OrgInfo, error)
 
 	// RequestAccount starts account creation and returns a request id.
@@ -102,8 +124,14 @@ type Provider interface {
 	GetAccount(ctx context.Context, providerID string) (RemoteAccount, error)
 	// ListPlaygroundAccounts returns the accounts under the playground OU, with tags.
 	ListPlaygroundAccounts(ctx context.Context) ([]RemoteAccount, error)
+	// ListRootAccounts returns the member accounts directly under the
+	// organization root, with tags. New accounts land there until placement.
+	ListRootAccounts(ctx context.Context) ([]RemoteAccount, error)
 
-	// PlaceAccount moves the account into the playground OU and writes tags.
+	// PlaceAccount moves a new account from the organization root into the
+	// playground OU and writes tags. An account already in the OU only gets
+	// the tags. It refuses an account under any other parent: someone moved
+	// it there on purpose, and playplace never moves an account back.
 	PlaceAccount(ctx context.Context, providerID string, tags map[string]string) error
 	// SetTags adds or overwrites tags.
 	SetTags(ctx context.Context, providerID string, tags map[string]string) error
