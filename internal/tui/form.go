@@ -282,7 +282,9 @@ func yes(v string) bool { return strings.EqualFold(v, "y") || strings.EqualFold(
 // not change.
 func (m model) newEditForm(a *core.Account) *form {
 	th := m.th
-	svc, ctx, operator, name := m.svc, m.ctx, m.opts.Operator, a.Name
+	// The form is filled from the row as loaded; saving refuses a request
+	// that changed since, so unchanged fields never undo another edit.
+	svc, ctx, operator, ref := m.svc, m.ctx, m.opts.Operator, a.RequestRef()
 	override := ""
 	if a.OverrideLimits {
 		override = "y"
@@ -319,11 +321,11 @@ func (m model) newEditForm(a *core.Account) *form {
 		purpose, ov := v[3], yes(v[4])
 		e.Purpose, e.OverrideLimits = &purpose, &ov
 		return func() tea.Msg {
-			q, err := svc.UpdateRequest(ctx, name, operator, e)
+			q, err := svc.UpdateRequest(ctx, ref, operator, e)
 			if err != nil {
 				return actionMsg{err: err}
 			}
-			return actionMsg{flash: fmt.Sprintf("✓ %s: %s, %dd, %s/month", q.Name, q.Owner, int(q.TTL.Hours()/24), money(q.BudgetUSD))}
+			return actionMsg{flash: fmt.Sprintf("✓ %s: %s, %s, %s/month", q.Name, q.Owner, core.Lifetime(q.TTL), core.Dollars(q.BudgetUSD))}
 		}, nil
 	}
 	f.setFocus(0)

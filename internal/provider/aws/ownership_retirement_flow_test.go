@@ -25,6 +25,9 @@ func TestOwnedDamagedAccountRetirementThroughRefresh(t *testing.T) {
 			p := budgetHTTP(t, func(name string, in map[string]any) (any, int) {
 				switch name {
 				case "ListAccountsForParent":
+					if in["ParentId"] == budgetTestInfo.RootID {
+						return map[string]any{"Accounts": []any{}}, 200 // nothing waits for placement
+					}
 					return map[string]any{"Accounts": []map[string]any{{"Id": budgetTestID, "Name": "closed-damaged", "Email": "owner@example.com", "State": "CLOSED"}}}, 200
 				case "ListCreateAccountStatus":
 					return map[string]any{"CreateAccountStatuses": []any{}}, 200
@@ -79,8 +82,9 @@ func TestOwnedDamagedAccountRetirementThroughRefresh(t *testing.T) {
 				s.Now = func() time.Time { return time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC) }
 				return s
 			}
-			if _, err := restart().Refresh(ctx); err == nil {
-				t.Fatal("expected pending retirement or drift error")
+			// Retirement awaiting observation is progress. Drift is an error.
+			if _, err := restart().Refresh(ctx); (err != nil) != (mode == "ownership-drift") {
+				t.Fatalf("pending retirement or drift error: %v", err)
 			}
 			if mode == "ownership-drift" {
 				if deleted != 0 || tags[core.TagBudgetHealth] != "error" {

@@ -15,7 +15,7 @@ func TestBudgetActionRetiresOnlyAfterConfirmedClosure(t *testing.T) {
 			h := newHarness(t)
 			enforceBudgets(h)
 			ctx := context.Background()
-			a := h.active(t, "retire-budget", "owner", time.Hour)
+			a := h.ready(t, "retire-budget", "owner", time.Hour)
 			// Interrupted/malformed recovery cannot prevent post-closure retirement.
 			if err := h.prov.SetTags(ctx, a.ID, map[string]string{core.TagBudgetRecovery: "bad-intent"}); err != nil {
 				t.Fatal(err)
@@ -24,13 +24,13 @@ func TestBudgetActionRetiresOnlyAfterConfirmedClosure(t *testing.T) {
 			switch mode {
 			case "manual":
 				closed, err := h.svc.RequestClose(ctx, a.ID, "admin")
-				if err == nil || closed.Status != core.StatusClosed {
+				if err != nil || closed.Status != core.StatusClosed {
 					t.Fatalf("closure should succeed while retirement awaits observation: %+v %v", closed, err)
 				}
 			case "expiry":
 				h.advance(2 * time.Hour)
 				sum, err := h.svc.Refresh(ctx)
-				if err == nil || len(sum.Closed) != 1 || len(sum.Deferred) != 0 {
+				if err != nil || len(sum.Closed) != 1 || len(sum.Deferred) != 0 {
 					t.Fatalf("cleanup must not hide closure: %+v %v", sum, err)
 				}
 			default:
@@ -41,8 +41,9 @@ func TestBudgetActionRetiresOnlyAfterConfirmedClosure(t *testing.T) {
 					r.Tags[core.TagCloseRequested] = h.now.Format(time.RFC3339)
 				}
 				h.prov.Seed(r)
-				if _, err := h.svc.Refresh(ctx); err == nil {
-					t.Fatal("expected pending retirement")
+				// Retirement awaiting observation is progress, not failure.
+				if _, err := h.svc.Refresh(ctx); err != nil {
+					t.Fatal(err)
 				}
 			}
 			if h.prov.Tags(a.ID)[core.TagBudgetHealth] != "retiring" || h.prov.BudgetStates[a.ID].ActionID != "" {
@@ -86,8 +87,8 @@ func TestBudgetRetirementFailureRetriesWithoutBlockingOtherClosures(t *testing.T
 	h := newHarness(t)
 	enforceBudgets(h)
 	ctx := context.Background()
-	a := h.active(t, "retire-retry", "owner", 48*time.Hour)
-	other := h.active(t, "retire-other", "owner", time.Hour)
+	a := h.ready(t, "retire-retry", "owner", 48*time.Hour)
+	other := h.ready(t, "retire-other", "owner", time.Hour)
 	h.prov.RetireFailure = "resource locked"
 	closed, err := h.svc.RequestClose(ctx, a.ID, "admin")
 	if err == nil || closed.Status != core.StatusClosed || h.prov.Tags(a.ID)[core.TagClosedAt] == "" {
@@ -100,8 +101,8 @@ func TestBudgetRetirementFailureRetriesWithoutBlockingOtherClosures(t *testing.T
 	}
 	h.prov.RetireFailure = ""
 	enforceBudgets(h)
-	if _, err := h.svc.Refresh(ctx); err == nil {
-		t.Fatal("accepted deletes must await confirmation")
+	if _, err := h.svc.Refresh(ctx); err != nil || h.prov.Tags(a.ID)[core.TagBudgetHealth] != "retiring" {
+		t.Fatalf("accepted deletes must await confirmation without failing the pass: %v", err)
 	}
 	if _, err := h.svc.Refresh(ctx); err != nil {
 		t.Fatal(err)
@@ -118,7 +119,7 @@ func TestBudgetRetirementSkipsUnsafeLifecycleStates(t *testing.T) {
 		t.Run(state, func(t *testing.T) {
 			h := newHarness(t)
 			enforceBudgets(h)
-			a := h.active(t, "unsafe-retire", "owner", 48*time.Hour)
+			a := h.ready(t, "unsafe-retire", "owner", 48*time.Hour)
 			r, _ := h.prov.GetAccount(context.Background(), a.ID)
 			r.Status = state
 			// Even old closure markers must not authorize deleting live protection.
@@ -150,7 +151,7 @@ func (p retirementTagFailure) SetTags(ctx context.Context, id string, tags map[s
 func TestBudgetRetirementRecoversAfterTagFailure(t *testing.T) {
 	h := newHarness(t)
 	enforceBudgets(h)
-	a := h.active(t, "retire-tags", "owner", time.Hour)
+	a := h.ready(t, "retire-tags", "owner", time.Hour)
 	svc := core.NewService(retirementTagFailure{h.prov}, h.note, h.svc.Config(), nil)
 	svc.Now = func() time.Time { return h.now }
 	closed, err := svc.RequestClose(context.Background(), a.ID, "admin")
@@ -170,7 +171,7 @@ func TestBudgetRetirementRequiresOriginalConfiguration(t *testing.T) {
 	for _, policy := range []string{"", "p-other123"} {
 		h := newHarness(t)
 		enforceBudgets(h)
-		a := h.active(t, "retire-config", "owner", time.Hour)
+		a := h.ready(t, "retire-config", "owner", time.Hour)
 		r, _ := h.prov.GetAccount(context.Background(), a.ID)
 		r.Status = "CLOSED"
 		h.prov.Seed(r)

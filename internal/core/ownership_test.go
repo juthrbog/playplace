@@ -120,8 +120,8 @@ func TestOwnedClosedDamageDoesNotMaskRetirement(t *testing.T) {
 					r.Tags[core.TagClosedAt] = h.now.Format(time.RFC3339)
 				}
 				h.prov.Seed(r)
-				if _, err := h.svc.Refresh(ctx); err == nil {
-					t.Fatal("accepted deletion must await observation")
+				if _, err := h.svc.Refresh(ctx); err != nil || h.prov.Tags(a.ID)[core.TagBudgetHealth] != "retiring" {
+					t.Fatalf("accepted deletion must await observation without failing the pass: %v", err)
 				}
 				enforceBudgets(h)
 				if _, err := h.svc.Refresh(ctx); err != nil {
@@ -211,7 +211,7 @@ func TestGuardrailDamagePreservesExistingAccessAndProtection(t *testing.T) {
 	h.prov.AccessOn = true
 	h.prov.AddUser("user1", "owner", "owner@example.com")
 	ctx := context.Background()
-	a := h.active(t, "keep-protection", "owner", 14*24*time.Hour)
+	a := h.ready(t, "keep-protection", "owner", 14*24*time.Hour)
 	before := h.prov.BudgetStates[a.ID]
 	calls := h.prov.BudgetCalls
 	if err := h.prov.SetTags(ctx, a.ID, map[string]string{core.TagExpires: "broken"}); err != nil {

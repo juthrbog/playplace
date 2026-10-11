@@ -207,7 +207,7 @@ func (p *Provider) ExecuteBudgetAction(ctx context.Context, id string, spec core
 	if err := spec.Validate(); err != nil {
 		return err
 	}
-	info, err := p.EnsureOrganization(ctx)
+	info, err := p.org(ctx)
 	if err != nil {
 		return err
 	}

@@ -25,7 +25,7 @@ indoor playgrounds we grew up with; this is that idea moved to the cloud.
 
 - **[I run playplace](deploy.md)**
   One process in the management account, an IAM policy, and optional
-  Slack, GitLab, and history sinks.
+  Slack and history sinks.
 
 </div>
 
@@ -33,7 +33,7 @@ indoor playgrounds we grew up with; this is that idea moved to the cloud.
 
 1. **Request.** An engineer asks for an account with a name, a lifetime in
    days, a monthly budget, and a sentence on what it is for. Requests come
-   from the web UI, the CLI, or a GitLab pipeline.
+   from the web UI, the terminal dashboard, or the CLI.
 2. **Approve.** An approver looks at the request and approves, denies, or,
    for admins, adjusts it first, in the web UI, in Slack, or on the command
    line. Nobody can approve a request they made or would own.

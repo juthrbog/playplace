@@ -1,0 +1,21 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OrganizationsBootstrap",
+      "Effect": "Allow",
+      "Action": [
+        "organizations:CreateOrganization",
+        "organizations:CreateOrganizationalUnit"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "OrganizationsBootstrapServiceRole",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/organizations.amazonaws.com/*",
+      "Condition": {"StringEquals": {"iam:AWSServiceName": "organizations.amazonaws.com"}}
+    }
+  ]
+}

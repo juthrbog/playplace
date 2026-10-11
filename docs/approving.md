@@ -19,6 +19,12 @@ waiting: who asked, for whom, how long, how much, and why.
 You cannot approve a request you made or one that would give you the
 account. Someone else must.
 
+Each button acts on the request as your page showed it. Someone can edit the
+request after your page loads. The request can also end, and someone can
+submit a new request with the same name. In both cases, playplace refuses the
+click and shows the current request. Read the request again, then click
+again.
+
 ## Limits
 
 Requests are capped at 90 days and $500 a month unless an admin ticks
@@ -32,10 +38,17 @@ Requests nobody acts on for seven days are dropped and the requester is told.
 
 ## Slack
 
-If Slack is connected, each request also posts to the approvals channel with
-**Approve** and **Deny** buttons. Clicking acts on the same request as the web
-UI, so it disappears from both. Your Slack email must be on the approver
-list.
+If Slack is connected, each request made in the web UI also posts to the
+approvals channel with **Approve** and **Deny** buttons. Requests made with
+the command line or the TUI do not post. A click acts on the same request as
+the web UI, and the message then shows the outcome. Your Slack email must be
+on the approver list.
+
+The message shows the exact budget, the exact lifetime, and any limit
+override. playplace does not update the message when someone edits,
+withdraws, or decides the request in the web UI. If the request changed after
+playplace posted the message, playplace refuses the click. Only you see the
+reply. Open playplace to see the current request.
 
 ## Admin extras
 

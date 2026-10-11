@@ -61,10 +61,62 @@ characters so the request record fits. Owners, requesters, and purposes are
 checked on the way in and refused with a message that names the rule.
 
 Everything else is read live: account status from Organizations, in-flight
-and failed creations from `ListCreateAccountStatus`, spend from Cost Explorer.
+and failed creations from `ListCreateAccountStatus`, finished creations that
+wait for placement from the organization root, spend from Cost Explorer.
 Accounts that land in the OU without tags are adopted with defaults on the
 next refresh. Cost Explorer bills per call, so `list` never touches it;
 `show`, `costs`, the TUI, and the web UI cache results for an hour.
+
+### Placement and the organization
+
+Only `playplace init` creates the organization or the Playground OU. Every
+other command looks them up and fails when either is missing. This stops a
+wrong AWS profile, a typo in the OU name, or an OU nested below another OU
+from creating a new, empty OU that has none of the operator's SCPs. The
+Playground OU must be a direct child of the organization root. The error
+names `--ou-name`. It names `playplace init` only for the case where no
+Playground OU exists yet. When the real OU is nested, `init` creates a
+second OU under the root. A failed lookup is not cached, so a running
+`serve` continues once `init` runs.
+
+AWS creates every new account in the organization root. Placement moves it
+from there into the OU, once. Playplace places an account only when it sits
+directly under the root and its tags say `playplace:managed=true` and
+`playplace:handoff=placing`. Readiness replaces `placing` right after the
+move, so a placed account never qualifies again. The provider also refuses
+to move an account from any parent other than the root. Placement does not
+write the handoff tag. Refresh and the creation poll of `create` and
+`approve` read the account again after they place it. A stale read then
+cannot undo a handoff that another process finished, and the placed and
+ready notices are not repeated.
+
+An operator can move an account out of the OU, for example to a quarantine
+OU. That ends playplace management for the account: playplace does not move
+it back, show it, close it at expiry, or revoke owner access. The budget and
+any owner access stay. Its name and its place in the per-owner limit are free
+again. Moving the account back into the OU resumes management with its
+existing tags. See
+[the deployment guide](deploy/README.md#move-an-account-out-of-the-playground-ou).
+
+A creation that is not placed yet stays in the root. The inventory shows it
+as `creating` with its owner from the creation tags. After one hour it also
+carries a note: it waits for the next reconcile and has no budget, OU
+guardrail, or expiry until then. The note does not say that placement
+failed, because the inventory cannot tell whether a reconcile ran. Every
+refresh retries the placement and fails while it fails. Nothing ages these
+accounts out, so they stay visible and keep failing reconciliation until
+placement succeeds or an operator acts. To stop the retries, remove the
+`playplace:handoff` tag from the account or move it to another OU.
+Playplace never closes an account in the root. If the approved expiry passed
+while the account waited there, the pass that places it also closes it.
+
+The root listing reads tags only for accounts that can be playplace
+creations. It skips the management account, invited accounts, and names that
+playplace never gives. If the root listing fails, the inventory still lists
+the OU and the queue, and refresh reports the failure. AWS can report a
+creation as done before it lists the new account. For one hour after that
+report, the inventory shows the creation from its status while neither the
+root nor the OU lists the account. This keeps the name taken.
 
 ### Ownership is not tag validity
 
@@ -128,10 +180,23 @@ Missing action observations mean setup is pending, while observed empty/unknown
 statuses remain errors. Recovery intent is retained on errors, even if the action
 has progressed; accepted mutations are not completion.
 
+Settling protection is a state that a later pass completes: `setup-pending`,
+`restricting`, `recovering` or `retiring`. It is progress, not failure.
+Creation polling, budget changes, closure and refresh succeed while protection
+settles. New grants and the initial handoff wait for it. A pass fails only when
+one state lasts more than two hours after `playplace:budget-checked`, so
+protection that never settles still alerts. A recovery step that AWS reports
+as `REVERSE_FAILURE` or `RESET_FAILURE` is not settling. Playplace sends it
+again, and that pass fails at once while health stays `recovering`. Finished
+setup sends no budget notification, because the account-ready notice covers a
+new account. A repair from `error` is announced when it starts, not when it
+finishes.
+
 The fake adapter simulates remote completion of explicitly submitted operations,
-not recovery policy. The same core decisions run against both adapters. Recovery
-records retain their existing tag encoding and resume without migration; caller
-commands, health states, and pending/error behavior are unchanged. Caller-interface
+not recovery policy. Like AWS, it shows a newly created action only on the next
+pass. The same core decisions run against both adapters. Recovery records retain
+their existing tag encoding and resume without migration; caller commands and
+health states are unchanged. Caller-interface
 tests use the real AWS adapter with loopback observations and durable mock tags to
 exercise interrupted writes, restarts, re-execution and period rollover together.
 These tests do not establish live AWS propagation, IAM or SCP behavior.
@@ -141,7 +206,8 @@ These tests do not establish live AWS propagation, IAM or SCP behavior.
 Statuses are derived, never stored:
 
     pending    a request waiting for an approver (a tag on the OU)
-    creating   a creation request AWS has not finished
+    creating   a creation request AWS has not finished, or a finished creation
+               that still waits in the organization root for placement
     failed     a creation request AWS rejected (kept 7 days)
     active     in the OU with no warning or close tag
     expiring   the warned-at tag is set
@@ -189,6 +255,33 @@ act on the same request at once. The account carries `requested-by` and
 `approved-by` tags for audit. Requests nobody acts on expire after
 `--request-ttl` (7 days).
 
+A decision names the request version that the actor saw, not only the
+request name. A request version is the journey id and a short digest of the
+values in the pending record. It changes when an admin edits the request. It
+also changes when the request ends and someone submits a new request with the
+same name. playplace computes the version from the record, so the version
+needs no storage. Every interface sends the version that it showed. The web
+forms carry it in a hidden field. Slack buttons carry it in their value. The
+TUI takes it from the loaded row. The CLI prints the request and uses the
+version that it printed. Every view where an approver decides shows the exact
+budget and lifetime that the version binds: the CLI prompt, the TUI dialog,
+the web pending row, Slack, and the notices. A lifetime that is not a whole
+number of days shows in hours, for example `36 hours`, never as `1 day`. The
+TUI grid keeps its compact money format, for example `$1.3k`.
+
+Approve, deny, withdraw, and edit refuse a version that no longer matches,
+and the refusal tells the actor to look again. A refusal also drops the
+cached inventory, so the next view reads the queue live. The web UI shows the
+current pending card next to the error. The same check stops an edit form
+that was filled before another admin's edit from undoing that edit. Within
+one process the check is exact. Across processes a gap of about one AWS round
+trip stays open between the check and the write, because AWS tags have no
+compare-and-swap (a write that fails when the value changed since the read).
+Only an upgraded CLI, TUI, or `serve` checks the version. The record format
+did not change, so an older binary still reads the queue and acts by name
+alone. Every operator must upgrade the CLI and TUI before all decisions are
+bound to a version.
+
 Guardrails applied at request time: the name must be free, the owner must be
 an Identity Center user when `--permission-set` is set, one person may hold
 at most `--max-per-owner` open accounts plus pending requests (default 1),
@@ -196,6 +289,14 @@ and a request may ask for at most `--max-ttl` (90d) and `--max-budget` ($500).
 Only admins can exceed the two ceilings: the override checkbox in the web
 form, or `--override-limits` on the CLI. The override is recorded on the
 request, shown to approvers, and carried into the account when approved.
+Approval applies the configuration of the process that approves, not the
+configuration of the process that queued the request. Without an override,
+approval checks the ceilings again against its own `--max-ttl` and
+`--max-budget`. It derives the root email from its own `--email-pattern`. It
+looks up the owner in Identity Center only when its own `--permission-set` is
+set. Run the CLI and TUI with the same `PLAYPLACE_*` environment as `serve`.
+Otherwise an approval from the CLI or the TUI can create an account with the
+default root email pattern, `aws+pp-{name}@example.com`.
 
 The lifetime ceiling holds after approval too. An extension may not push an
 account's expiry past `--max-ttl` counted from when it was created, so
@@ -214,18 +315,26 @@ Who may approve:
 
 Admins can edit a pending request before approving it: owner, days, budget,
 and purpose, from the Edit button in the web UI or `playplace edit-request`.
-The requester is told what changed. Self-approval is refused unless
+The requester is told what changed. The admin who edits a request can then
+approve it alone, also after an edit that sets the limit override. This is an
+accepted risk. Admins are trusted, history records the edit, and the notice
+lists each change. Self-approval is refused unless
 `--allow-self-approval` is set: nobody may approve a request they asked for
 or would own. A requester can withdraw their own request from the web UI,
 with `playplace withdraw`, or with `w` in the TUI; admins and operators can
 withdraw any. `create` on the CLI skips the queue for operators and records
 them as approver; it and `approve` do not apply the per-owner limit, which
-is checked when a request is queued.
+is checked when a request is queued. `create` refuses a name that a pending
+request holds. Deny or withdraw the request first, so that its journey ends
+with a recorded decision. When playplace places an account, it removes only
+the approved record of the same journey. It never removes a record that only
+has the same name.
 
 ### Slack approvals (optional)
 
-With a Slack app configured, each request also posts a message with Approve
-and Deny buttons to a channel:
+With a Slack app configured, each request submitted in the web UI also posts
+a message with Approve and Deny buttons to a channel. Requests queued from the
+CLI or the TUI do not post a message:
 
     playplace serve ... --base-url https://playplace.example.com \
       --slack-channel C0123456 --slack-signing-secret ... --slack-bot-token xoxb-...
@@ -234,7 +343,14 @@ The app needs `chat:write` and `users:read.email`, and its interactivity URL
 must point at `https://playplace.example.com/slack/interact`. A click is
 verified with the signing secret, the clicker's Slack email is checked against
 the approver list, and the message is rewritten with the outcome. Approving in
-Slack and approving in the UI act on the same queue entry.
+Slack and approving in the UI act on the same queue entry. The message shows
+the exact budget, the exact lifetime, and the limit override, because its
+buttons bind to them. playplace does not update the message when someone
+edits, withdraws, or decides the request elsewhere. The buttons carry the
+request version that the message shows. After any of those changes,
+playplace refuses a click with a private reply that points to the web UI.
+Buttons from an older playplace carry only the name, and playplace refuses
+them the same way.
 
 
 ## Account readiness and initial handoff
@@ -244,6 +360,8 @@ Placement in the Playground OU is not readiness. One readiness module in
 observed budget protection, optional owner access, then initial handoff. Placement
 history is recorded independently of protection/access success. Lifecycle status
 stays derived as before; an `active` account can still be awaiting readiness.
+Settling protection is not a failure. Creation polling returns the placed
+account, and `approve` and `create` print what it still waits for.
 
 An initial handoff requires an unexpired ACTIVE account with no close intent,
 configured protection without an active budget restriction, and an identified
@@ -254,7 +372,9 @@ failed grants, and unidentified owners are retried without delaying expiry or
 closure. Existing access is not revoked solely because readiness is lost.
 
 New creation requests carry `playplace:handoff=placing` in their original tags,
-so interruption before OU placement does not lose eligibility. After placement,
+so interruption before OU placement does not lose eligibility. The same tag
+is the only permission to place: see
+[Placement and the organization](#placement-and-the-organization). After placement,
 `pending` is persisted before the best-effort placement history write. Newly
 adopted accounts start at `pending` in the same write that marks them managed.
 Both paths resume through refresh, including after a move succeeded but a tag
@@ -307,8 +427,11 @@ requests, override the TTL and budget ceilings, and run the sync. With
 `--permission-set` set, the signed-in email must exist in Identity Center,
 which is what makes the access grant land on the right person.
 
-Without any `--oidc-*` flag the UI has no sign-in and every visitor is an
-admin. That mode is for local development only and prints a warning.
+Sign-in turns on with `--oidc-issuer` or `--oidc-preset`. Without either, the
+UI has no sign-in and every visitor is an admin. That mode is for local
+development only and prints a warning. Any other sign-in flag without an
+issuer makes `serve` refuse to start, so a lost issuer setting cannot open the
+UI to everyone.
 
 The UI ships its own copy of htmx and serves every page with a
 Content-Security-Policy that allows scripts only from itself, so nothing is
@@ -477,6 +600,7 @@ terminal narrows: ACCOUNT first, then OWNER, then the spend bar.
 | active, 1 day or less left | `●` plus `!` | error |
 | expiring (owner warned) | `●` plus `!` | warning or error by time left |
 | creating, closing | `◌` | busy |
+| creating with a placement note | `◌` plus `!` | warning |
 | closing with an overdue warning, unavailable | `!` | error |
 | failed | `×` | error |
 | closed | `○` | muted |

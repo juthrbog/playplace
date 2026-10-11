@@ -134,9 +134,46 @@ func (o *options) coreConfig() (core.Config, error) {
 	if math.IsNaN(cfg.MaxBudgetUSD) || math.IsInf(cfg.MaxBudgetUSD, 0) || cfg.MaxBudgetUSD < 0 {
 		return cfg, fmt.Errorf("max-budget must be finite and nonnegative")
 	}
+	// Core fills in the default before it checks the ceiling, so a default
+	// above the ceiling refuses every request that leaves the budget empty.
+	if cfg.MaxBudgetUSD > 0 && cfg.DefaultBudgetUSD > cfg.MaxBudgetUSD {
+		return cfg, fmt.Errorf("default-budget (%g) is above max-budget (%g), so every request without a budget would be refused", cfg.DefaultBudgetUSD, cfg.MaxBudgetUSD)
+	}
 	cfg.MaxPerOwner = o.MaxPerOwner
 	cfg.AllowSelfApproval = o.SelfApprove
+	if err := o.checkLifetimes(cfg); err != nil {
+		return cfg, err
+	}
 	return cfg, nil
+}
+
+// checkLifetimes refuses lifetime settings that core would act on in a
+// destructive way. parseDuration accepts 0 because --max-ttl uses it for
+// "no limit", but core has no such meaning for the others:
+//
+//   - DefaultTTL 0: every new account expires at creation, and refresh adopts
+//     and then closes every untagged account in the OU in the same pass
+//     (core.FromRemote sets ExpiresAt = now + DefaultTTL).
+//   - RequestTTL 0: expireRequests drops every pending request on the next
+//     pass, because any age is greater than zero.
+//   - WarnBefore >= DefaultTTL: the one-shot expiry warning is used up at
+//     once, so the owner is never warned near the real expiry.
+//   - DefaultTTL > MaxTTL (when MaxTTL is set): every request that keeps the
+//     default lifetime is refused at the ceiling.
+//
+// The error text quotes the flags as the operator gave them.
+func (o *options) checkLifetimes(cfg core.Config) error {
+	switch {
+	case cfg.DefaultTTL <= 0:
+		return fmt.Errorf("default-ttl must be positive; %q would close every new and adopted account at once", o.DefaultTTL)
+	case cfg.RequestTTL <= 0:
+		return fmt.Errorf("request-ttl must be positive; %q would drop every pending request on the next refresh", o.RequestTTL)
+	case cfg.WarnBefore >= cfg.DefaultTTL:
+		return fmt.Errorf("warn-before (%s) must be shorter than default-ttl (%s), or owners are warned at creation instead of near expiry", o.WarnBefore, o.DefaultTTL)
+	case cfg.MaxTTL > 0 && cfg.DefaultTTL > cfg.MaxTTL:
+		return fmt.Errorf("default-ttl (%s) is above max-ttl (%s), so every request without a lifetime would be refused", o.DefaultTTL, o.MaxTTL)
+	}
+	return nil
 }
 
 func (o *options) awsConfig() awsprovider.Config {

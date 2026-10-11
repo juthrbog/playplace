@@ -62,3 +62,19 @@ func TestRequestNotificationFormatting(t *testing.T) {
 		}
 	}
 }
+
+func TestRequestNotificationShowsTheExactLifetime(t *testing.T) {
+	// The approver acts on the version, which binds whole hours, so the
+	// notice must not round a lifetime to days.
+	h := newHarness(t)
+	_, err := h.svc.SubmitRequest(context.Background(), core.RequestInput{
+		Name: "short-trial", Owner: "alice", RequestedBy: "bob", TTL: 36 * time.Hour, BudgetUSD: 12.5,
+	}, "cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "bob requested playground account short-trial for alice: $12.50/month, 36 hours."
+	if len(h.note.msgs) != 1 || h.note.msgs[0].Body != want {
+		t.Fatalf("notification=%+v; want body %q", h.note.msgs, want)
+	}
+}

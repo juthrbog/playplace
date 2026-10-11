@@ -12,11 +12,11 @@ Intervals and waits (`--every`, `--close-alert-after`, `create --timeout`) need 
 
 | flag | default | meaning |
 |---|---|---|
-| `--ou-name` | `Playground` | organizational unit that holds playground accounts |
+| `--ou-name` | `Playground` | organizational unit that holds playground accounts. It must be a direct child of the organization root. Playplace does not find an OU nested in another OU. Only `playplace init` creates the OU, and other commands fail when it is missing. Run `init` only when no Playground OU exists yet, because it creates a new, empty OU under the root |
 | `--email-pattern` | `aws+pp-{name}@example.com` | root email for new accounts; `{name}` is replaced |
-| `--default-ttl` | `14d` | lifetime when a request does not say |
-| `--default-budget` | `50` | monthly budget in USD when a request does not say |
-| `--warn-before` | `3d` | how far ahead of expiry to warn the owner |
+| `--default-ttl` | `14d` | lifetime when a request does not say; must be positive and at most `--max-ttl` |
+| `--default-budget` | `50` | monthly budget in USD when a request does not say; at most `--max-budget` |
+| `--warn-before` | `3d` | how far ahead of expiry to warn the owner; must be shorter than `--default-ttl`; `0` turns warnings off |
 | `--close-alert-after` | `24h` | positive duration before unconfirmed closure triggers an alert and reconciliation error; checked on each refresh |
 | `--alert-email` | | single recipient for AWS Budgets alerts; required for enforcement |
 | `--budget-scp-id` | | separately deployed provisioning-deny SCP; empty means alerts-only |
@@ -34,7 +34,7 @@ budgets stop provisioning.
 | `--max-ttl` | `90d` | longest lifetime a request may ask for; admins can override; `0` removes the limit |
 | `--max-budget` | `500` | largest monthly budget a request may ask for; admins can override; `0` removes the limit |
 | `--max-per-owner` | `1` | open accounts plus pending requests one person may hold; `0` removes the limit |
-| `--request-ttl` | `7d` | how long a request waits for approval before it is dropped |
+| `--request-ttl` | `7d` | how long a request waits for approval before it is dropped; must be positive |
 | `--allow-self-approval` | off | let requesters approve their own requests |
 
 ## Owner access
@@ -53,7 +53,7 @@ These belong to `playplace serve`.
 | flag | default | meaning |
 |---|---|---|
 | `--addr` | `:8080` | listen address |
-| `--every` | `1m` | refresh interval, with a unit |
+| `--every` | `1m` | refresh interval, with a unit. Keep it at `30m` or less. Budget protection that is still settling after two hours fails the pass, and a budget recovery can take four passes. See [Budget protection](budgets.md) |
 | `--no-worker` | off | serve the UI without the periodic refresh; run `reconcile` elsewhere |
 | `--base-url` | | public URL, used in notifications and Slack messages |
 | `--oidc-preset` | | `google` fills in the issuer |
@@ -65,8 +65,11 @@ These belong to `playplace serve`.
 | `--approvers` | | comma-separated emails that may approve and deny |
 | `--session-secret` | random | HMAC key for session cookies; set `PLAYPLACE_SESSION_SECRET` so sessions survive restarts |
 
-Without any `--oidc-*` flag the UI has no sign-in and every visitor is an
-admin. Use that only on a private network.
+Sign-in turns on when `--oidc-issuer` or `--oidc-preset` is set. Without
+either, the UI has no sign-in and every visitor is an admin. Use that only on
+a private network. If any other sign-in flag in this table is set without an
+issuer, `serve` refuses to start, so a lost issuer setting cannot open the UI
+to everyone.
 
 Sign-in rejects an ID token whose `email_verified` claim is `false`. A token
 without the claim is accepted, which suits Google and most workplace

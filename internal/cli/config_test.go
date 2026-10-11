@@ -54,3 +54,29 @@ func TestDurationsAndIntervals(t *testing.T) {
 		t.Errorf("parseInterval(5m) = %v %v", got, err)
 	}
 }
+
+func TestSignInFlagsWithoutIssuerAreRefused(t *testing.T) {
+	base := oidcFlags{redirectURL: defaultRedirectURL}
+	if got := base.stray(); got != nil {
+		t.Fatalf("no sign-in flags: stray = %v", got)
+	}
+	// An env template that leaves every sign-in value blank means no sign-in.
+	if got := (oidcFlags{}).stray(); got != nil {
+		t.Fatalf("blank sign-in values: stray = %v", got)
+	}
+	lost := base
+	lost.clientID, lost.admins = "client", "ops@example.com"
+	if got := lost.stray(); len(got) != 2 || got[0] != "--oidc-client-id" || got[1] != "--admins" {
+		t.Fatalf("issuer missing: stray = %v", got)
+	}
+	moved := base
+	moved.redirectURL = "https://playplace.example.com/auth/callback"
+	if got := moved.stray(); len(got) != 1 || got[0] != "--oidc-redirect-url" {
+		t.Fatalf("redirect without issuer: stray = %v", got)
+	}
+	for _, ok := range []oidcFlags{{issuer: "https://idp.example.com", clientID: "c"}, {preset: "google", admins: "a@example.com"}} {
+		if got := ok.stray(); got != nil {
+			t.Fatalf("%+v: stray = %v", ok, got)
+		}
+	}
+}

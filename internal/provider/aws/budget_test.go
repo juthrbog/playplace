@@ -176,12 +176,16 @@ func TestBudgetRecoveryTransitions(t *testing.T) {
 				r.action.Status, r.attached = tc.status, tc.attached
 				r.tags[core.TagBudgetRecovery] = (core.BudgetRecovery{ActionID: aws.ToString(r.action.ActionId), Phase: tc.phase, Period: "2026-09", Limit: 100, Spend: 60}).Encode()
 			})
+			// Recovery still in progress is not a failed pass. A resubmitted
+			// AWS failure is: it fails the pass but keeps health recovering.
+			resubmitted := tc.status == bt.ActionStatusReverseFailure || tc.status == bt.ActionStatusResetFailure
 			_, err := h.svc.Refresh(context.Background())
-			if (err != nil) != (!tc.configured || tc.wantError) {
+			if (err != nil) != (tc.wantError || resubmitted) {
 				t.Fatalf("unexpected reconciliation result: %v", err)
 			}
 			r := h.snapshot()
-			if (r.tags[core.TagBudgetHealth] == "error") != tc.wantError {
+			health := r.tags[core.TagBudgetHealth]
+			if (health == "error") != tc.wantError || (!tc.wantError && (health == "ready" || health == "restricted") != tc.configured) {
 				t.Fatalf("wrong health: %v", r.tags)
 			}
 			intent, err := core.DecodeBudgetRecovery(r.tags[core.TagBudgetRecovery])

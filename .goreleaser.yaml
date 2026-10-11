@@ -42,8 +42,6 @@ archives:
       - docs/stylesheets/*
       - deploy/README.md
       - deploy/aws/*.json
-      - deploy/gitlab/.gitlab-ci.yml
-      - deploy/gitlab/*.md
       - deploy/local/*
       - src: .generated/completions/*
         dst: completions

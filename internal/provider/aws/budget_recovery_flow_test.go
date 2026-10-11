@@ -6,7 +6,6 @@ import (
 	"maps"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -84,6 +83,9 @@ func (h *recoveryFlow) respond(name string, in map[string]any) (any, int) {
 	}
 	switch name {
 	case "ListAccountsForParent":
+		if in["ParentId"] == budgetTestInfo.RootID {
+			return map[string]any{"Accounts": []any{}}, 200 // nothing waits for placement
+		}
 		return map[string]any{"Accounts": []map[string]any{{"Id": budgetTestID, "Name": "recovery-flow", "Email": "root@example.com", "State": "ACTIVE", "JoinedTimestamp": float64(spec.Now.Unix())}}}, 200
 	case "ListCreateAccountStatus":
 		return map[string]any{"CreateAccountStatuses": []any{}}, 200
@@ -194,8 +196,8 @@ func TestRecoveryPersistsResetBeforeMutationAcrossRestarts(t *testing.T) {
 	h := newRecoveryFlow(t)
 	ctx := context.Background()
 	a, err := h.svc.SetBudget(ctx, budgetTestID, 100, "admin", "approved testing", false)
-	if a == nil || err == nil || !strings.Contains(err.Error(), "change saved") {
-		t.Fatalf("saved pending change: %+v %v", a, err)
+	if a == nil || err != nil || a.BudgetHealth != "recovering" {
+		t.Fatalf("saved change with recovery in progress: %+v %v", a, err)
 	}
 	r := h.snapshot()
 	intent, err := core.DecodeBudgetRecovery(r.tags[core.TagBudgetRecovery])
@@ -217,15 +219,15 @@ func TestRecoveryPersistsResetBeforeMutationAcrossRestarts(t *testing.T) {
 	}
 	h.change(func(r *recoveryRemote) { r.failPhase = "" })
 	h.restart()
-	if _, err := h.svc.Refresh(ctx); err == nil {
-		t.Fatal("phase persistence is still pending recovery")
+	if _, err := h.svc.Refresh(ctx); err != nil || h.snapshot().tags[core.TagBudgetHealth] != "recovering" {
+		t.Fatalf("phase persistence is still recovery in progress: %v", err)
 	}
 	if got := h.snapshot().mutations; !slices.Equal(got, []string{"persist-reverse", "update", "reverse", "persist-reset"}) {
 		t.Fatalf("reset executed in phase-write pass: %v", got)
 	}
 	h.restart()
-	if _, err := h.svc.Refresh(ctx); err == nil {
-		t.Fatal("accepted reset is not completion")
+	if _, err := h.svc.Refresh(ctx); err != nil || h.snapshot().tags[core.TagBudgetHealth] != "recovering" {
+		t.Fatalf("accepted reset is not completion: %v", err)
 	}
 	h.change(func(r *recoveryRemote) { r.action.Status = bt.ActionStatusStandby })
 	h.restart()

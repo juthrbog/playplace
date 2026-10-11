@@ -93,7 +93,11 @@ type Account struct {
 	// and edit the asked-for lifetime without a second read of the queue.
 	TTL            time.Duration `json:"ttl,omitempty"`
 	OverrideLimits bool          `json:"override_limits,omitempty"`
+	RequestVersion string        `json:"request_version,omitempty"` // Request.Version of the row's record
 }
+
+// RequestRef is the reference to act on a pending row as it was loaded.
+func (a *Account) RequestRef() RequestRef { return RequestRef{Name: a.Name, Version: a.RequestVersion} }
 
 // Tags renders the account's lifecycle facts as provider tags.
 func (a *Account) Tags() map[string]string {

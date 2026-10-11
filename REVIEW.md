@@ -1,8 +1,129 @@
 # Review findings
 
-Two passes so far, both on 2026-09-17. Everything is fixed except the items
-under "Open, accepted for now" in each pass. Line numbers are from the
-reviews and may have drifted.
+Three passes so far: two on 2026-09-17 and one on 2026-10-09. The first two
+passes are fixed except the items under "Open, accepted for now". The third
+pass found more than the fixes below cover. Line numbers come from the
+reviews, and some have drifted.
+
+## Third pass
+
+A review of the whole tree on 2026-10-09 with adversarial verification. It
+kept 242 findings. The ids in brackets are the ids of that report. The fixes
+landed on 2026-10-10 and 2026-10-11.
+
+### Fixed
+
+- [x] **A login-flow cookie signed in as a session** (websec-1). The flow
+  cookie and the session cookie had the same signature, so the signed flow
+  cookie from `/auth/login` worked as a session with an empty identity. The
+  MAC now covers the cookie name, and `Authenticate` refuses a session
+  without an email (tests in both directions).
+- [x] **Sign-in failed open** (websec-5, cli-4, docs-5). Without
+  `--oidc-issuer` or `--oidc-preset`, `serve` ignored the other sign-in flags
+  and made every visitor an admin. `serve` now refuses to start when a
+  sign-in flag is set without an issuer or a preset (test).
+- [x] **The TUI tests failed after 2026-10-01** (tui-1). `loadWith` read the
+  wall clock instead of the injected clock. It captures the clock now.
+- [x] **Month-to-date spend used the local month** (web-17, the month part).
+  Cost Explorer reports whole UTC days. `core.MonthToDate` sums the UTC month
+  of the injected clock, for the TUI and the web UI (test).
+- [x] **Go 1.27.1 had two `net/http` vulnerabilities** on reachable paths
+  (GO-2026-6617, GO-2026-6613). `go.mod`, `mise.toml`, and the AUR templates
+  require 1.27.2.
+- [x] **A zero `--default-ttl` or `--request-ttl` was destructive** (core-6,
+  cli-2, arch-5). Zero closed every new or adopted account, or dropped every
+  request. Both must be positive now. `--warn-before` must be shorter than
+  `--default-ttl`. When `--max-ttl` is set, `--default-ttl` must be at most
+  that value. When `--max-budget` is set, `--default-budget` must be at most
+  that value (table test).
+- [x] **The GitLab flow gave management-account credentials to requesters**
+  (deploy-1, docs-6, cli-1, deploy-2, deploy-3, deploy-5, deploy-6,
+  deploy-14, docs-11). Through pipeline variables, a requester was able to
+  run code with the exported keys and change every guardrail. The flow is
+  removed: the CI file, the issue template, the trust policy, and the docs.
+- [x] **Normal budget states failed `approve` and `create`** (core-9,
+  budget-4, aws-2). Playplace puts protection in the states setup-pending,
+  restricting, recovering, and retiring while AWS works. These states now
+  fail a pass only after two hours past `playplace:budget-checked`. During a
+  recovery, a `REVERSE_FAILURE` or `RESET_FAILURE` is sent again and fails
+  the pass at once. Other errors still fail at once. Readiness waits for
+  settled protection before it grants access. The fake now creates the
+  budget action in two passes, as AWS does, and the CLI wait names what the
+  account waits for (tests).
+- [x] **Budget notices on setup completion** (budget-6, in part). Setup
+  completion sends no notice now, and a repair from `error` is announced
+  once. The `--alert-email` rotation part is still open.
+- [x] **Refresh moved quarantined accounts back into the OU, and any command
+  created a missing organization or OU** (gap-1, aws-1, deploy-4, core-5).
+  Placement happens once, only from the organization root, and only for an
+  account that playplace created and has not placed yet. `PlaceAccount`
+  refuses any other parent. Only `init` creates the organization or the OU.
+  Every other command uses a read-only lookup that fails closed. A creation
+  that waits in the root shows as `creating` and is retried on every pass,
+  with no age limit. The bootstrap statements moved to
+  `deploy/aws/playplace-bootstrap-policy.json`, which you attach only while
+  `init` runs (tests).
+- [x] **Decisions acted on whatever request held the name** (core-7,
+  websec-3). Approve, deny, withdraw, and edit take a version: the journey id
+  and a digest of every shown field. Web forms, Slack buttons, and the TUI
+  row send the version that they showed. CLI `approve` binds the version
+  that it prints. CLI `deny`, `withdraw`, and `edit-request` bind the version
+  that they read in the same command. A stale version is refused and drops
+  the cached queue. `playplace approve` now prints the
+  request and asks `[y/N]`. Scripts must pass `-y` (tests).
+- [x] **`create` took the name of a pending request, and placement deleted
+  that request** (core-2, hist-1). `create` refuses the name of a
+  pending request. Placement removes only the approved record of its own
+  journey (tests).
+- [x] **A request named like an account id hijacked that id** (websec-2).
+  `Resolve` checks exact ids before names (test). A name still wins over an
+  id prefix, so the CLI prefix lookup can still be shadowed. Web routes use
+  full ids.
+- [x] **Approvers saw rounded values** (found while fixing core-7). The
+  version binds exact values, but several views rounded a 36-hour lifetime to
+  `1d` and a $12.50 budget to `$12`. `core.Lifetime` and `core.Dollars` now
+  format every view where an approver decides, the request and edit notices,
+  the history lines, and the CLI and TUI request confirmations (tests).
+- [x] **The runtime IAM policy had no tests** (deploy-11). A test now checks
+  that only the bootstrap policy can create organization resources. The
+  GitLab trust policy is gone.
+
+### Accepted or documented
+
+- [ ] **An admin can edit another person's pending request and then approve
+  it alone** (core-8). Accepted and recorded in DESIGN.md. Admins are trusted,
+  and history records the edit.
+- [ ] **Approval applies the approving process's configuration** (gap-3).
+  Documented in DESIGN.md and `docs/cli.md`: `--email-pattern`,
+  `--permission-set`, `--max-ttl`, and `--max-budget` come from the process
+  that approves.
+- [ ] **Slack messages are not updated after an edit** (web-9, cli-13).
+  Documented. Only web requests post a message. A click on an old message is
+  refused in private, because the button carries the version.
+- [ ] **Read-only CLI commands still run a refresh** (cli-12). The deploy
+  README documents the one-writer rule: while `serve` runs, give read-only
+  commands `--no-refresh`.
+
+### Open
+
+- [ ] **Lifecycle notices are dropped by default** (cli-6). `notify.Log`
+  logs at Info, and the default `--log-level` is warn.
+- [ ] **Rotating `--alert-email` sends restricted accounts through
+  setup-pending** (budget-6), so their owners get two notices.
+- [ ] **A nested Playground OU is refused.** Only a direct child of the root
+  is supported. The lookup fails closed.
+- [ ] **The web and TUI edit forms round the lifetime and the budget**
+  (tui-3). Both forms prefill whole days, and the web form also prefills
+  whole dollars. An admin who changes only the purpose saves a rounded
+  lifetime, and on the web a rounded budget.
+- [ ] **`PollCreate` treats a `PENDING_ACTIVATION` account as unavailable**,
+  so the `create` and `approve` waits stop with an error. For the first hour,
+  the inventory shows the same account as `creating`.
+- [ ] **The LocalStack flow was not run after the OU change.** If LocalStack
+  drops the `CreateAccount` tags, `approve` fails with "has no playplace
+  creation tags". Run the DEVELOPMENT.md flow before a release.
+- [ ] **The AUR `go>=1.27.2` constraint does not hold.** The Arch `go`
+  package has epoch 2, so any version satisfies it.
 
 ## Second pass
 
@@ -121,12 +242,15 @@ provider, audit sinks, worker, CLI, TUI, and the deploy files.
   `ResourceNotFoundException`. Core tolerates it and closes anyway.
 - [ ] **TUI deny sends a fixed reason** ("denied in the TUI"). Needs an input
   field.
-- [ ] **CI: `PLAYPLACE_PERMISSION_SET` and `PLAYPLACE_EMAIL_PATTERN` can
+- [x] **CI: `PLAYPLACE_PERMISSION_SET` and `PLAYPLACE_EMAIL_PATTERN` can
   still be overridden from the Run pipeline form**, which turns off owner
-  validation for that request. Approval still gates creation. Pin them as
-  flags on the script lines if it matters; the file says so.
-- [ ] **CI image and packages are unpinned** (`golang:1.27`, `awscli`, `jq`),
-  and `PLAYPLACE_VERSION` is unused.
+  validation for that request. Closed on 2026-10-10: the GitLab flow was
+  removed. A later review found that the unset list covered 6 of about 30
+  flags, and that any pipeline variable such as `CC` could run code with the
+  exported management-account keys.
+- [x] **CI image and packages are unpinned** (`golang:1.27`, `awscli`, `jq`),
+  and `PLAYPLACE_VERSION` is unused. Closed on 2026-10-10 with the GitLab
+  flow.
 - [ ] **`ListPlaygroundAccounts` makes one `ListTagsForResource` call per
   account.** Carried from the first pass; a longer inventory TTL is the first
   lever if throttling appears.

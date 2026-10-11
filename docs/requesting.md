@@ -29,10 +29,18 @@ already have one, close it or wait for it to expire before asking for another.
 The same channel carries the outcome, with the reason if it was denied, and
 the web UI shows it under your pending requests. Once approved, AWS creates
 the account. In the table it shows as *creating*, then *active*, with
-the account id.
+the account id. After an hour as *creating*, the row also shows a note that
+the account waits outside the Playground OU for the next reconcile. Until
+then it has no budget or guardrails. If the note is still there after a day,
+tell an operator.
 
 The account is in your AWS access portal under the playground permission
 set. Sign in there to reach the console or to get CLI credentials.
+
+An *active* account can still be getting ready. When budget protection is
+on, the budget column shows `setup-pending` until a later refresh sees the
+protection in AWS. This usually takes a few minutes. The account-ready notice
+tells you when you can sign in.
 
 ## While you have it
 
@@ -53,6 +61,7 @@ set. Sign in there to reach the console or to get CLI credentials.
 ## Other ways to ask
 
 Depending on how your organization runs playplace, you may also be able to
-request from a GitLab pipeline, or through the CLI or TUI with operator
-credentials. Slack can carry request notifications and approval buttons. The
-rules are the same everywhere: one owner, a lifetime, a budget, and an approver.
+request through the CLI or TUI with operator credentials. Slack can carry
+request notifications. It carries approval buttons only for requests made in
+the web UI. The rules are the same everywhere:
+one owner, a lifetime, a budget, and an approver.

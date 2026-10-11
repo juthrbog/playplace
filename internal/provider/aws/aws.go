@@ -107,19 +107,17 @@ func docString(s string) idsdoc.Interface { return idsdoc.NewLazyDocument(s) }
 
 func (p *Provider) Name() string { return "aws" }
 
-// EnsureOrganization creates the org (all features) and the playground OU if missing.
+// EnsureOrganization is `playplace init`: it creates the organization (all
+// features) and the playground OU when they are missing. Nothing else
+// creates them; every other method resolves them through org.
 func (p *Provider) EnsureOrganization(ctx context.Context) (core.OrgInfo, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.info != nil {
-		return *p.info, nil
+	info, inUse, err := p.lookup(ctx)
+	if err != nil {
+		return info, err
 	}
-
-	var info core.OrgInfo
-	desc, err := p.orgs.DescribeOrganization(ctx, &organizations.DescribeOrganizationInput{})
-	var notInUse *orgtypes.AWSOrganizationsNotInUseException
-	switch {
-	case errors.As(err, &notInUse):
+	if !inUse {
 		created, err := p.orgs.CreateOrganization(ctx, &organizations.CreateOrganizationInput{
 			FeatureSet: orgtypes.OrganizationFeatureSetAll,
 		})
@@ -129,27 +127,11 @@ func (p *Provider) EnsureOrganization(ctx context.Context) (core.OrgInfo, error)
 		info.Created = true
 		info.OrgID = aws.ToString(created.Organization.Id)
 		info.ManagementAccountID = aws.ToString(created.Organization.MasterAccountId)
-	case err != nil:
-		return info, fmt.Errorf("describe organization: %w", err)
-	default:
-		info.OrgID = aws.ToString(desc.Organization.Id)
-		info.ManagementAccountID = aws.ToString(desc.Organization.MasterAccountId)
+		if err := p.findPlayground(ctx, &info); err != nil {
+			return info, err
+		}
 	}
-
-	roots, err := p.orgs.ListRoots(ctx, &organizations.ListRootsInput{})
-	if err != nil {
-		return info, fmt.Errorf("list roots: %w", err)
-	}
-	if len(roots.Roots) == 0 {
-		return info, errors.New("organization has no root")
-	}
-	info.RootID = aws.ToString(roots.Roots[0].Id)
-
-	ouID, err := p.findOU(ctx, info.RootID, p.cfg.PlaygroundOUName)
-	if err != nil {
-		return info, err
-	}
-	if ouID == "" {
+	if info.PlaygroundOUID == "" {
 		out, err := p.orgs.CreateOrganizationalUnit(ctx, &organizations.CreateOrganizationalUnitInput{
 			ParentId: aws.String(info.RootID),
 			Name:     aws.String(p.cfg.PlaygroundOUName),
@@ -157,12 +139,68 @@ func (p *Provider) EnsureOrganization(ctx context.Context) (core.OrgInfo, error)
 		if err != nil {
 			return info, fmt.Errorf("create OU %q: %w", p.cfg.PlaygroundOUName, err)
 		}
-		ouID = aws.ToString(out.OrganizationalUnit.Id)
+		info.PlaygroundOUID = aws.ToString(out.OrganizationalUnit.Id)
+		info.OUCreated = true
 	}
-	info.PlaygroundOUID = ouID
+	cached := info
+	cached.Created, cached.OUCreated = false, false // "on this call" only
+	p.info = &cached
+	return info, nil
+}
 
+// org finds the organization and the playground OU without creating either.
+// A wrong profile, a typo in --ou-name, or an OU nested below the root then
+// fails here instead of building a new OU that lacks the operator's SCPs.
+func (p *Provider) org(ctx context.Context) (core.OrgInfo, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.info != nil {
+		return *p.info, nil
+	}
+	info, inUse, err := p.lookup(ctx)
+	switch {
+	case err != nil:
+		return info, err
+	case !inUse:
+		return info, errors.New("the AWS credentials are not in an AWS Organization. Use the profile of the management account. Run `playplace init` only if this account must become the management account of a new organization")
+	case info.PlaygroundOUID == "":
+		// An OU nested in another OU is not found. init would then create a
+		// second, empty OU under the root, so the message does not offer it
+		// as the fix.
+		return info, fmt.Errorf("playground OU %q is not a direct child of the organization root %s. Playplace uses only an OU directly under the root, not one nested in another OU. Check --ou-name (PLAYPLACE_OU_NAME). Run `playplace init` only if no Playground OU exists yet, because it creates a new, empty OU under the root", p.cfg.PlaygroundOUName, info.RootID)
+	}
 	p.info = &info
 	return info, nil
+}
+
+// lookup reads the organization, its root, and the playground OU if they
+// exist. inUse is false when the credentials belong to no organization.
+func (p *Provider) lookup(ctx context.Context) (info core.OrgInfo, inUse bool, err error) {
+	desc, err := p.orgs.DescribeOrganization(ctx, &organizations.DescribeOrganizationInput{})
+	var notInUse *orgtypes.AWSOrganizationsNotInUseException
+	if errors.As(err, &notInUse) {
+		return info, false, nil
+	}
+	if err != nil {
+		return info, false, fmt.Errorf("describe organization: %w", err)
+	}
+	info.OrgID = aws.ToString(desc.Organization.Id)
+	info.ManagementAccountID = aws.ToString(desc.Organization.MasterAccountId)
+	return info, true, p.findPlayground(ctx, &info)
+}
+
+// findPlayground sets the root and, when it exists, the playground OU.
+func (p *Provider) findPlayground(ctx context.Context, info *core.OrgInfo) error {
+	roots, err := p.orgs.ListRoots(ctx, &organizations.ListRootsInput{})
+	if err != nil {
+		return fmt.Errorf("list roots: %w", err)
+	}
+	if len(roots.Roots) == 0 {
+		return errors.New("organization has no root")
+	}
+	info.RootID = aws.ToString(roots.Roots[0].Id)
+	info.PlaygroundOUID, err = p.findOU(ctx, info.RootID, p.cfg.PlaygroundOUName)
+	return err
 }
 
 func (p *Provider) findOU(ctx context.Context, parentID, name string) (string, error) {
@@ -263,19 +301,46 @@ func (p *Provider) GetAccount(ctx context.Context, providerID string) (core.Remo
 }
 
 func (p *Provider) ListPlaygroundAccounts(ctx context.Context) ([]core.RemoteAccount, error) {
-	info, err := p.EnsureOrganization(ctx)
+	info, err := p.org(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return p.listAccounts(ctx, info.PlaygroundOUID, nil)
+}
+
+// ListRootAccounts lists the root's member accounts that can be playplace
+// creations. Every inventory read lists the root, and the root of a small
+// organization can hold many accounts, so it skips these before the
+// per-account tag read: the management account (never a playground, and it
+// cannot be moved), invited accounts (playplace only creates accounts), and
+// names that playplace never gives.
+func (p *Provider) ListRootAccounts(ctx context.Context) ([]core.RemoteAccount, error) {
+	info, err := p.org(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return p.listAccounts(ctx, info.RootID, func(a orgtypes.Account) bool {
+		return aws.ToString(a.Id) != info.ManagementAccountID &&
+			a.JoinedMethod != orgtypes.AccountJoinedMethodInvited &&
+			core.ValidateName(aws.ToString(a.Name)) == nil
+	})
+}
+
+// listAccounts returns the direct children of parent with their tags. A nil
+// keep keeps every child.
+func (p *Provider) listAccounts(ctx context.Context, parent string, keep func(orgtypes.Account) bool) ([]core.RemoteAccount, error) {
 	var out []core.RemoteAccount
 	pag := organizations.NewListAccountsForParentPaginator(p.orgs,
-		&organizations.ListAccountsForParentInput{ParentId: aws.String(info.PlaygroundOUID)})
+		&organizations.ListAccountsForParentInput{ParentId: aws.String(parent)})
 	for pag.HasMorePages() {
 		page, err := pag.NextPage(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("list playground accounts: %w", err)
+			return nil, fmt.Errorf("list accounts under %s: %w", parent, err)
 		}
 		for _, a := range page.Accounts {
+			if keep != nil && !keep(a) {
+				continue
+			}
 			tags, err := p.tagsFor(ctx, aws.ToString(a.Id))
 			if err != nil {
 				return nil, err
@@ -302,8 +367,11 @@ func (p *Provider) tagsFor(ctx context.Context, id string) (map[string]string, e
 	return tags, nil
 }
 
+// PlaceAccount moves an account only out of the root, where AWS creates it.
+// An account under any other parent was moved there by someone on purpose,
+// for example to a quarantine OU, so it is left alone.
 func (p *Provider) PlaceAccount(ctx context.Context, providerID string, tags map[string]string) error {
-	info, err := p.EnsureOrganization(ctx)
+	info, err := p.org(ctx)
 	if err != nil {
 		return err
 	}
@@ -314,8 +382,10 @@ func (p *Provider) PlaceAccount(ctx context.Context, providerID string, tags map
 	if len(parents.Parents) == 0 {
 		return fmt.Errorf("account %s has no parent", providerID)
 	}
-	src := aws.ToString(parents.Parents[0].Id)
-	if src != info.PlaygroundOUID {
+	switch src := aws.ToString(parents.Parents[0].Id); src {
+	case info.PlaygroundOUID:
+		// Already moved, for example by a placement whose tag write failed.
+	case info.RootID:
 		_, err := p.orgs.MoveAccount(ctx, &organizations.MoveAccountInput{
 			AccountId:           aws.String(providerID),
 			SourceParentId:      aws.String(src),
@@ -324,6 +394,8 @@ func (p *Provider) PlaceAccount(ctx context.Context, providerID string, tags map
 		if err != nil {
 			return fmt.Errorf("move account: %w", err)
 		}
+	default:
+		return fmt.Errorf("account %s is under %s, not the organization root. Someone moved it there, so playplace does not move it", providerID, src)
 	}
 	return p.SetTags(ctx, providerID, tags)
 }
@@ -358,7 +430,7 @@ func (p *Provider) RemoveTags(ctx context.Context, providerID string, keys []str
 
 // OUTags reads the playground OU's tags, which hold the approval queue.
 func (p *Provider) OUTags(ctx context.Context) (map[string]string, error) {
-	info, err := p.EnsureOrganization(ctx)
+	info, err := p.org(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -366,7 +438,7 @@ func (p *Provider) OUTags(ctx context.Context) (map[string]string, error) {
 }
 
 func (p *Provider) SetOUTags(ctx context.Context, tags map[string]string) error {
-	info, err := p.EnsureOrganization(ctx)
+	info, err := p.org(ctx)
 	if err != nil {
 		return err
 	}
@@ -374,7 +446,7 @@ func (p *Provider) SetOUTags(ctx context.Context, tags map[string]string) error 
 }
 
 func (p *Provider) RemoveOUTags(ctx context.Context, keys []string) error {
-	info, err := p.EnsureOrganization(ctx)
+	info, err := p.org(ctx)
 	if err != nil {
 		return err
 	}

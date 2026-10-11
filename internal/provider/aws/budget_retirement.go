@@ -19,7 +19,7 @@ import (
 // budget period, or SCP attachment capacity: none should prevent retirement.
 // The action must still match our ownership tags, single target, policy and role.
 func (p *Provider) RetireBudgetAction(ctx context.Context, id string, spec core.BudgetSpec) (bool, error) {
-	info, err := p.EnsureOrganization(ctx)
+	info, err := p.org(ctx)
 	if err != nil {
 		return false, err
 	}

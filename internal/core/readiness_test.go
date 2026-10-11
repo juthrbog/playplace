@@ -85,13 +85,14 @@ func TestReadinessPendingSetupResumesOnceAcrossRestarts(t *testing.T) {
 				t.Fatal(err)
 			}
 			if entry == "poll" {
-				if a, err := h.svc.PollCreate(ctx, request.RequestID); err == nil || a == nil {
+				// Pending protection is progress: the poll succeeds.
+				if a, err := h.svc.PollCreate(ctx, request.RequestID); err != nil || a == nil || a.BudgetHealth != "setup-pending" || !a.HandoffPending() {
 					t.Fatalf("want placed account awaiting protection: %+v %v", a, err)
 				}
 			} else {
 				h.prov.Settle()
 				sum, err := h.svc.Refresh(ctx)
-				if err == nil || len(sum.Placed) != 1 {
+				if err != nil || len(sum.Placed) != 1 {
 					t.Fatalf("placement must not wait for readiness: %+v %v", sum, err)
 				}
 			}
@@ -418,6 +419,106 @@ func TestReadinessDeliveryFailureDoesNotRepeatHandoff(t *testing.T) {
 			}
 			if readyNotices(h) != 0 {
 				t.Fatal("delivery was retried after durable completion")
+			}
+		})
+	}
+}
+
+// AWS shows a new budget action only on the pass after it creates it, and the
+// fake does the same. That first pass is progress, not failure: polling and
+// the refresh that places an unwaited creation succeed, and readiness, access
+// and the ready notice wait for the next pass.
+func TestReadinessNewBudgetActionSettlesOnTheNextPass(t *testing.T) {
+	for _, entry := range []string{"poll", "refresh"} {
+		t.Run(entry, func(t *testing.T) {
+			h := newHarness(t)
+			enforceBudgets(h)
+			h.prov.AccessOn = true
+			h.prov.AddUser("user1", "owner", "owner@example.com")
+			ctx := context.Background()
+			r, err := h.svc.Request(ctx, core.RequestInput{Name: "two-pass", Owner: "owner"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var a *core.Account
+			if entry == "poll" {
+				if a, err = h.svc.PollCreate(ctx, r.RequestID); err != nil {
+					t.Fatalf("placed account reported as a failure: %v", err)
+				}
+			} else {
+				h.prov.Settle()
+				sum, err := h.svc.Refresh(ctx)
+				if err != nil || len(sum.Placed) != 1 {
+					t.Fatalf("placing pass failed: %+v %v", sum, err)
+				}
+				if a, err = h.svc.Resolve(ctx, "two-pass"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if a.Status != core.StatusActive || a.BudgetHealth != "setup-pending" || !a.HandoffPending() {
+				t.Fatalf("want an active account awaiting protection: %+v", a)
+			}
+			if len(h.prov.Grants[a.ID]) != 0 || len(h.note.msgs) != 0 {
+				t.Fatalf("access or notices before protection was observed: grants=%v notices=%+v", h.prov.Grants, h.note.msgs)
+			}
+			if _, err := h.svc.Refresh(ctx); err != nil {
+				t.Fatal(err)
+			}
+			a, err = h.svc.Get(ctx, a.ID)
+			if err != nil || a.BudgetHealth != "ready" || a.HandoffPending() || len(h.prov.Grants[a.ID]) != 1 {
+				t.Fatalf("second pass did not finish readiness: %+v %v", a, err)
+			}
+			// Finished setup is not budget news. The ready notice is.
+			if len(h.note.msgs) != 1 || h.note.msgs[0].Subject != "Playground account ready" {
+				t.Fatalf("notices = %+v", h.note.msgs)
+			}
+		})
+	}
+}
+
+// Unsettled protection is progress only for a while. Protection that never
+// settles still fails reconciliation, keeps its observed state rather than
+// an invented error, and never unlocks access or the handoff.
+func TestReadinessUnsettledProtectionFailsOnlyWhenOverdue(t *testing.T) {
+	for _, mode := range []string{"stuck", "unreadable-since"} {
+		t.Run(mode, func(t *testing.T) {
+			h := newHarness(t)
+			h.prov.AccessOn = true
+			h.prov.AddUser("user1", "owner", "owner@example.com")
+			p := &readinessProvider{Provider: h.prov, pendingBudget: true}
+			h.svc = readinessService(h, p)
+			ctx := context.Background()
+			r, err := h.svc.Request(ctx, core.RequestInput{Name: "stuck-setup", Owner: "owner"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			a, err := h.svc.PollCreate(ctx, r.RequestID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == "unreadable-since" {
+				if err := h.prov.SetTags(ctx, a.ID, map[string]string{core.TagBudgetChecked: "broken"}); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				h.advance(time.Hour)
+				if _, err := h.svc.Refresh(ctx); err != nil {
+					t.Fatalf("an hour of setup is not overdue: %v", err)
+				}
+				h.advance(2 * time.Hour)
+			}
+			if _, err := h.svc.Refresh(ctx); err == nil || !strings.Contains(err.Error(), "still setup-pending") {
+				t.Fatalf("overdue setup did not fail the pass: %v", err)
+			}
+			if h.prov.Tags(a.ID)[core.TagBudgetHealth] != "setup-pending" || len(h.prov.Grants[a.ID]) != 0 || len(h.note.msgs) != 0 {
+				t.Fatalf("overdue setup changed health, access or notices: %v %v %+v", h.prov.Tags(a.ID), h.prov.Grants, h.note.msgs)
+			}
+			p.pendingBudget = false
+			if _, err := h.svc.Refresh(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if readyNotices(h) != 1 || len(h.prov.Grants[a.ID]) != 1 {
+				t.Fatal("handoff did not resume once protection settled")
 			}
 		})
 	}
