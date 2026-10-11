@@ -375,7 +375,15 @@ func (s *Server) editSave(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	e, err := RequestEditFromForm(r)
+	// The form was filled from the record that its version names. If the
+	// record changed since, UpdateRequest refuses the version, whatever the
+	// edit holds.
+	q, err := s.svc.GetRequest(r.Context(), r.PathValue("name"))
+	if err != nil {
+		s.failRequest(w, r, err)
+		return
+	}
+	e, err := RequestEditFromForm(r, q)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -387,30 +395,38 @@ func (s *Server) editSave(w http.ResponseWriter, r *http.Request) {
 	s.pendingAndTable(w, r)
 }
 
-// RequestEditFromForm reads owner, days, budget, purpose, and override. Bad
+// RequestEditFromForm reads owner, days, budget, purpose, and override from
+// an edit form, where from is the request that filled the form. A field that
+// still holds its prefill (the value the form opened with) is left out of
+// the edit, so an untouched lifetime or budget keeps its exact value. Bad
 // numbers are errors, as on the request form, not silently ignored fields.
 // The edit form always carries the override checkbox, so its absence means
 // the box was unticked.
-func RequestEditFromForm(r *http.Request) (core.RequestEdit, error) {
-	override := r.FormValue("override") == "on"
-	e := core.RequestEdit{Owner: strings.TrimSpace(r.FormValue("owner")), OverrideLimits: &override}
-	if val := r.FormValue("ttl"); val != "" {
+func RequestEditFromForm(r *http.Request, from core.Request) (core.RequestEdit, error) {
+	var e core.RequestEdit
+	if owner := strings.TrimSpace(r.FormValue("owner")); owner != from.Owner {
+		e.Owner = owner
+	}
+	if val := r.FormValue("ttl"); val != "" && val != dayValue(from.TTL) {
 		d, err := parseDuration(val)
 		if err != nil {
 			return e, err
 		}
 		e.TTL = d
 	}
-	if val := r.FormValue("budget"); val != "" {
+	if val := r.FormValue("budget"); val != "" && val != budgetValue(from.BudgetUSD) {
 		b, err := parseBudget(val)
 		if err != nil {
 			return e, err
 		}
 		e.BudgetUSD = b
 	}
-	if _, ok := r.Form["purpose"]; ok {
+	if _, ok := r.Form["purpose"]; ok && r.FormValue("purpose") != from.Purpose {
 		p := r.FormValue("purpose")
 		e.Purpose = &p
+	}
+	if override := r.FormValue("override") == "on"; override != from.OverrideLimits {
+		e.OverrideLimits = &override
 	}
 	return e, nil
 }

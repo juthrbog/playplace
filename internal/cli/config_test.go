@@ -1,6 +1,12 @@
 package cli
 
 import (
+	"bytes"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -52,6 +58,124 @@ func TestDurationsAndIntervals(t *testing.T) {
 	}
 	if got, err := parseInterval("5m"); err != nil || got != 5*time.Minute {
 		t.Errorf("parseInterval(5m) = %v %v", got, err)
+	}
+}
+
+// --ou-id must have the OU ID format that AWS documents. --ou-name next to
+// it is refused, because the provider would ignore the name. Values arrive
+// on the command line and through the environment, as an operator gives
+// them.
+func TestOUIDFlag(t *testing.T) {
+	const id = "ou-ab12-cd34ef56"
+	longest := "ou-" + strings.Repeat("a", 32) + "-" + strings.Repeat("9", 32)
+	for _, tc := range []struct {
+		name string
+		args []string
+		env  map[string]string
+		want string // the OU ID that the provider gets
+		bad  string // substring of the error. Empty means accepted
+	}{
+		{"name only", []string{"--ou-name", "Lab"}, nil, "", ""},
+		{"id", []string{"--ou-id", id}, nil, id, ""},
+		{"id from the environment", nil, map[string]string{"PLAYPLACE_OU_ID": " " + id + " "}, id, ""},
+		{"longest id", []string{"--ou-id", longest}, nil, longest, ""},
+		{"blank id", nil, map[string]string{"PLAYPLACE_OU_ID": "", "PLAYPLACE_OU_NAME": "Lab"}, "", ""},
+		{"blank name from an env template", nil, map[string]string{"PLAYPLACE_OU_ID": id, "PLAYPLACE_OU_NAME": " "}, id, ""},
+		{"root id", []string{"--ou-id", "r-ab12"}, nil, "", `"r-ab12" is not an OU ID`},
+		{"uppercase", []string{"--ou-id", "OU-AB12-CD34EF56"}, nil, "", "is not an OU ID"},
+		{"short root part", []string{"--ou-id", "ou-ab1-cd34ef56"}, nil, "", "is not an OU ID"},
+		{"short OU part", []string{"--ou-id", "ou-ab12-cd34ef5"}, nil, "", "is not an OU ID"},
+		{"long root part", []string{"--ou-id", "ou-" + strings.Repeat("a", 33) + "-cd34ef56"}, nil, "", "is not an OU ID"},
+		{"ARN", []string{"--ou-id", "arn:aws:organizations::222222222222:ou/o-ab12cd34ef/" + id}, nil, "", "is not an OU ID"},
+		{"name as id", nil, map[string]string{"PLAYPLACE_OU_ID": "Playground"}, "", "is not an OU ID"},
+		{"name on the command line", []string{"--ou-id", id, "--ou-name", "Playground"}, nil, "", "--ou-name (\"Playground\") and --ou-id (" + id + ") are both set"},
+		{"name in the environment", []string{"--ou-id", id}, map[string]string{"PLAYPLACE_OU_NAME": "Lab"}, "", "are both set"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, k := range []string{"PLAYPLACE_OU_ID", "PLAYPLACE_OU_NAME"} {
+				t.Setenv(k, "") // restored after the test
+				if err := os.Unsetenv(k); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			var o options
+			cmd := &cobra.Command{Use: "test"}
+			o.bind(cmd)
+			if err := cmd.ParseFlags(tc.args); err != nil {
+				t.Fatal(err)
+			}
+			if err := applyEnv(cmd); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := o.awsConfig()
+			switch {
+			case tc.bad == "" && err != nil:
+				t.Fatalf("refused: %v", err)
+			case tc.bad != "" && (err == nil || !strings.Contains(err.Error(), tc.bad)):
+				t.Fatalf("err = %v, want it to contain %q", err, tc.bad)
+			case tc.bad == "" && cfg.PlaygroundOUID != tc.want:
+				t.Fatalf("OU ID = %q, want %q", cfg.PlaygroundOUID, tc.want)
+			}
+		})
+	}
+}
+
+// Every command builds its app with newApp. newApp must refuse a malformed
+// --ou-id, and --ou-name next to --ou-id, before it calls AWS. The AWS
+// endpoint is a local server that counts the calls that reach it.
+func TestCommandsRefuseABadOUIDBeforeAWS(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer srv.Close()
+	// The environment of the developer must not change the result.
+	for _, kv := range os.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "PLAYPLACE_") {
+			t.Setenv(k, "") // restored after the test
+			if err := os.Unsetenv(k); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	t.Setenv("PLAYPLACE_AWS_ENDPOINT", srv.URL)
+	t.Setenv("PLAYPLACE_AWS_REGION", "us-east-1")
+	t.Setenv("PLAYPLACE_HISTORY", "none")
+	t.Setenv("AWS_ACCESS_KEY_ID", "test")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	const id = "ou-ab12-cd34ef56"
+	for _, tc := range []struct {
+		name string
+		args []string
+		env  map[string]string
+		want string
+	}{
+		{"root id", []string{"init", "--ou-id", "r-ab12"}, nil, `ou-id: "r-ab12" is not an OU ID`},
+		{"both flags", []string{"init", "--ou-id", id, "--ou-name", "Lab"}, nil, `--ou-name ("Lab") and --ou-id (` + id + `) are both set`},
+		{"both from the environment", []string{"init"}, map[string]string{"PLAYPLACE_OU_ID": id, "PLAYPLACE_OU_NAME": "Lab"}, "are both set"},
+		{"root id for list", []string{"list", "--ou-id", "r-ab12"}, nil, "is not an OU ID"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			cmd := New()
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("%v: err = %v, want it to contain %q", tc.args, err, tc.want)
+			}
+		})
+	}
+	if n := calls.Load(); n != 0 {
+		t.Fatalf("the commands made %d AWS calls before they refused the flags", n)
 	}
 }
 

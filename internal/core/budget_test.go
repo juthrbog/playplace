@@ -212,6 +212,53 @@ func TestBudgetRepairIsAnnouncedOnceWhenItStarts(t *testing.T) {
 	}
 }
 
+// A new --alert-email changes only who AWS Budgets notifies. Health and its
+// timestamp stay as they were, and nobody gets a budget notice, also when the
+// account is restricted.
+func TestAlertEmailRotationSendsNoNotice(t *testing.T) {
+	for _, want := range []string{"ready", "restricted"} {
+		t.Run(want, func(t *testing.T) {
+			h := newHarness(t)
+			enforceBudgets(h)
+			ctx := context.Background()
+			a := h.ready(t, "rotation", "owner", 48*time.Hour)
+			if want == "restricted" {
+				snap := h.prov.BudgetStates[a.ID]
+				snap.SpendUSD, snap.SpendKnown = a.BudgetUSD+10, true
+				h.prov.BudgetStates[a.ID] = snap
+				if _, err := h.svc.Refresh(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := h.prov.Tags(a.ID)
+			if before[core.TagBudgetHealth] != want {
+				t.Fatalf("health before rotation = %q, want %q", before[core.TagBudgetHealth], want)
+			}
+			h.note.msgs = nil
+			h.advance(time.Hour)
+			cfg := h.svc.Config()
+			cfg.AlertEmail = "new-ops@example.com"
+			h.svc = core.NewService(h.prov, h.note, cfg, nil)
+			h.svc.Now = func() time.Time { return h.now }
+			for range 2 {
+				if _, err := h.svc.Refresh(ctx); err != nil {
+					t.Fatal(err)
+				}
+				if len(h.note.msgs) != 0 {
+					t.Fatalf("rotation sent notices: %+v", h.note.msgs)
+				}
+				after := h.prov.Tags(a.ID)
+				if after[core.TagBudgetHealth] != want || after[core.TagBudgetChecked] != before[core.TagBudgetChecked] {
+					t.Fatalf("rotation changed health: %s since %s", after[core.TagBudgetHealth], after[core.TagBudgetChecked])
+				}
+			}
+			if got := h.prov.Recipients[a.ID]; got != cfg.AlertEmail {
+				t.Fatalf("recipient = %q, want %q", got, cfg.AlertEmail)
+			}
+		})
+	}
+}
+
 func TestInsufficientIncreaseAndUnknownSpendDoNotUnlock(t *testing.T) {
 	for _, spend := range []float64{60, 0} {
 		h := newHarness(t)

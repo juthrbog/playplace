@@ -17,7 +17,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"playplace/internal/audit"
 	"playplace/internal/core"
 	"playplace/internal/tui"
 	"playplace/internal/web"
@@ -43,31 +42,85 @@ func initCmd(opts *options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
 		Short: "Create the AWS Organization and playground OU if they do not exist",
+		Long: `Create the AWS Organization and playground OU if they do not exist.
+
+With --ou-id, init creates nothing. It verifies the OU that the ID names and
+reports it.
+
+init also lists the active accounts in the OU that playplace does not
+manage, with what the next refresh does to each: adopt it and close it at
+the end of its lifetime, start its closure at once, or leave it alone until
+someone repairs its tags. The dates assume that the next refresh runs today.
+Most commands start with a refresh, so run init before any other command.
+Move every account that playplace must not manage out of the OU.`,
 		RunE: withApp(opts, false, func(ctx context.Context, a *app, _ []string) error {
 			info, err := a.svc.Init(ctx)
 			if err != nil {
 				return err
 			}
-			printInit(info)
+			printInit(info, strings.TrimSpace(opts.OUID) != "")
+			unmanaged, err := a.svc.Unmanaged(ctx)
+			if err != nil {
+				return err
+			}
+			printUnmanaged(unmanaged, a.svc.Now())
 			return nil
 		}),
 	}
 }
 
 // printInit says what init found and what it created. A new OU has none of
-// the operator's SCPs yet, so init says so.
-func printInit(info core.OrgInfo) {
+// the operator's SCPs yet, so init says so. An OU that --ou-id names (byID)
+// was not made by init, so init names it and asks for the safeguards SCP.
+func printInit(info core.OrgInfo, byID bool) {
 	if info.Created {
 		fmt.Println("created organization", info.OrgID)
 	} else {
 		fmt.Println("using organization", info.OrgID)
 	}
 	fmt.Println("management account:", info.ManagementAccountID)
-	if info.OUCreated {
+	switch {
+	case info.OUCreated:
 		fmt.Printf("created playground OU %s under the root. Attach the safeguards SCP to it before you grant access.\n", info.PlaygroundOUID)
-	} else {
+	case byID:
+		fmt.Printf("playground OU: %s (%s), found by --ou-id. init did not create or change it.\n", info.PlaygroundOUName, info.PlaygroundOUID)
+		fmt.Println("Attach the safeguards SCP to this OU before you grant access.")
+	default:
 		fmt.Println("playground OU:", info.PlaygroundOUID)
 	}
+}
+
+// printUnmanaged lists the accounts in the OU that playplace does not
+// manage, with what the next refresh does to each, as if it ran now. A valid
+// --ou-id that names the wrong OU passes every check. This list is where the
+// operator sees the mistake before playplace adopts and closes accounts that
+// are not playgrounds.
+func printUnmanaged(accounts []*core.Account, now time.Time) {
+	switch len(accounts) {
+	case 0:
+		return
+	case 1:
+		fmt.Println("playplace does not manage 1 account in this OU:")
+	default:
+		fmt.Printf("playplace does not manage %d accounts in this OU:\n", len(accounts))
+	}
+	for _, a := range accounts {
+		// The order matches Refresh: close intent first, then tag damage,
+		// then adoption.
+		switch err := a.RepairError(); {
+		case a.CloseRequestedAt != nil:
+			fmt.Printf("  %s (%s): closure starts at once, because it has a %s tag\n", a.Name, a.ProviderID, core.TagCloseRequested)
+		case err != nil:
+			fmt.Printf("  %s (%s): left alone until someone repairs its tags: %v\n", a.Name, a.ProviderID, err)
+		default:
+			closure := "closure starts on " + a.ExpiresAt.Format("2006-01-02")
+			if !a.ExpiresAt.After(now) {
+				closure = "closure starts at once"
+			}
+			fmt.Printf("  %s (%s): adopted with owner %s and %s/month, %s\n", a.Name, a.ProviderID, a.Owner, core.Dollars(a.BudgetUSD), closure)
+		}
+	}
+	fmt.Println("The next refresh does this, and the dates assume that it runs today. Move every account that playplace must not manage out of the OU before you run another command.")
 }
 
 func requestCmd(opts *options) *cobra.Command {
@@ -310,7 +363,7 @@ func denyCmd(opts *options) *cobra.Command {
 			return nil
 		}),
 	}
-	cmd.Flags().StringVar(&reason, "reason", "", "sent to the requester")
+	cmd.Flags().StringVar(&reason, "reason", "", "why the request is denied, shown in the notice and in history")
 	return cmd
 }
 
@@ -319,29 +372,36 @@ var createPoll = 5 * time.Second
 
 // waitForAccount polls a creation until AWS finishes or the deadline passes.
 // It succeeds once the account is placed. Readiness can take another pass,
-// for example while AWS has not yet shown a new budget action.
+// for example while AWS has not yet shown a new budget action. When a step
+// after the creation fails, the error says that the account exists.
+//
+// Every progress line ends before the next poll. A poll can log, for example
+// the ready notice at Warn on stderr. On a terminal, stdout and stderr share
+// one screen, so a log line must not start in the middle of a progress line.
+// The wait prints a line only when the state changes.
 func waitForAccount(ctx context.Context, a *app, acc *core.Account, maxWait time.Duration) error {
-	fmt.Print("waiting for AWS ")
+	fmt.Printf("waiting for AWS to create %s\n", acc.Name)
 	deadline := time.Now().Add(maxWait)
 	var err error
+	activating := false
 	for acc.Status == core.StatusCreating {
+		if acc.ProviderState == "PENDING_ACTIVATION" && !activating {
+			// AWS created the account and activates it within minutes.
+			activating = true
+			fmt.Printf("%s (account %s) waits for AWS to activate it\n", acc.Name, acc.ProviderID)
+		}
 		if time.Now().After(deadline) {
-			fmt.Println()
 			return fmt.Errorf("still creating after %s; it will finish on a later command or reconcile", maxWait)
 		}
 		select {
 		case <-ctx.Done():
-			fmt.Println()
 			return ctx.Err()
 		case <-time.After(createPoll):
 		}
-		fmt.Print(".")
 		if acc, err = a.svc.PollCreate(ctx, acc.RequestID); err != nil {
-			fmt.Println()
-			return err
+			return createdFailure(err)
 		}
 	}
-	fmt.Println()
 	if acc.Status != core.StatusActive {
 		return fmt.Errorf("%s is %s: %s", acc.Name, acc.Status, acc.LastError)
 	}
@@ -352,9 +412,30 @@ func waitForAccount(ctx context.Context, a *app, acc *core.Account, maxWait time
 	return nil
 }
 
+// createdFailure tells the operator that AWS created the account when a step
+// after the creation fails. The error names the account ID, says whether the
+// account is placed in the Playground OU and whether a refresh retries the
+// step, and ends with the cause. Other errors stay as they are, for example
+// when AWS cannot report the status of the creation.
+func createdFailure(err error) error {
+	var created *core.CreatedError
+	if !errors.As(err, &created) {
+		return err
+	}
+	acc := created.Account
+	switch {
+	case !acc.Managed:
+		return fmt.Errorf("%s was created as account %s, but playplace did not place it in the Playground OU. A refresh does not place it either: %w", acc.Name, acc.ProviderID, err)
+	case !created.Placed:
+		return fmt.Errorf("%s was created as account %s, but its placement in the Playground OU did not finish. Unless someone moved the account to another OU, the next refresh retries it: %w", acc.Name, acc.ProviderID, err)
+	default:
+		return fmt.Errorf("%s was created as account %s and placed in the Playground OU. The next refresh retries the step that failed: %w", acc.Name, acc.ProviderID, err)
+	}
+}
+
 // handoffBlocker names what keeps a placed account from its initial handoff,
-// in the order that readiness checks it. It does not promise the
-// account-ready notice: a missing owner can block it for a long time.
+// in the order that readiness checks it. It does not promise the ready
+// notice: a missing owner can block it for a long time.
 func handoffBlocker(acc *core.Account) string {
 	switch acc.BudgetHealth {
 	case "ready", "alerts-only", "alerts-disabled":
@@ -487,7 +568,7 @@ func showCmd(opts *options) *cobra.Command {
 				fmt.Printf("repair:      %s\n", err)
 			}
 			if acc.WarnedAt != nil {
-				fmt.Printf("warned:      %s\n", acc.WarnedAt.Format(time.RFC3339))
+				fmt.Printf("expiring:    notice sent %s\n", acc.WarnedAt.Format(time.RFC3339))
 			}
 			if acc.CloseRequestedAt != nil {
 				fmt.Printf("close asked: %s\n", acc.CloseRequestedAt.Format(time.RFC3339))
@@ -759,6 +840,11 @@ issuer or preset are an error.`,
 			} else {
 				fmt.Fprintln(os.Stderr, "warning: no --oidc-* flags; the web UI has no sign-in and every visitor is an admin")
 			}
+			// Only serve warns: other commands run on every call or on a
+			// schedule, and their notices are in their own output.
+			if !opts.deliversNotices() {
+				a.log.Warn("lifecycle notices are only logged: configure --slack-webhook to send them to a Slack channel")
+			}
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			errc := make(chan error, 2)
@@ -809,6 +895,16 @@ issuer or preset are an error.`,
 	return cmd
 }
 
+// useFeed sends everything the app logs to a new TUI feed and returns it.
+// The TUI owns the terminal, so the app must not write to stderr while it
+// runs. Service warnings and lifecycle notices show as toasts and in the
+// notifications window.
+func (a *app) useFeed() *tui.Feed {
+	feed := tui.NewFeed()
+	a.setLogger(slog.New(feed.Handler()))
+	return feed
+}
+
 func tuiCmd(opts *options) *cobra.Command {
 	var snapshot, keys string
 	cmd := &cobra.Command{
@@ -826,15 +922,7 @@ func tuiCmd(opts *options) *cobra.Command {
 			if a.history != nil {
 				opts.History = a.history
 			}
-			// The TUI owns the terminal, so nothing may write to stderr while
-			// it runs. Service warnings become notices in the dashboard.
-			feed := tui.NewFeed()
-			opts.Feed = feed
-			quiet := slog.New(feed.Handler())
-			a.svc.SetLogger(quiet)
-			if cw, ok := a.history.(*audit.CloudWatch); ok {
-				cw.Log = quiet
-			}
+			opts.Feed = a.useFeed()
 			if snapshot != "" {
 				var w, h int
 				if _, err := fmt.Sscanf(snapshot, "%dx%d", &w, &h); err != nil {

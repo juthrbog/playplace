@@ -16,7 +16,7 @@ import (
 // Config tunes lifecycle behaviour.
 type Config struct {
 	DefaultTTL       time.Duration // how long a new account lives
-	WarnBefore       time.Duration // how far ahead of expiry to warn the owner
+	WarnBefore       time.Duration // how far ahead of expiry to send the expiring notice
 	CloseAlertAfter  time.Duration // unconfirmed closure age that makes reconciliation fail
 	DefaultBudgetUSD float64       // monthly budget when none is given
 	EmailPattern     string        // e.g. "aws+pp-{name}@example.com"
@@ -127,6 +127,30 @@ func (s *Service) SetBaseURL(u string) { s.cfg.BaseURL = u }
 // Init makes sure the organization and playground OU exist.
 func (s *Service) Init(ctx context.Context) (OrgInfo, error) {
 	return s.provider.EnsureOrganization(ctx)
+}
+
+// Unmanaged lists the active accounts in the playground OU that have no
+// playplace:managed=true tag, as the next refresh reads them. The refresh
+// adopts each of them, unless the account has close intent (its closure
+// starts at once) or damaged tags (it is left alone). An adopted account
+// keeps each valid playplace owner, expires and budget tag. Without them, it
+// gets the owner "unknown", the default lifetime or the default budget. init
+// prints them, so that an operator who names the wrong OU sees which
+// accounts playplace takes over and when it closes them.
+func (s *Service) Unmanaged(ctx context.Context) ([]*Account, error) {
+	remote, err := s.provider.ListPlaygroundAccounts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list playground accounts: %w", err)
+	}
+	now := s.Now()
+	var out []*Account
+	for _, r := range remote {
+		if r.Status == "ACTIVE" && r.Tags[TagManaged] != "true" {
+			out = append(out, FromRemote(r, s.cfg, now))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }
 
 // Invalidate drops the cached inventory so the next read hits the provider.
@@ -503,8 +527,23 @@ func (s *Service) checkNameFree(all []*Account, name, email, journeyID string) e
 	return nil
 }
 
+// CreatedError is the error of PollCreate when AWS created the account and a
+// later step failed. Account names the account and has its provider ID.
+// Placed reports whether playplace finished the placement of the account in
+// the Playground OU. Err is the failure of the step.
+type CreatedError struct {
+	Account *Account
+	Placed  bool
+	Err     error
+}
+
+func (e *CreatedError) Error() string { return e.Err.Error() }
+
+func (e *CreatedError) Unwrap() error { return e.Err }
+
 // PollCreate checks one creation request and, on success, places the new
 // account in the OU with its tags and budget. Loop on it to wait in place.
+// When a step after the creation fails, the error is a *CreatedError.
 func (s *Service) PollCreate(ctx context.Context, requestID string) (*Account, error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
@@ -516,16 +555,25 @@ func (s *Service) PollCreate(ctx context.Context, requestID string) (*Account, e
 	case CreateSucceeded:
 		remote, err := s.provider.GetAccount(ctx, r.ProviderID)
 		if err != nil {
-			return nil, err
+			a := FromCreateRequest(r)
+			a.ProviderID = r.ProviderID
+			return nil, &CreatedError{Account: a, Err: err}
+		}
+		now := s.Now()
+		if remote.Status == "PENDING_ACTIVATION" && awaitingPlacement(remote) {
+			// AWS can report the creation done before it activates the
+			// account. The poll shows the account as the inventory does, so
+			// within placementGrace a wait keeps polling.
+			return s.unplacedAccount(remote, &r, now), nil
 		}
 		// Polling an old creation must not move or prepare an unavailable or
 		// closing account. Refresh owns closure progression.
-		a := FromRemote(remote, s.cfg, s.Now())
+		a := FromRemote(remote, s.cfg, now)
 		if remote.Status != "ACTIVE" || a.CloseRequestedAt != nil {
 			return a, nil
 		}
 		if err := a.RepairError(); err != nil {
-			return a, err
+			return a, &CreatedError{Account: a, Placed: a.Managed && !awaitingPlacement(remote), Err: err}
 		}
 		// Only a creation that was never placed is placed. Afterwards Refresh
 		// owns the account, and one moved out of the OU is never moved back.
@@ -533,22 +581,25 @@ func (s *Service) PollCreate(ctx context.Context, requestID string) (*Account, e
 			if !a.Managed {
 				// For example an emulator that drops the CreateAccount tags.
 				// Reporting it as active would hide that nothing places it.
-				return a, fmt.Errorf("account %s (%s) has no playplace creation tags, so playplace does not place or manage it", a.Name, a.ProviderID)
+				return a, &CreatedError{Account: a, Err: fmt.Errorf("account %s (%s) has no playplace creation tags, so playplace does not place or manage it", a.Name, a.ProviderID)}
 			}
 			return a, nil
 		}
-		if a, err = s.place(ctx, a); err != nil {
-			return a, err
+		if _, err := s.place(ctx, a); err != nil {
+			return nil, &CreatedError{Account: a, Err: err}
 		}
 		// Another process can have placed the account and finished its
 		// handoff since the read above. Readiness must see the live handoff
 		// tag, as in Refresh.
 		fresh, err := s.provider.GetAccount(ctx, a.ProviderID)
 		if err != nil {
-			return a, fmt.Errorf("read %s after placement: %w", a.Name, err)
+			return a, &CreatedError{Account: a, Placed: true, Err: fmt.Errorf("read %s after placement: %w", a.Name, err)}
 		}
 		a = FromRemote(fresh, s.cfg, s.Now())
-		return a, s.reconcileReadiness(ctx, a)
+		if err := s.reconcileReadiness(ctx, a); err != nil {
+			return a, &CreatedError{Account: a, Placed: true, Err: err}
+		}
+		return a, nil
 	case CreateFailed:
 		a := s.creationAccount(ctx, r)
 		s.audit(ctx, "failed", a, ActorSystem, "", fmt.Sprintf("AWS could not create %s: %s", a.Name, r.FailureReason), map[string]string{"reason": r.FailureReason, "request_id": r.RequestID})
@@ -867,7 +918,7 @@ type Summary struct {
 	Placed   []string // creations that landed and were moved into the OU
 	Adopted  []string // OU accounts that lacked our tags and got defaults
 	Granted  []string // owners given console access
-	Warned   []string // owners warned about expiry
+	Warned   []string // accounts that got the expiring notice
 	Closed   []string // closed at the provider
 	Deferred []string // closure is not yet confirmed (quota, processing, or failure)
 	Overdue  []string // unconfirmed closures older than CloseAlertAfter
@@ -899,7 +950,8 @@ func (s Summary) String() string {
 
 // Refresh is the reconciliation pass every command runs first. It finishes
 // creations that landed, adopts untagged OU accounts, retries requested
-// closes, warns owners ahead of expiry, and closes expired accounts.
+// closes, sends the expiring notice ahead of expiry, and closes expired
+// accounts.
 func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
@@ -1066,7 +1118,7 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 			s.notify(ctx, a, "Playground account expiring",
 				fmt.Sprintf("Account %s (%s) expires %s. Extend it or it will be closed.", a.Name, a.ProviderID, a.ExpiresAt.Format("2006-01-02")))
 			sum.Warned = append(sum.Warned, a.Name)
-			s.audit(ctx, "warned", a, ActorSystem, "", fmt.Sprintf("%s was warned that %s expires %s", a.Owner, a.Name, a.ExpiresAt.Format("2006-01-02")), nil)
+			s.audit(ctx, "warned", a, ActorSystem, "", fmt.Sprintf("sent the expiring notice for %s (owner %s): expires %s", a.Name, a.Owner, a.ExpiresAt.Format("2006-01-02")), nil)
 		}
 	}
 	if err := s.expireRequests(ctx, &sum); err != nil {
@@ -1464,8 +1516,8 @@ func (s *Service) UpdateRequest(ctx context.Context, ref RequestRef, editor stri
 	return r, nil
 }
 
-// Deny removes a pending request and tells the requester why. ref must
-// carry the version the approver saw; see pendingAt.
+// Deny removes a pending request and sends a notice with the reason. ref
+// must carry the version the approver saw; see pendingAt.
 func (s *Service) Deny(ctx context.Context, ref RequestRef, approver, reason string) error {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()

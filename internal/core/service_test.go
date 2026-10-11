@@ -178,6 +178,8 @@ func TestExpiryWarnsExtendsAndCloses(t *testing.T) {
 	ctx := context.Background()
 	a := h.active(t, "short", "alex", 5*24*time.Hour)
 	h.note.msgs = nil
+	rec := &recorderAudit{}
+	h.svc.SetAuditor(rec)
 
 	h.advance(24 * time.Hour)
 	if sum, _ := h.svc.Refresh(ctx); !sum.Empty() {
@@ -187,6 +189,17 @@ func TestExpiryWarnsExtendsAndCloses(t *testing.T) {
 	sum, _ := h.svc.Refresh(ctx)
 	if len(sum.Warned) != 1 || len(h.note.msgs) != 1 {
 		t.Fatalf("day 2: summary=%+v notes=%d", sum, len(h.note.msgs))
+	}
+	// The history names the notice. playplace sends it to the log or a
+	// channel, not to the owner.
+	var warned []string
+	for _, e := range rec.events {
+		if e.Event == "warned" {
+			warned = append(warned, e.Message)
+		}
+	}
+	if want := "sent the expiring notice for short (owner alex): expires 2026-09-20"; len(warned) != 1 || warned[0] != want {
+		t.Fatalf("warned history = %q, want [%q]", warned, want)
 	}
 	a, _ = h.svc.Get(ctx, a.ID)
 	if a.Status != core.StatusExpiring || a.WarnedAt == nil {

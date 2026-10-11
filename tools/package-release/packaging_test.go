@@ -54,8 +54,10 @@ func TestPlayplaceRecipes(t *testing.T) {
 	if len(match) != 2 {
 		t.Fatal("go.mod has no Go version")
 	}
+	// The Arch go package has epoch 2. Without it, pacman ranks every
+	// installed Go above the minimum.
 	for _, name := range []string{"PKGBUILD", "SRCINFO"} {
-		if !strings.Contains(read(name), "go>="+match[1]) {
+		if !strings.Contains(read(name), "go>=2:"+match[1]) {
 			t.Errorf("%s minimum Go version does not match go.mod", name)
 		}
 	}

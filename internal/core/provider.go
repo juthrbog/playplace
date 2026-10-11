@@ -12,8 +12,9 @@ type OrgInfo struct {
 	ManagementAccountID string
 	RootID              string
 	PlaygroundOUID      string
-	Created             bool // true if EnsureOrganization created the organization on this call
-	OUCreated           bool // true if EnsureOrganization created the playground OU on this call
+	PlaygroundOUName    string // the OU's name, for display
+	Created             bool   // true if EnsureOrganization created the organization on this call
+	OUCreated           bool   // true if EnsureOrganization created the playground OU on this call
 }
 
 // AccountRequest is what the provider needs to start creating an account.
@@ -107,7 +108,9 @@ type Provider interface {
 
 	// EnsureOrganization creates the organization and playground OU if
 	// missing. Only `playplace init` calls it. Every other method must find
-	// both and fail, without creating anything, when either is missing.
+	// both and fail, without creating anything, when either is missing. A
+	// provider that is set up with an existing OU ID creates nothing and
+	// only verifies that OU.
 	EnsureOrganization(ctx context.Context) (OrgInfo, error)
 
 	// RequestAccount starts account creation and returns a request id.

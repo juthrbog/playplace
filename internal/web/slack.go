@@ -63,7 +63,7 @@ func (s *Slack) postRequest(ctx context.Context, q core.Request) error {
 			map[string]any{"type": "actions", "elements": []any{
 				map[string]any{"type": "button", "action_id": "approve", "value": buttonValue(q), "style": "primary", "text": map[string]any{"type": "plain_text", "text": "Approve"}},
 				map[string]any{"type": "button", "action_id": "deny", "value": buttonValue(q), "style": "danger", "text": map[string]any{"type": "plain_text", "text": "Deny"},
-					"confirm": map[string]any{"title": map[string]any{"type": "plain_text", "text": "Deny " + q.Name + "?"}, "text": map[string]any{"type": "mrkdwn", "text": "The requester will be told it was denied."}, "confirm": map[string]any{"type": "plain_text", "text": "Deny"}, "deny": map[string]any{"type": "plain_text", "text": "Keep"}}},
+					"confirm": map[string]any{"title": map[string]any{"type": "plain_text", "text": "Deny " + q.Name + "?"}, "text": map[string]any{"type": "mrkdwn", "text": "playplace will send a notice that it was denied."}, "confirm": map[string]any{"type": "plain_text", "text": "Deny"}, "deny": map[string]any{"type": "plain_text", "text": "Keep"}}},
 			}},
 		},
 	}

@@ -42,8 +42,16 @@ _Avoid_: Created, placed, active (as synonyms for ready)
 Budget protection that a later reconciliation pass completes: `setup-pending`, `restricting`, `recovering`, or `retiring`. New access and the initial handoff wait for it. It is progress, not failure, until it lasts longer than two hours. A recovery step that AWS reports as failed is not settling: playplace sends it again, and the pass fails.
 _Avoid_: Error, failure (as synonyms for settling protection)
 
+**Recipient rotation**:
+A change of `--alert-email` from one address to another, applied to the owned budget alerts and the owned budget action of each active, unexpired account without a close request. It changes who AWS Budgets notifies, not when or how the action acts. When AWS accepts the update, budget health and its timestamp stay as they were, no budget notice is sent, and a restricted account stays restricted. If AWS rejects the update, that pass fails with `error` health, and a later pass retries it. Setting or clearing the address in alerts-only mode is not a rotation: health moves between `alerts-disabled` and `alerts-only`. The budgets of closed, closing and expired accounts keep the old address on their alerts until an operator changes them in AWS Budgets.
+_Avoid_: Setup, repair (as states that a rotation passes through)
+
+**Lifecycle notice**:
+A short message about a change to a request or an account, such as the *approved*, *ready* or *expiring* notice. playplace writes it to its log and, with `--slack-webhook`, posts it to that channel. It never goes to a person.
+_Avoid_: Notification, warning
+
 **Initial handoff**:
-The account's first readiness milestone, whether created by playplace or newly adopted, celebrated by the account-ready notification once its owner is identified. Later recovery of protection or access is not another initial handoff.
+The account's first readiness milestone, whether created by playplace or newly adopted, celebrated by the *ready* notice once its owner is identified. Later recovery of protection or access is not another initial handoff.
 _Avoid_: Recovery (as a synonym for initial handoff)
 
 **Identified owner**:

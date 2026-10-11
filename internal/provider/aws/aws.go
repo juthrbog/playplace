@@ -7,11 +7,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/budgets"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
@@ -29,9 +32,23 @@ import (
 type Config struct {
 	Region           string // default region for Organizations; empty uses the SDK chain
 	Endpoint         string // optional override, e.g. http://localhost:4566 for LocalStack
-	PlaygroundOUName string // OU that holds playground accounts
+	PlaygroundOUName string // OU that holds playground accounts, found by name directly under the root
+	PlaygroundOUID   string // the same OU, found by ID at any depth. When set, PlaygroundOUName is not used
 	Profile          string // optional named profile
 	PermissionSet    string // Identity Center permission set granted to owners; empty disables access
+}
+
+// ouIDPattern is the OU ID format that the Organizations API documents for
+// OrganizationalUnit.Id: "ou-", 4 to 32 lowercase letters or digits (the
+// ID of the root), a dash, and 8 to 32 more lowercase letters or digits.
+var ouIDPattern = regexp.MustCompile(`^ou-[0-9a-z]{4,32}-[a-z0-9]{8,32}$`)
+
+// ValidateOUID refuses a string that AWS does not accept as an OU ID.
+func ValidateOUID(id string) error {
+	if !ouIDPattern.MatchString(id) {
+		return fmt.Errorf("%q is not an OU ID. An OU ID is \"ou-\", 4 to 32 lowercase letters or digits, a dash, and 8 to 32 more, for example ou-ab12-cd34ef56", id)
+	}
+	return nil
 }
 
 // Provider talks to one AWS Organization.
@@ -109,13 +126,22 @@ func (p *Provider) Name() string { return "aws" }
 
 // EnsureOrganization is `playplace init`: it creates the organization (all
 // features) and the playground OU when they are missing. Nothing else
-// creates them; every other method resolves them through org.
+// creates them. Every other method resolves them through org. With
+// PlaygroundOUID set, it creates nothing and only verifies the OU. The ID
+// names an OU that exists already, and a new organization cannot hold it.
 func (p *Provider) EnsureOrganization(ctx context.Context) (core.OrgInfo, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	info, inUse, err := p.lookup(ctx)
 	if err != nil {
 		return info, err
+	}
+	if p.cfg.PlaygroundOUID != "" {
+		if err := p.missing(info, inUse); err != nil {
+			return info, err
+		}
+		p.info = &info
+		return info, nil
 	}
 	if !inUse {
 		created, err := p.orgs.CreateOrganization(ctx, &organizations.CreateOrganizationInput{
@@ -140,6 +166,7 @@ func (p *Provider) EnsureOrganization(ctx context.Context) (core.OrgInfo, error)
 			return info, fmt.Errorf("create OU %q: %w", p.cfg.PlaygroundOUName, err)
 		}
 		info.PlaygroundOUID = aws.ToString(out.OrganizationalUnit.Id)
+		info.PlaygroundOUName = p.cfg.PlaygroundOUName
 		info.OUCreated = true
 	}
 	cached := info
@@ -149,8 +176,9 @@ func (p *Provider) EnsureOrganization(ctx context.Context) (core.OrgInfo, error)
 }
 
 // org finds the organization and the playground OU without creating either.
-// A wrong profile, a typo in --ou-name, or an OU nested below the root then
-// fails here instead of building a new OU that lacks the operator's SCPs.
+// A wrong profile, a typo in --ou-name or --ou-id, or a nested OU that
+// --ou-name names then fails here instead of building a new OU that lacks
+// the operator's SCPs. A failure is not cached.
 func (p *Provider) org(ctx context.Context) (core.OrgInfo, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -158,19 +186,37 @@ func (p *Provider) org(ctx context.Context) (core.OrgInfo, error) {
 		return *p.info, nil
 	}
 	info, inUse, err := p.lookup(ctx)
-	switch {
-	case err != nil:
+	if err == nil {
+		err = p.missing(info, inUse)
+	}
+	if err != nil {
 		return info, err
-	case !inUse:
-		return info, errors.New("the AWS credentials are not in an AWS Organization. Use the profile of the management account. Run `playplace init` only if this account must become the management account of a new organization")
-	case info.PlaygroundOUID == "":
-		// An OU nested in another OU is not found. init would then create a
-		// second, empty OU under the root, so the message does not offer it
-		// as the fix.
-		return info, fmt.Errorf("playground OU %q is not a direct child of the organization root %s. Playplace uses only an OU directly under the root, not one nested in another OU. Check --ou-name (PLAYPLACE_OU_NAME). Run `playplace init` only if no Playground OU exists yet, because it creates a new, empty OU under the root", p.cfg.PlaygroundOUName, info.RootID)
 	}
 	p.info = &info
 	return info, nil
+}
+
+// missing explains a lookup that did not find the organization or the
+// playground OU. It returns nil when the lookup found both.
+func (p *Provider) missing(info core.OrgInfo, inUse bool) error {
+	id := p.cfg.PlaygroundOUID
+	switch {
+	case !inUse && id != "":
+		return fmt.Errorf("the AWS credentials are not in an AWS Organization, so they cannot reach playground OU %s (--ou-id). Use the profile of the management account of the organization that holds the OU", id)
+	case !inUse:
+		return errors.New("the AWS credentials are not in an AWS Organization. Use the profile of the management account. Run `playplace init` only if this account must become the management account of a new organization")
+	case info.PlaygroundOUID != "":
+		return nil
+	case id != "":
+		// AWS reports an OU of another organization as not found, so a
+		// wrong profile also ends here. init cannot fix it.
+		return fmt.Errorf("playground OU %s (--ou-id) was not found in organization %s. Check --ou-id (PLAYPLACE_OU_ID), and check that the AWS profile is the management account of the organization that holds the OU. `playplace init` does not create an OU when --ou-id is set", id, info.OrgID)
+	default:
+		// --ou-name does not find an OU nested in another OU. init would then
+		// create a second, empty OU under the root, so the message points to
+		// --ou-id and does not offer init as the fix.
+		return fmt.Errorf("playground OU %q is not a direct child of the organization root %s. --ou-name finds only an OU directly under the root. Check --ou-name (PLAYPLACE_OU_NAME). If the OU is nested in another OU, set --ou-id (PLAYPLACE_OU_ID) to its ID instead. Run `playplace init` only if no Playground OU exists yet, because it creates a new, empty OU under the root", p.cfg.PlaygroundOUName, info.RootID)
+	}
 }
 
 // lookup reads the organization, its root, and the playground OU if they
@@ -199,8 +245,50 @@ func (p *Provider) findPlayground(ctx context.Context, info *core.OrgInfo) error
 		return errors.New("organization has no root")
 	}
 	info.RootID = aws.ToString(roots.Roots[0].Id)
+	if p.cfg.PlaygroundOUID != "" {
+		return p.describeOU(ctx, info)
+	}
 	info.PlaygroundOUID, err = p.findOU(ctx, info.RootID, p.cfg.PlaygroundOUName)
+	if info.PlaygroundOUID != "" {
+		info.PlaygroundOUName = p.cfg.PlaygroundOUName
+	}
 	return err
+}
+
+// describeOU reads the OU that --ou-id names, at any depth, with one
+// read-only call. It leaves the OU unset when AWS does not find it. AWS does
+// not find an OU of another organization, and the ARN check below refuses
+// one too.
+func (p *Provider) describeOU(ctx context.Context, info *core.OrgInfo) error {
+	id := p.cfg.PlaygroundOUID
+	out, err := p.orgs.DescribeOrganizationalUnit(ctx, &organizations.DescribeOrganizationalUnitInput{OrganizationalUnitId: aws.String(id)})
+	var notFound *orgtypes.OrganizationalUnitNotFoundException
+	if errors.As(err, &notFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("describe OU %s: %w", id, err)
+	}
+	ou := out.OrganizationalUnit
+	if ou == nil {
+		return fmt.Errorf("describe OU %s: AWS returned no OU", id)
+	}
+	// An OU ARN is arn:<partition>:organizations::<account>:ou/<org ID>/<OU ID>.
+	ouARN, org := aws.ToString(ou.Arn), ""
+	if a, err := arn.Parse(ouARN); err == nil {
+		if parts := strings.Split(a.Resource, "/"); len(parts) == 3 && parts[0] == "ou" && parts[2] == id {
+			org = parts[1]
+		}
+	}
+	switch {
+	case org == "" || aws.ToString(ou.Id) != id:
+		return fmt.Errorf("AWS described playground OU %s (--ou-id) with ID %q and ARN %q, so playplace cannot tell which organization holds it", id, aws.ToString(ou.Id), ouARN)
+	case org != info.OrgID:
+		return fmt.Errorf("playground OU %s (--ou-id) is in organization %s, not in %s. Check --ou-id (PLAYPLACE_OU_ID), and check that the AWS profile is the management account of the organization that holds the OU", id, org, info.OrgID)
+	}
+	info.PlaygroundOUID = id
+	info.PlaygroundOUName = aws.ToString(ou.Name)
+	return nil
 }
 
 func (p *Provider) findOU(ctx context.Context, parentID, name string) (string, error) {

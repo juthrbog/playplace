@@ -23,7 +23,7 @@ optional Slack approvals.
   and accounts per owner. Set up AWS Budgets alerts and view recent spend.
   Optionally deny covered provisioning APIs at 100% actual spend, with admin
   budget increases that lift and rearm the restriction.
-- **Expiry management.** Warn owners before expiry, allow bounded extensions,
+- **Expiry management.** Send a notice before expiry, allow bounded extensions,
   request closure when time is up, and flag closures that remain unconfirmed.
   Retire owned budget actions after confirmed closure while retaining billing alerts.
 - **Visibility and history.** See account status, spend, pending requests, and
@@ -116,7 +116,9 @@ See the [CLI reference](docs/cli.md) and [configuration reference](docs/configur
 
 A configured channel receives requests made in the web UI, with **Approve**
 and **Deny** buttons. Decisions use the same queue and approver rules as the
-web UI.
+web UI. Lifecycle notices, such as the *approved*, *denied*, and *expiring*
+notices, go to the channel of `--slack-webhook`. playplace does not send them
+to people.
 
 See [deployment instructions](deploy/README.md) and the
 [Slack setup notes](DESIGN.md#slack-approvals-optional).
@@ -164,7 +166,9 @@ Follow the [deployment guide](deploy/README.md) to:
 2. Configure the Playground OU, account email pattern, budget alert recipient,
    and optional Identity Center permission set. `playplace init` creates the
    organization and OU if missing; run it only in the intended management account.
-   Other commands never create them and fail when the OU is missing.
+   Other commands never create them and fail when the OU is missing. `init`
+   also lists the active accounts in the OU that playplace does not manage,
+   with what the next refresh does to each.
 3. Separately deploy the [purchase and trail SCP](deploy/aws/playground-safeguards-scp.json)
    and review existing account obligations **before granting playground access**.
 4. Run `playplace serve` behind HTTPS with OIDC sign-in, approvers, and admins
@@ -174,7 +178,8 @@ Follow the [deployment guide](deploy/README.md) to:
    separately deployed provisioning SCP and AWS Budgets execution role.
 6. Alert on failed or missed refreshes. Use one serialized control-plane writer;
    do not overlap scheduled reconciliation with service/CLI mutations. Configure
-   shared history and lifecycle notifications as needed.
+   shared history as needed. Set `--slack-webhook` so lifecycle notices reach a
+   Slack channel. Without it, notices go only to the service log.
 
 For a local walkthrough using LocalStack and Dex instead of real AWS, see
 [Development](DEVELOPMENT.md#testing-the-flows-locally).

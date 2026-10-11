@@ -5,6 +5,8 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -82,6 +84,43 @@ func TestOnlyTheBootstrapPolicyCreatesOrganizationResources(t *testing.T) {
 		}
 		if !allowed {
 			t.Errorf("playplace-bootstrap-policy.json does not allow %s", action)
+		}
+	}
+}
+
+// orgsCall matches an Organizations call in the provider source: a client
+// method such as p.orgs.ListParents( or a paginator constructor.
+var orgsCall = regexp.MustCompile(`p\.orgs\.(\w+)\(|organizations\.New(\w+)Paginator\(`)
+
+// The runtime policy must allow every Organizations call in aws.go, which
+// holds the organization lookup and the account lifecycle. Only the
+// bootstrap calls of `playplace init` are left to the bootstrap policy. The
+// calls come from the source, so a new call, such as the OU lookup by
+// --ou-id, cannot ship without its permission.
+func TestRuntimePolicyAllowsTheLifecycleOrganizationsCalls(t *testing.T) {
+	src, err := fs.ReadFile(os.DirFS("../.."), "internal/provider/aws/aws.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := map[string]bool{}
+	for _, m := range orgsCall.FindAllStringSubmatch(string(src), -1) {
+		calls["organizations:"+m[1]+m[2]] = true
+	}
+	// The scan must see a client call and a paginator, or it proves nothing.
+	if !calls["organizations:DescribeOrganizationalUnit"] || !calls["organizations:ListAccountsForParent"] {
+		t.Fatalf("the source scan missed known calls: %v", calls)
+	}
+	runtime := allowedActions(t, "playplace-policy.json")
+	for call := range calls {
+		if slices.Contains(bootstrapActions, call) {
+			continue
+		}
+		allowed := false
+		for _, pattern := range runtime {
+			allowed = allowed || actionMatches(t, pattern, call)
+		}
+		if !allowed {
+			t.Errorf("playplace-policy.json does not allow %s", call)
 		}
 	}
 }

@@ -108,10 +108,14 @@ also needs a Slack workspace.
     task cli -- init
 
 Skip the `export` to run without Identity Center: owners become free text and
-no access is granted. If your LocalStack version does not implement Budgets,
-placement now reports a budget error and withholds new owner access; it no longer
-silently ignores missing protection. You can inspect the account and exercise
-closure, but a full ready/access flow requires working Budgets APIs. Use the
+no access is granted. LocalStack Pro 2026.9.1 does not implement Budgets. The
+account is still created and placed, but protection shows `error` and owner
+access is withheld. `approve` and `create` exit with an error that names the
+new account ID, says that the account is placed, and ends with the budget
+error. A full ready and access flow needs working Budgets APIs. You can start
+a closure, but LocalStack sets only the old `Status` field of a closed
+account, not `State`. playplace never confirms that closure, so the account
+stays `unavailable` and every refresh reports it. Use the
 fake-provider and loopback AWS API tests for offline budget/action workflows;
 real SCP enforcement and reverse/reset require a separately authorized sandbox.
 
@@ -131,7 +135,7 @@ queue, so approving needs a different operator: the walk below switches
     task cli -- deny dev-one --reason "smaller budget please"
     task cli -- request dev-one --owner dev@example.com --budget 10
     PLAYPLACE_OPERATOR=lead@example.com task cli -- approve dev-one   # prints the request and asks y/N, refuses self-approval
-    task cli -- show dev-one                   # owner, approved-by, expires, spend
+    task cli -- show dev-one                   # owner, status, protection, expires, spend
     task cli -- extend dev-one --by 3
     task cli -- extend dev-one --by 200        # refused: past the 90d lifetime ceiling
     task cli -- extend dev-one --by 200 --override-limits

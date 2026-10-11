@@ -10,6 +10,7 @@
         "organizations:DescribeCreateAccountStatus",
         "organizations:ListRoots",
         "organizations:ListOrganizationalUnitsForParent",
+        "organizations:DescribeOrganizationalUnit",
         "organizations:ListAccountsForParent",
         "organizations:ListParents",
         "organizations:ListCreateAccountStatus",

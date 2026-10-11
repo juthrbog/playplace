@@ -84,7 +84,9 @@ release. Do not overwrite other formulas in the tap.
 Each release generates a source-based `PKGBUILD` and `SRCINFO`. GitHub rewrites
 leading-dot asset names, so users rename `SRCINFO` to `.SRCINFO` for AUR use.
 The recipe requires Go 1.27.2 or newer and targets `x86_64` and `aarch64`; keep
-its minimum Go version aligned with `go.mod` when upgrading the toolchain.
+its minimum Go version aligned with `go.mod` when upgrading the toolchain. The
+Arch `go` package has epoch 2, so the constraint is `go>=2:1.27.2`. Without the
+`2:` prefix, pacman ranks every Arch Go version above the minimum.
 
 Download `PKGBUILD`, `SRCINFO`, `playplace.rb`, and `packaging_checksums.txt` from
 the intended stable release, then:

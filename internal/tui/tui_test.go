@@ -15,6 +15,7 @@ import (
 
 	"playplace/internal/audit"
 	"playplace/internal/core"
+	"playplace/internal/notify"
 	"playplace/internal/provider/fake"
 )
 
@@ -613,6 +614,39 @@ func TestServiceWarningsBecomeToastsAndNotifications(t *testing.T) {
 	m = step(t, m, tea.KeyPressMsg{Code: 'c', Text: "c"})
 	if len(m.notices) != 0 || m.unread != 0 || !strings.Contains(plain(m.content()), "Nothing yet") {
 		t.Fatal("c should clear the list")
+	}
+}
+
+// notify.Log writes a lifecycle notice at Warn so that the CLI shows it. In
+// the TUI it is routine news: it arrives as info with its subject and body,
+// and the toast does not take the warning color. A failed delivery logs at
+// Error under the same message and stays an error.
+func TestLifecycleNoticesArriveAsInfo(t *testing.T) {
+	svc, _ := seeded(t)
+	feed := NewFeed()
+	m := newModel(context.Background(), svc, Options{Feed: feed})
+	m.now = func() time.Time { return t0 }
+	m = step(t, m, tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = run(t, m, m.load(true))
+
+	log := slog.New(feed.Handler())
+	notices := &notify.Log{Logger: log}
+	if err := notices.Notify(context.Background(), core.Message{Subject: "Playground request approved: dev-alex", Body: "ops approved dev-alex for alex.", Owner: "alex"}); err != nil {
+		t.Fatal(err)
+	}
+	msg := m.waitNotice()()
+	n, ok := msg.(noticeMsg)
+	if !ok || n.level != noticeInfo || n.text != "Playground request approved: dev-alex. ops approved dev-alex for alex." {
+		t.Fatalf("lifecycle notice should arrive as info with its subject and body, got %#v", msg)
+	}
+	m = step(t, m, msg)
+	if frame := plain(m.content()); !strings.Contains(frame, "· Playground request approved: dev-alex.") || strings.Contains(frame, "! Playground") {
+		t.Fatalf("toast should show the notice as info:\n%s", frame)
+	}
+
+	log.Error(notify.LogMessage, "subject", "Playground request approved: dev-alex", "err", "slack webhook returned 500")
+	if n, ok := m.waitNotice()().(noticeMsg); !ok || n.level != noticeError || !strings.Contains(n.text, "notify: subject=Playground request approved: dev-alex, err=slack webhook returned 500") {
+		t.Fatalf("a failed delivery should stay an error, got %#v", n)
 	}
 }
 

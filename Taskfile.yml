@@ -55,7 +55,7 @@ tasks:
     generates:
       - internal/web/*_templ.go
     cmds:
-      - "{{.TEMPL}}/templ generate ./internal/web"
+      - "{{.TEMPL}}/templ generate -path internal/web"
 
   build:
     desc: Build bin/playplace

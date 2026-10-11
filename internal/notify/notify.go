@@ -14,11 +14,17 @@ import (
 	"playplace/internal/core"
 )
 
-// Log writes notifications to the logger. Useful for local development.
+// LogMessage is the message of every log record that Log writes. The TUI
+// uses it to tell a lifecycle notice from a warning.
+const LogMessage = "notify"
+
+// Log writes each notice to the logger at Warn, so the default --log-level
+// shows it. Without another notifier, the log is the only place a notice
+// goes. Next to Slack, it records what was sent.
 type Log struct{ Logger *slog.Logger }
 
 func (l Log) Notify(_ context.Context, m core.Message) error {
-	l.Logger.Info("notify", "subject", m.Subject, "owner", m.Owner, "body", m.Body)
+	l.Logger.Warn(LogMessage, "subject", m.Subject, "owner", m.Owner, "body", m.Body)
 	return nil
 }
 
@@ -52,7 +58,8 @@ func (s Slack) Notify(ctx context.Context, m core.Message) error {
 	return nil
 }
 
-// Multi fans out to several notifiers and joins their errors.
+// Multi fans out to several notifiers and joins their errors. Every notifier
+// runs, also after an earlier one fails.
 type Multi []core.Notifier
 
 func (m Multi) Notify(ctx context.Context, msg core.Message) error {

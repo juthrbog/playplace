@@ -835,7 +835,7 @@ func (m model) openDeny() (tea.Model, tea.Cmd) {
 	svc, ctx, ref, name, who := m.svc, m.ctx, a.RequestRef(), a.Name, m.opts.Operator
 	m.dialog = &dialog{
 		title:       "Deny " + a.Name,
-		body:        fmt.Sprintf("Deny the request for %s by %s? The requester will be notified.", a.Name, a.RequestedBy),
+		body:        fmt.Sprintf("Deny the request for %s by %s? playplace sends a notice that it was denied.", a.Name, a.RequestedBy),
 		buttons:     [2]string{"Deny", "Cancel"},
 		selected:    1,
 		destructive: true,

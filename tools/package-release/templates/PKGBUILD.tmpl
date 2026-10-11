@@ -6,7 +6,7 @@ pkgdesc='Short-lived AWS playground accounts with guardrails'
 arch=('x86_64' 'aarch64')
 url='https://github.com/juthrbog/playplace'
 license=('Apache-2.0')
-makedepends=('go>=1.27.2')
+makedepends=('go>=2:1.27.2')
 _release_version='{{ .Version }}'
 source=("playplace-${_release_version}.tar.gz::${url}/releases/download/{{ .Tag }}/playplace_${_release_version}_source.tar.gz")
 sha256sums=('{{ index .Checksums "source" }}')

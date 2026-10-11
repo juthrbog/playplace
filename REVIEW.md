@@ -52,7 +52,7 @@ landed on 2026-10-10 and 2026-10-11.
   account waits for (tests).
 - [x] **Budget notices on setup completion** (budget-6, in part). Setup
   completion sends no notice now, and a repair from `error` is announced
-  once. The `--alert-email` rotation part is still open.
+  once. The `--alert-email` rotation part is fixed further down.
 - [x] **Refresh moved quarantined accounts back into the OU, and any command
   created a missing organization or OU** (gap-1, aws-1, deploy-4, core-5).
   Placement happens once, only from the organization root, and only for an
@@ -87,6 +87,49 @@ landed on 2026-10-10 and 2026-10-11.
 - [x] **The runtime IAM policy had no tests** (deploy-11). A test now checks
   that only the bootstrap policy can create organization resources. The
   GitLab trust policy is gone.
+- [x] **Lifecycle notices were dropped by default** (cli-6). `notify.Log`
+  logged at Info, and the default `--log-level` is warn. Notices now log at
+  Warn, and `serve` warns at startup when `--slack-webhook` is not set. The
+  TUI shows a notice as an info toast. The docs and the UI no longer say
+  that the requester or the owner is told. The `warned` history event and
+  the labels now name the *expiring* notice (tests).
+- [x] **Rotating `--alert-email` sent restricted accounts through
+  setup-pending** (budget-6, the rest). A repair that changes only the
+  recipients now keeps the observed state, with no health change and no
+  notice. An update that AWS rejects still fails the pass (tests).
+- [x] **A nested Playground OU was refused.** `--ou-id` (`PLAYPLACE_OU_ID`)
+  names an OU at any depth. playplace reads it with
+  `DescribeOrganizationalUnit`, refuses to start when `--ou-name` is also
+  set, and `init` creates nothing for it. A valid ID of the wrong OU passes
+  every check, so `init` now lists every active account in the OU that
+  playplace does not manage, with what the next refresh does to it (tests,
+  and a LocalStack run with a nested OU).
+- [x] **The web and TUI edit forms rounded the lifetime and the budget**
+  (tui-3). Both forms now prefill the exact values and send only the fields
+  that the editor changed (tests, and a LocalStack run with 36 hours and
+  $12.50).
+- [x] **`PollCreate` treated a `PENDING_ACTIVATION` account as
+  unavailable.** The wait now says that the account waits for AWS to
+  activate it, and keeps polling (tests).
+- [x] **`approve` and `create` hid that AWS created the account** (found in
+  the LocalStack run). When a step after the creation fails, the error now
+  names the account ID, says whether playplace placed the account, and says
+  whether the next refresh retries the step. `core.CreatedError` carries
+  this to the CLI (tests, 9 mutations caught).
+- [x] **Log lines broke the progress dots of the creation wait** (found in
+  the cross-review). Notices log at Warn now, so a notice sent during the
+  wait landed in the middle of the dots. The wait now prints whole lines,
+  one for each change of state (test).
+- [x] **The AUR `go>=1.27.2` constraint did not hold.** The Arch `go`
+  package has epoch 2, so pacman ranked every Arch Go version above the
+  minimum. The constraint is now `go>=2:1.27.2` (checked with `vercmp`,
+  test).
+- [x] **`task` ran templ with a positional path**, which wrote a different
+  file name into the generated views. The Taskfile now runs
+  `templ generate -path internal/web`.
+- [x] **The LocalStack flow was not run after the OU change.** It ran on
+  2026-10-11. LocalStack keeps the `CreateAccount` tags, and placement
+  works.
 
 ### Accepted or documented
 
@@ -103,27 +146,43 @@ landed on 2026-10-10 and 2026-10-11.
 - [ ] **Read-only CLI commands still run a refresh** (cli-12). The deploy
   README documents the one-writer rule: while `serve` runs, give read-only
   commands `--no-refresh`.
+- [ ] **Nothing enforces `init` before the first refresh.** The docs say to
+  run `init` first, so that the operator sees the account list before
+  playplace adopts accounts. State lives in AWS tags, so playplace has no
+  record that `init` ran.
+- [ ] **LocalStack Pro 2026.9.1 has no Budgets API and never confirms a
+  closure.** Documented in DEVELOPMENT.md. Protection shows `error`, and a
+  closed account stays `unavailable`, because LocalStack sets only `Status`.
 
 ### Open
 
-- [ ] **Lifecycle notices are dropped by default** (cli-6). `notify.Log`
-  logs at Info, and the default `--log-level` is warn.
-- [ ] **Rotating `--alert-email` sends restricted accounts through
-  setup-pending** (budget-6), so their owners get two notices.
-- [ ] **A nested Playground OU is refused.** Only a direct child of the root
-  is supported. The lookup fails closed.
-- [ ] **The web and TUI edit forms round the lifetime and the budget**
-  (tui-3). Both forms prefill whole days, and the web form also prefills
-  whole dollars. An admin who changes only the purpose saves a rounded
-  lifetime, and on the web a rounded budget.
-- [ ] **`PollCreate` treats a `PENDING_ACTIVATION` account as unavailable**,
-  so the `create` and `approve` waits stop with an error. For the first hour,
-  the inventory shows the same account as `creating`.
-- [ ] **The LocalStack flow was not run after the OU change.** If LocalStack
-  drops the `CreateAccount` tags, `approve` fails with "has no playplace
-  creation tags". Run the DEVELOPMENT.md flow before a release.
-- [ ] **The AUR `go>=1.27.2` constraint does not hold.** The Arch `go`
-  package has epoch 2, so any version satisfies it.
+- [ ] **Creations from outside playplace show in the list** (found in the
+  LocalStack run). The inventory reads the creation list of the whole
+  organization. An in-progress creation by another tool shows as `creating`
+  and holds its name. For one hour, so does a finished creation in another
+  OU. A failed one shows as `failed` for 7 days and does not hold its name.
+  Nothing acts on these accounts. The base showed a finished creation for
+  24 hours. A fix must keep the name of a `create` taken while AWS is late
+  to list the account.
+- [ ] **A refresh error with several causes prefixes only the first line.**
+  The CLI prints the joined causes after one `refresh:` prefix, so the later
+  lines do not start with it.
+- [ ] **A lifetime at or below `--warn-before` gets the *expiring* notice at
+  once.** The first refresh after placement sends it.
+- [ ] **TUI success flashes show two check marks.** `notice.go` adds a check
+  mark to a flash that already starts with one.
+- [ ] **A recipient rotation does not reach the budgets of closed, closing,
+  or expired accounts.**
+- [ ] **An owner stored with spaces around it changes on an untouched edit
+  save.** The edit forms trim the owner, so the trimmed value counts as a
+  change.
+- [ ] **The TUI request form allows only 80 characters for the owner.** The
+  edit form allows the full tag length.
+- [ ] **No test fails if the TUI stops calling `useFeed`.** Without it,
+  notices print over the TUI screen.
+- [ ] **The not-placed error cannot say whether someone moved the
+  account.** `PlaceAccount` errors are plain text, so the message says
+  "unless someone moved the account to another OU".
 
 ## Second pass
 
@@ -230,10 +289,11 @@ provider, audit sinks, worker, CLI, TUI, and the deploy files.
   tool this size.
 - [ ] **Account-id enumeration through `Resolve`'s prefix match** (404 vs 403
   on `/accounts/{id}`). Account ids are not secrets.
-- [ ] **`EnsureBudget` never adds alert subscribers to an existing budget.**
-  A budget created while `--alert-email` was empty keeps no alerts after the
-  flag is set. Needs `DescribeNotificationsForBudget` and
-  `CreateNotification`; deferred.
+- [x] **`EnsureBudget` never adds alert subscribers to an existing budget.**
+  Fixed in a436b69, and this item was not updated. `EnsureBudget` now
+  creates a missing notification and replaces the email subscriber of an
+  existing one (`internal/provider/aws/budget.go`). It keeps SNS
+  subscribers and other notifications. Found during the third pass.
 - [ ] **CloudWatch history filter is case-sensitive** where the file sink
   folds case, and `%q` escapes non-ASCII in the pattern. Filtering
   client-side would scan the whole group; deferred.

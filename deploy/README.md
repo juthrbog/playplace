@@ -36,6 +36,62 @@ protection that is still settling after two hours also fails the pass. Each
 pass stops after five minutes, and the worker runs as long as `serve` does,
 so a stopped process is the only cause of missed passes.
 
+## The Playground OU
+
+Playplace keeps playground accounts in one OU, the Playground OU. It finds
+the OU in one of two ways:
+
+- `--ou-name` (default `Playground`) finds the OU by name. The OU must be a
+  direct child of the organization root. `playplace init` creates it there
+  when it is missing.
+- `--ou-id` finds the OU by its ID, for example `ou-ab12-cd34ef56`. The OU
+  can be at any depth, for example `Root / Sandbox / Playground`. Use it for
+  an OU that already exists inside another OU. `playplace init` never
+  creates an OU for it.
+
+Set only one of them. Playplace refuses to start when you set both, because
+it would ignore `--ou-name`.
+
+To use an existing nested OU:
+
+1. Find the ID of the OU in the AWS Organizations console, or with
+   `aws organizations list-organizational-units-for-parent --parent-id PARENT_ID`.
+2. Make sure that the OU holds only accounts that you want playplace to
+   manage. On the first refresh, playplace takes over every active account
+   in the OU that does not have the `playplace:managed=true` tag. The
+   account keeps each valid playplace owner, expires and budget tag, and
+   gets the defaults for the rest. playplace closes the account when its
+   lifetime ends. It starts the closure at once if the account has expired
+   or has a `playplace:close-requested` tag. Move every other account out of
+   the OU before you set `--ou-id`. A valid ID of the wrong OU passes every
+   check, for example the ID of the parent OU.
+3. Set `--ou-id` (`PLAYPLACE_OU_ID`) to the ID. Do not set `--ou-name`.
+4. Run `playplace init` before any other command. Most commands start with a
+   refresh, and the refresh adopts accounts. `init` reads the OU with
+   `organizations:DescribeOrganizationalUnit`, which the runtime policy
+   allows. It checks that the OU is in the organization of the AWS profile
+   and prints the name and the ID of the OU. Then it lists the active
+   accounts in the OU that playplace does not manage, with what the next
+   refresh does to each. Check the name of the OU and the list. If the list
+   names an account that playplace must not manage, move that account out of
+   the OU. `init` creates nothing, so it does not need the bootstrap policy.
+5. Make sure that the safeguards SCP applies to the OU before you grant
+   access. See
+   [Deploy the purchase and trail SCP](#deploy-the-purchase-and-trail-scp-before-granting-access).
+
+An SCP on the root or on a parent OU also applies to every OU and account
+below it. A nested Playground OU thus gets the SCPs of every OU above it, in
+addition to its own. A deny in any of them applies to playground accounts.
+An allow must be present at every level: the root, each parent OU, the
+Playground OU, and the account itself must each allow an action. By
+default, AWS attaches the `FullAWSAccess` policy, which allows every action,
+to the root, to every OU, and to every account, also to new ones. Check the
+SCPs of the parent OUs before you put playgrounds below them.
+
+New accounts still wait in the organization root until playplace places
+them. Placement moves an account from the root straight into the nested OU.
+Playplace never moves an account out of a parent OU.
+
 ## IAM
 
 `aws/playplace-policy.json` is the least privilege the tool needs: read and
@@ -52,9 +108,10 @@ init` creates them, and every other command fails when they are missing.
 `CreateOrganization` needs. Attach it next to the runtime policy only while
 you run `init`, then detach it. Do not attach it to the role that runs
 `serve` or `reconcile`. If the organization and the Playground OU already
-exist, `init` does not need it and only prints their IDs. If you apply the
-runtime policy in a new organization, run `init` with the bootstrap policy
-first.
+exist, `init` does not need it. It only reports them and lists the accounts
+that the next refresh adopts. With `--ou-id`, `init` never creates anything
+and never needs it. If you apply the runtime policy in a new organization,
+run `init` with the bootstrap policy first.
 
 New accounts wait in the organization root until playplace places them, so
 playplace lists the root with `organizations:ListAccountsForParent`. If you
@@ -80,9 +137,13 @@ statement and add this statement with your IDs:
 ```
 
 The statement allows a move only when the source and the destination are in
-its list. Test it with the IAM policy simulator before you rely on it. A move
-from the root into the Playground OU must be allowed. A move from a
-quarantine OU into the Playground OU must be denied.
+its list. Use the ID of the Playground OU, also when the OU is nested. An OU
+ARN names only the organization and the OU, not the parent OUs, so the
+statement is the same at any depth. Do not add the parent OUs. Test it with
+the IAM policy simulator before you rely on it. A move from the root into
+the Playground OU must be allowed. A move from a quarantine OU into the
+Playground OU must be denied. For a nested OU, a move from its parent OU
+into the Playground OU must also be denied.
 
 ## Billing and closure safeguards
 
@@ -134,6 +195,12 @@ aws organizations attach-policy --policy-id "$POLICY_ID" --target-id "$PLAYGROUN
 aws organizations list-policies-for-target \
   --target-id "$PLAYGROUND_OU_ID" --filter SERVICE_CONTROL_POLICY
 ```
+
+A nested Playground OU also gets the SCPs of its parent OUs, so you can
+attach the SCP to a parent OU instead. An SCP on a parent OU also denies
+these purchases in every other OU and account below that parent. Attach it
+there only when that is what you want. See
+[The Playground OU](#the-playground-ou).
 
 The organization must use all features with SCPs enabled at its root. Keep the
 necessary allow SCPs (normally `FullAWSAccess`) attached: this deny-only policy
@@ -214,10 +281,10 @@ aws organizations describe-account --account-id ACCOUNT_ID --query Account.State
 
 After the configured positive duration from the close request, an unconfirmed
 closure causes a nonzero reconciliation exit, error logs, a `closure-overdue`
-history event, and a one-shot lifecycle notification (configure `--slack-webhook`
+history event, and the *overdue* notice, sent once (configure `--slack-webhook`
 to reach operators). The clock starts when playplace first observes an externally
 initiated `PENDING_CLOSURE`. Alerts occur on refresh, not via an AWS TTL timer.
-The `--alert-email` setting is for **Budgets**, not closure notifications.
+The `--alert-email` setting is for **Budgets**, not closure notices.
 
 Playplace retries refusals while the provider still reports `ACTIVE`, monitors
 pending requests without resubmitting them, and records `closed` only after
@@ -293,14 +360,14 @@ allow-listing regions and services, and capping instance types.
 For per-account budget-triggered restrictions, separately deploy the policy and
 role in [Budget protection](../docs/budgets.md), then configure
 `--budget-scp-id`, `--budget-action-role`, and `--alert-email`. Unlike the
-purchase/trail SCP, **do not attach the budget SCP to the OU**: AWS Budgets manages
-its account attachments. The admin budget-change operation reverses and resets
-its action after a sufficient increase. After confirmed closure, reconciliation
-retires the owned action, retaining the budget and alerts. Update the runtime
-budget-actions policy to include its ownership-tag-constrained
-`budgets:DeleteBudgetAction` permission, and keep the original policy/role
-configuration until health reads `retired`. Failed/locked deletions retry; they
-never trigger direct SCP detachment. See the retirement runbook and remaining
-live-validation requirements in [Budget protection](../docs/budgets.md).
-Billing data and execution are delayed; neither a budget nor an account TTL is
-a hard spending cap.
+purchase/trail SCP, **do not attach the budget SCP to the Playground OU or to
+any OU above it**: AWS Budgets manages its account attachments. The admin
+budget-change operation reverses and resets its action after a sufficient
+increase. After confirmed closure, reconciliation retires the owned action,
+retaining the budget and alerts. Update the runtime budget-actions policy to
+include its ownership-tag-constrained `budgets:DeleteBudgetAction` permission,
+and keep the original policy/role configuration until health reads `retired`.
+Failed/locked deletions retry; they never trigger direct SCP detachment. See
+the retirement runbook and remaining live-validation requirements in [Budget
+protection](../docs/budgets.md). Billing data and execution are delayed;
+neither a budget nor an account TTL is a hard spending cap.

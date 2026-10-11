@@ -185,17 +185,20 @@ func (p *Provider) reconcileBudgetAction(ctx context.Context, info core.OrgInfo,
 			return r, errors.New("budget action configuration drift while not in STANDBY; review before recovery")
 		}
 		_, err := p.budgets.UpdateBudgetAction(ctx, &budgets.UpdateBudgetActionInput{AccountId: account, BudgetName: name, ActionId: a.ActionId, ActionThreshold: threshold, NotificationType: bt.NotificationTypeActual, ApprovalModel: bt.ApprovalModelAuto, Subscribers: subs})
-		return r, err // Confirm on a subsequent pass.
+		return r, err // A new trigger changes when AWS acts: confirm on a later pass.
 	}
 	if !reflect.DeepEqual(a.Subscribers, subs) {
-		// Recipient repair must not alter the trigger or approval mode of an
+		// A recipient change must not alter the trigger or approval mode of an
 		// executed action. AWS may reject updates while a transition is locked;
 		// that failure is visible and retried, never bypassed by detaching a policy.
-		_, err := p.budgets.UpdateBudgetAction(ctx, &budgets.UpdateBudgetActionInput{AccountId: account, BudgetName: name, ActionId: a.ActionId, Subscribers: subs})
-		return r, err
+		if _, err := p.budgets.UpdateBudgetAction(ctx, &budgets.UpdateBudgetActionInput{AccountId: account, BudgetName: name, ActionId: a.ActionId, Subscribers: subs}); err != nil {
+			return r, err
+		}
+		// The recipients do not change when or how AWS acts, so the status
+		// read above is still the observation. Health stays as it is.
 	}
-	// Recovery decisions and phase persistence belong to core. Configuration
-	// changes above return without an observation until a subsequent pass.
+	// Recovery decisions and phase persistence belong to core. A trigger
+	// repair above returns without an observation until a later pass.
 	r.Action = &core.BudgetActionObservation{Status: string(a.Status), RestrictionAttached: attached}
 	return r, nil
 }

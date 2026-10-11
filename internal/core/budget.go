@@ -90,9 +90,10 @@ func validMoney(n float64) bool {
 }
 
 // BudgetProtection carries budget configuration observations. An enforced
-// adapter returns Action only after observing the desired configuration;
-// core owns recovery and derives protection health from that observation.
-// Configured protection is not a spending cap.
+// adapter returns Action only after it observes the desired trigger
+// (threshold, notification type and approval model). A recipient change does
+// not hold back the observation. Core owns recovery and derives protection
+// health from that observation. Configured protection is not a spending cap.
 type BudgetProtection struct {
 	State      string
 	ActionID   string
@@ -100,8 +101,9 @@ type BudgetProtection struct {
 	Action     *BudgetActionObservation
 }
 
-// A nil observation means action setup/repair is not yet confirmed. An observed
-// empty or unknown status is different: core must report it as an error.
+// A nil observation means action setup or a trigger repair is not yet
+// confirmed. An observed empty or unknown status is different: core must
+// report it as an error.
 type BudgetActionObservation struct {
 	Status              string
 	RestrictionAttached bool
@@ -239,7 +241,7 @@ func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec B
 		s.Invalidate()
 		if a.BudgetHealth != state {
 			s.audit(ctx, "budget-protection", a, ActorSystem, "", "Budget protection: "+state, map[string]string{"action_id": p.ActionID, "error": message})
-			// Finishing setup is not news: the account-ready notice covers a new
+			// Finishing setup is not news: the ready notice covers a new
 			// account, and a repaired configuration changes nothing for people.
 			if state == "error" || state == "restricted" || state == "retired" || a.BudgetHealth == "restricted" || a.BudgetHealth == "recovering" || a.BudgetHealth == "error" {
 				body := "Budget protection is " + state + ". " + message

@@ -385,6 +385,79 @@ func TestPendingActivationCreationShowsAsCreating(t *testing.T) {
 	}
 }
 
+// The creation poll shows an account that AWS still activates as the
+// inventory does. Within the placement grace it is a creation that nothing
+// places yet, so a wait keeps polling. After the grace it is unavailable. A
+// placed account in the OU is unavailable at once.
+func TestPollCreateShowsPendingActivationAsTheInventoryDoes(t *testing.T) {
+	ctx := context.Background()
+	// poll polls the creation and checks that the inventory agrees.
+	poll := func(t *testing.T, h *harness, requestID string) *core.Account {
+		t.Helper()
+		a, err := h.svc.PollCreate(ctx, requestID)
+		if err != nil {
+			t.Fatalf("poll: %+v %v", a, err)
+		}
+		inv, err := h.svc.Inventory(ctx, true)
+		if err != nil || len(inv) != 1 || inv[0].Status != a.Status {
+			var rows []string
+			for _, row := range inv {
+				rows = append(rows, row.Name+" "+string(row.Status))
+			}
+			t.Fatalf("poll says %s, inventory = %v %v", a.Status, rows, err)
+		}
+		return a
+	}
+	start := func(t *testing.T, activationPolls int) (*harness, string) {
+		t.Helper()
+		h := newHarness(t)
+		h.prov.ActivationPolls = activationPolls
+		r, err := h.svc.Request(ctx, core.RequestInput{Name: "fresh", Owner: "owner"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h, r.RequestID
+	}
+	creating := func(t *testing.T, h *harness, a *core.Account, requestID string) {
+		t.Helper()
+		if a.Status != core.StatusCreating || a.RequestID != requestID || a.ProviderState != "PENDING_ACTIVATION" || a.LastError != "" || inOU(t, h, a.ProviderID) {
+			t.Fatalf("within grace: %+v", a)
+		}
+	}
+
+	t.Run("activated within grace", func(t *testing.T) {
+		h, id := start(t, 2)
+		for range 2 {
+			creating(t, h, poll(t, h, id), id)
+			h.advance(20 * time.Minute)
+		}
+		if a := poll(t, h, id); a.Status != core.StatusActive || !inOU(t, h, a.ProviderID) {
+			t.Fatalf("after activation: %+v", a)
+		}
+	})
+	t.Run("pending after grace", func(t *testing.T) {
+		h, id := start(t, 100)
+		creating(t, h, poll(t, h, id), id)
+		h.advance(2 * time.Hour)
+		if a := poll(t, h, id); a.Status != core.StatusUnavailable || !strings.Contains(a.LastError, "PENDING_ACTIVATION") || inOU(t, h, a.ProviderID) {
+			t.Fatalf("after grace: %+v", a)
+		}
+	})
+	t.Run("placed", func(t *testing.T) {
+		h, id := start(t, 0)
+		a := poll(t, h, id)
+		if a.Status != core.StatusActive || !inOU(t, h, a.ProviderID) {
+			t.Fatalf("placement: %+v", a)
+		}
+		acct, _ := h.prov.GetAccount(ctx, a.ProviderID)
+		acct.Status = "PENDING_ACTIVATION"
+		h.prov.Seed(acct)
+		if a := poll(t, h, id); a.Status != core.StatusUnavailable || !strings.Contains(a.LastError, "PENDING_ACTIVATION") {
+			t.Fatalf("placed account: %+v", a)
+		}
+	})
+}
+
 // An account without the creation tags, for example from an emulator that
 // drops them, is not reported as an active playground.
 func TestPollingAnUntaggedCreationFails(t *testing.T) {

@@ -42,11 +42,12 @@ indoor playgrounds we grew up with; this is that idea moved to the cloud.
    budget is set up before owner access is granted. Optional [budget protection](budgets.md)
    blocks covered provisioning APIs at the threshold; admins can increase an
    existing budget and lift/rearm its restriction.
-4. **Expire.** Three days before expiry the owner is warned. They can extend,
-   within the lifetime limit. At expiry, playplace requests closure and monitors
-   AWS until closure is confirmed. Owners can request early closure too. Pending
-   closure can still incur charges; existing commitments and subscriptions may
-   outlive closure.
+4. **Expire.** Three days before expiry, playplace sends an *expiring*
+   [notice](configuration.md#notices) to its log and, if one is set up, to its
+   Slack channel. The owner can extend, within the lifetime limit. At expiry,
+   playplace requests closure and monitors AWS until closure is confirmed.
+   Owners can request early closure too. Pending closure can still incur
+   charges; existing commitments and subscriptions may outlive closure.
 
 ## Limits
 

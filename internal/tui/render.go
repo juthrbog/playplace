@@ -508,7 +508,7 @@ func (m model) lifecycleLines(a *core.Account, width int) []string {
 	kv := func(k, v string, st lipgloss.Style) string { return th.label.Render(pad(k, 9)) + st.Render(v) }
 	var out []string
 	if a.WarnedAt != nil {
-		out = append(out, kv("warned", a.WarnedAt.Local().Format("2006-01-02 15:04"), lipgloss.NewStyle().Foreground(th.warning)))
+		out = append(out, kv("expiring", "notice sent "+a.WarnedAt.Local().Format("2006-01-02 15:04"), lipgloss.NewStyle().Foreground(th.warning)))
 	}
 	if a.CloseRequestedAt != nil {
 		out = append(out, kv("closing", "requested "+a.CloseRequestedAt.Local().Format("2006-01-02 15:04")+", waiting on AWS quota", lipgloss.NewStyle().Foreground(th.busy)))

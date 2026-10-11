@@ -37,7 +37,7 @@ accounts are playgrounds, and tags on each account hold the rest:
 | `playplace:budget-health`, `playplace:budget-checked` | observed protection state and last state/error-change time |
 | `playplace:budget-error` | bounded base64url error text |
 | `playplace:budget-recovery` | compact base64url recovery intent: action ID, approved limit, pre-update spend, month and reverse/reset phase |
-| `playplace:warned-at` | set once the owner was warned about expiry |
+| `playplace:warned-at` | set once the *expiring* notice was sent |
 | `playplace:close-requested` | durable close intent and start of the closure-monitoring clock |
 | `playplace:closed-at` | when playplace observed AWS `CLOSED` and recorded confirmation |
 | `playplace:close-alerted-at` | one-shot overdue-closure warning marker |
@@ -72,12 +72,37 @@ next refresh. Cost Explorer bills per call, so `list` never touches it;
 Only `playplace init` creates the organization or the Playground OU. Every
 other command looks them up and fails when either is missing. This stops a
 wrong AWS profile, a typo in the OU name, or an OU nested below another OU
-from creating a new, empty OU that has none of the operator's SCPs. The
-Playground OU must be a direct child of the organization root. The error
-names `--ou-name`. It names `playplace init` only for the case where no
-Playground OU exists yet. When the real OU is nested, `init` creates a
-second OU under the root. A failed lookup is not cached, so a running
-`serve` continues once `init` runs.
+from creating a new, empty OU that has none of the operator's SCPs.
+
+Playplace finds the OU in one of two ways. `--ou-name` finds it by name
+among the direct children of the organization root. `--ou-id` finds it by
+ID at any depth, with one read-only `DescribeOrganizationalUnit` call, and
+takes the name of the OU from AWS for display. Playplace refuses to start
+when the operator sets both, because it would ignore the name. When
+`--ou-name` finds no OU, the error names `--ou-name` and points to `--ou-id`
+for a nested OU. It names `playplace init` only for the case where no
+Playground OU exists yet. When the real OU is nested, `init` without
+`--ou-id` creates a second OU under the root. With `--ou-id`, `init` creates
+nothing, not even the organization, because a new organization cannot hold
+the OU. It verifies the OU and reports it. An ID that AWS does not find, or
+that belongs to another organization, fails every command closed. AWS does
+not show an OU of another organization, so a wrong profile ends there too.
+A failed lookup is not cached, so a running `serve` continues once the
+lookup succeeds, for example after `init` runs.
+
+A valid ID of the wrong OU passes every check. The OU must hold only
+accounts that the operator wants playplace to manage. On the first refresh,
+playplace adopts every active account in the OU that does not have the
+`playplace:managed=true` tag. The account keeps each valid playplace owner,
+expires and budget tag. Without an owner tag, the owner is `unknown`.
+Without a valid expires or budget tag, the account gets the default
+lifetime or the default budget. playplace closes the account when its
+lifetime ends. Two kinds of account are not adopted. playplace starts to
+close an account with a `playplace:close-requested` tag at once. It leaves
+an account with a damaged `playplace:close-requested` tag alone until
+someone repairs the tag. So `init` lists these accounts with what the next
+refresh does to each. The operator moves every other account out of the OU
+before any other command, because most commands start with a refresh.
 
 AWS creates every new account in the organization root. Placement moves it
 from there into the OU, once. Playplace places an account only when it sits
@@ -87,8 +112,10 @@ move, so a placed account never qualifies again. The provider also refuses
 to move an account from any parent other than the root. Placement does not
 write the handoff tag. Refresh and the creation poll of `create` and
 `approve` read the account again after they place it. A stale read then
-cannot undo a handoff that another process finished, and the placed and
-ready notices are not repeated.
+cannot undo a handoff that another process finished, and the `placed`
+history event and the *ready* notice are not repeated. A nested OU changes
+none of this. Placement moves an account straight from the root into it, and
+never from a parent OU.
 
 An operator can move an account out of the OU, for example to a quarantine
 OU. That ends playplace management for the account: playplace does not move
@@ -109,6 +136,14 @@ placement succeeds or an operator acts. To stop the retries, remove the
 `playplace:handoff` tag from the account or move it to another OU.
 Playplace never closes an account in the root. If the approved expiry passed
 while the account waited there, the pass that places it also closes it.
+
+AWS can take a few minutes to activate a new account after it reports the
+creation as done. Until then AWS shows the account state as
+`PENDING_ACTIVATION`, and nothing places the account. For one hour after AWS
+created the account, the inventory and the creation poll of `create` and
+`approve` show it as `creating`. The creation poll keeps going, and refresh
+does not report the account. After that hour the account is `unavailable`,
+and refresh reports it.
 
 The root listing reads tags only for accounts that can be playplace
 creations. It skips the management account, invited accounts, and names that
@@ -179,6 +214,17 @@ success only advances the durable phase; reset is submitted on a later pass.
 Missing action observations mean setup is pending, while observed empty/unknown
 statuses remain errors. Recovery intent is retained on errors, even if the action
 has progressed; accepted mutations are not completion.
+A trigger repair (threshold, notification type or approval model) returns no
+observation, because it changes when AWS acts. A recipient rotation that AWS
+accepts returns the status that the pass read before the update, because a
+recipient does not change when or how AWS acts. So an accepted change of
+`--alert-email` from one address to another changes no budget health, keeps
+`playplace:budget-checked`, and sends no notice. If AWS rejects the update,
+for example while it locks the action during a transition, the pass fails
+like any other error, and a later pass retries it. A rotation reaches only
+active, unexpired accounts without a close request. Budgets of closed,
+closing and expired accounts keep the old address until an operator changes
+it in AWS Budgets.
 
 Settling protection is a state that a later pass completes: `setup-pending`,
 `restricting`, `recovering` or `retiring`. It is progress, not failure.
@@ -188,13 +234,15 @@ one state lasts more than two hours after `playplace:budget-checked`, so
 protection that never settles still alerts. A recovery step that AWS reports
 as `REVERSE_FAILURE` or `RESET_FAILURE` is not settling. Playplace sends it
 again, and that pass fails at once while health stays `recovering`. Finished
-setup sends no budget notification, because the account-ready notice covers a
-new account. A repair from `error` is announced when it starts, not when it
+setup sends no budget notice, because the *ready* notice covers a new
+account. A repair from `error` is announced when it starts, not when it
 finishes.
 
 The fake adapter simulates remote completion of explicitly submitted operations,
 not recovery policy. Like AWS, it shows a newly created action only on the next
-pass. The same core decisions run against both adapters. Recovery records retain
+pass. It records the alert recipient of each account, and a new recipient keeps
+the observation, as in the AWS adapter. The same core decisions run against
+both adapters. Recovery records retain
 their existing tag encoding and resume without migration; caller commands and
 health states are unchanged. Caller-interface
 tests use the real AWS adapter with loopback observations and durable mock tags to
@@ -213,7 +261,9 @@ Statuses are derived, never stored:
     expiring   the warned-at tag is set
     closing    close intent is tagged or AWS reports PENDING_CLOSURE
     closed     AWS explicitly reports CLOSED
-    unavailable AWS reports SUSPENDED, PENDING_ACTIVATION, or an unknown state
+    unavailable AWS reports SUSPENDED or an unknown state, or it reports
+                PENDING_ACTIVATION and the account is placed or AWS created
+                it more than one hour ago
 
 AWS lets you close 20% of member accounts or 250, whichever is higher, per
 rolling 30 days (capped at 1000, at most 3 closures in flight), and a new
@@ -226,10 +276,11 @@ emulators exposing only ambiguous `Status=SUSPENDED` show as unavailable.
 
 After `--close-alert-after` (default `24h`) without confirmation, reconciliation
 returns an error, logs the overdue account, records `closure-overdue` in history,
-and attempts a one-shot lifecycle notification. Monitoring continues until AWS
-reports `CLOSED`. Confirmation and notification markers are stored in account
-tags; failures writing them are surfaced and retried. Notifications and history
-remain best-effort, so alert on failed scheduled reconciliation as well.
+and sends the *overdue* notice once. Monitoring continues until AWS reports
+`CLOSED`. playplace stores the confirmation and notice markers in account tags.
+When it cannot write one, it reports the error and tries again on the next
+refresh. Notices and history remain best-effort, so alert on failed scheduled
+reconciliation as well.
 
 Before granting playground access, deploy the purchase/trail guardrail SCP and
 review existing accounts using [the deployment safeguards guide](deploy/README.md#billing-and-closure-safeguards).
@@ -238,6 +289,28 @@ trails; organization audit trails are preserved. Nothing runs `aws-nuke` or
 deletes account resources. Closure is not a guarantee of zero further bills:
 prior usage, existing commitments, Marketplace subscriptions, and central
 logging costs need separate operator review.
+
+### Lifecycle notices
+
+A lifecycle notice is a short message about a change to a request or an
+account. Examples are the *approved*, *denied*, *expiring*, and *closed*
+notices. `core.Service` hands each notice to one notifier. `notify.Log`
+always runs and writes the notice to the log at Warn, so the default
+`--log-level` of `warn` shows it. With `--slack-webhook`, `notify.Multi` also
+posts it to the webhook's channel. The log line stays next to Slack on
+purpose. The log then records what playplace sent, and a failed post leaves
+the text of the notice in the log next to the error. Warn does not raise an
+alert, because the deployment guide alerts on error logs.
+
+A notice goes to a log or a channel, never to a person. Its owner field names
+the account owner, or `approvers` for a new request. The requester is not a
+recipient. When the requester or the owner must know, an approver tells them,
+or they read the channel.
+
+`serve` logs one warning at startup when only the log carries notices. Other
+commands do not warn. They run on every operator call or, like `reconcile`,
+on a schedule, so the same warning would repeat on every run. The TUI moves
+the log notifier to its notice feed with the service logger.
 
 
 ## Requests and approval
@@ -315,20 +388,26 @@ Who may approve:
 
 Admins can edit a pending request before approving it: owner, days, budget,
 and purpose, from the Edit button in the web UI or `playplace edit-request`.
-The requester is told what changed. The admin who edits a request can then
-approve it alone, also after an edit that sets the limit override. This is an
-accepted risk. Admins are trusted, history records the edit, and the notice
-lists each change. Self-approval is refused unless
-`--allow-self-approval` is set: nobody may approve a request they asked for
-or would own. A requester can withdraw their own request from the web UI,
-with `playplace withdraw`, or with `w` in the TUI; admins and operators can
-withdraw any. `create` on the CLI skips the queue for operators and records
-them as approver; it and `approve` do not apply the per-owner limit, which
-is checked when a request is queued. `create` refuses a name that a pending
-request holds. Deny or withdraw the request first, so that its journey ends
-with a recorded decision. When playplace places an account, it removes only
-the approved record of the same journey. It never removes a record that only
-has the same name.
+The admin who edits a request can then approve it alone, also after an edit
+that sets the limit override. This is an accepted risk. Admins are trusted,
+history records the edit, and the *edited* notice lists each change.
+Self-approval is refused unless `--allow-self-approval` is set: nobody may
+approve a request they asked for or would own. A requester can withdraw
+their own request from the web UI, with `playplace withdraw`, or with `w` in
+the TUI; admins and operators can withdraw any. `create` on the CLI skips
+the queue for operators and records them as approver; it and `approve` do
+not apply the per-owner limit, which is checked when a request is queued.
+`create` refuses a name that a pending request holds. Deny or withdraw the
+request first, so that its journey ends with a recorded decision. When
+playplace places an account, it removes only the approved record of the same
+journey. It never removes a record that only has the same name.
+
+The edit forms in the web UI and the TUI hold the exact stored values, and
+they send only the fields that the editor changed. An untouched lifetime or
+budget keeps its exact value, even when it is not a whole number of days or
+dollars. The web form shows such a lifetime as part of a day, for example
+1.5, and the TUI form shows it in hours, for example `36h`. Both forms also
+show it in words next to the field, for example `now 36 hours`.
 
 ### Slack approvals (optional)
 
@@ -383,7 +462,7 @@ handoff notices, even when invalid lifecycle tags need repair; their protection
 and access still reconcile normally.
 
 Once readiness is observed, `complete` is persisted before attempting the existing
-account-ready notification. A failed completion write fails reconciliation and
+*ready* notice. A failed completion write fails reconciliation and
 retries; a failed notification, or a crash after completion was persisted, may
 lose the notice rather than repeat it. History and notification delivery remain
 best-effort and are never consulted as state. Repeated polling, restarts, and later
@@ -558,20 +637,23 @@ Checked against bubbletea v2.0.9, lipgloss v2.0.6, bubbles v2.2.1 with `go doc`.
 - Color output goes through `colorprofile`, which honors `NO_COLOR`. Status
   glyphs carry meaning without color for that reason.
 
-### Notices
+### Toasts and notifications
 
 Everything the TUI has to say arrives the same way: action results, and
 the warnings and errors the service logs while it works (a budget AWS would
-not create, a grant that failed, a sync error). Each shows as a toast in
-the top right for six seconds, wrapped to a few lines, then ages out. `N`
-opens the notifications window with the full text of every notice this
-session, newest first, scrollable; `c` there clears it. The header shows
-how many arrived since the window was last open.
+not create, a grant that failed, a sync error). Lifecycle notices log at
+Warn, so they arrive there too. They are routine news, so the TUI shows
+them as info with their subject and body, not as warnings. Each message
+shows as a toast in the top right for six seconds, wrapped to a few lines,
+then ages out. `N` opens the notifications window with the full text of
+every message this session, newest first, scrollable; `c` there clears it.
+The header shows how many arrived since the window was last open.
 
 Nothing may write to the terminal while the TUI runs, because the
 alternate screen has no scrollback and stray output draws over the frame.
-`tui` therefore swaps the service logger for `tui.Feed`, a `slog.Handler`
-that turns records at Warn and above into notices and drops the rest.
+`tui` therefore swaps the service logger, the log notifier, and the
+CloudWatch history logger for `tui.Feed`, a `slog.Handler` that shows
+records at Warn and above in the TUI and drops the rest.
 
 ### History
 
@@ -598,7 +680,7 @@ terminal narrows: ACCOUNT first, then OWNER, then the spend bar.
 | active | `●` | success |
 | active, 7 days or less left | `●` plus `!` | warning |
 | active, 1 day or less left | `●` plus `!` | error |
-| expiring (owner warned) | `●` plus `!` | warning or error by time left |
+| expiring (*expiring* notice sent) | `●` plus `!` | warning or error by time left |
 | creating, closing | `◌` | busy |
 | creating with a placement note | `◌` plus `!` | warning |
 | closing with an overdue warning, unavailable | `!` | error |

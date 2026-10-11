@@ -39,10 +39,33 @@ The wait in `approve` and `create` ends when AWS places the account in the
 Playground OU. The account can then still wait for its initial handoff. With
 budget enforcement, AWS shows a new budget action only on the next pass, so
 the command prints `NAME is not ready yet: budget protection is setup-pending`
-and still succeeds. A later refresh continues readiness. The account-ready
-notice follows when the owner is identified and, if `--permission-set` is
-set, has access. The same line names a missing owner or a missing owner
+and still succeeds. A later refresh continues readiness. The *ready* notice
+follows when the owner is identified and, if `--permission-set` is set, has
+access. The same line names a missing owner or a missing owner
 grant when that is what the account waits for.
+
+AWS can take a few more minutes to activate a new account after it creates
+it. During that time AWS shows the account state as `PENDING_ACTIVATION`,
+and playplace does not place the account. The wait prints
+`NAME (account ID) waits for AWS to activate it` and keeps polling. For one
+hour after AWS created the account, it shows as `creating`. After that hour
+it shows as `unavailable`, and a wait that still runs stops with an error.
+Investigate such an account with AWS.
+
+A step after the creation can fail, for example the budget setup or the
+owner grant. Then the wait stops with an error, and the command exits with
+a non-zero status. The error says that AWS created the account and gives
+the account ID. It also says whether playplace placed the account in the
+Playground OU, and it ends with the cause:
+
+    error: dev-one was created as account 123456789012 and placed in the Playground OU. The next refresh retries the step that failed: budget for dev-one: ...
+
+The next refresh retries the step that failed. It also retries a placement
+that did not finish, unless someone moved the account to another OU. If the
+new account has no playplace creation tags, for example because an emulator
+dropped them, the error says so, and no refresh places it. Move or tag the
+account by hand. When AWS cannot create the account, the error gives the
+reason from AWS.
 
 ## Accounts
 
@@ -110,12 +133,40 @@ refresh account lifecycle state.
 
 `init` creates the organization and the Playground OU if they are missing.
 It is the only command that creates them. Every other command stops with an
-error when the organization or the OU named by `--ou-name` is missing. The OU
-must be a direct child of the organization root. Playplace does not find an
-OU that is nested in another OU. Do not run `init` to fix that error when
-your Playground OU is nested: `init` then creates a second, empty OU under
-the root, without your SCPs. Run `init` only when no Playground OU exists
-yet, and attach the safeguards SCP to the new OU before you grant access.
+error when the organization or the OU is missing. `--ou-name` finds only an
+OU that is a direct child of the organization root. For an OU that is nested
+in another OU, set `--ou-id` to the ID of the OU. Do not run `init` to fix
+the error when your Playground OU is nested: without `--ou-id`, `init`
+creates a second, empty OU under the root, without your SCPs. Run `init`
+without `--ou-id` only when no Playground OU exists yet, and attach the
+safeguards SCP to the new OU before you grant access.
+
+With `--ou-id`, `init` creates nothing. It checks that the OU is in the
+organization of the AWS profile and prints the name and the ID of the OU.
+It also reminds you to attach the safeguards SCP to the OU. An SCP on a
+parent OU also applies to every OU and account below it, so you can attach
+the SCP to an OU above the Playground OU instead. The SCP then also applies
+to every other OU and account below that parent. Attach it there only when
+that is what you want.
+
+`init` also lists the active accounts in the OU that playplace does not
+manage. For each one, it prints what the next refresh does:
+
+- It adopts the account and prints the owner, the budget, and the day when
+  the closure starts. The account keeps each valid playplace owner,
+  expires and budget tag. Without an owner tag, the owner is `unknown`.
+  Without a valid expires or budget tag, the account gets the default
+  lifetime or the default budget.
+- It starts to close an account with a `playplace:close-requested` tag at
+  once.
+- It leaves an account with a damaged `playplace:close-requested` tag
+  alone until someone repairs the tag.
+
+The dates assume that the next refresh runs on the same day. Most commands
+start with a refresh, so run `init` before any other command. Check the
+name of the OU and the list, and move every account that playplace must
+not manage out of the OU.
+
 `create` is the escape hatch for operators; it records you as approver and,
 like `approve`, does not apply the per-owner limit, which is checked when a
 request is queued. It refuses a name that a pending request holds. Deny or
@@ -123,6 +174,11 @@ withdraw that request first.
 `reconcile` runs one refresh pass and prints what changed. Schedule it independently
 with external serialization against other writers (for example, every 15 minutes
 when no service worker is running) and alert on failed or missed runs.
+Every command writes the lifecycle notices it sends to stderr at `warn`, and
+`tui` shows them in its notifications window instead. Without `--slack-webhook`,
+`serve` warns once at startup that notices go only to its log. `reconcile` does
+not warn, because it runs on a schedule and the warning would repeat on every
+run. See [Notices](configuration.md#notices).
 `serve` runs the web UI and, by default, refreshes every minute. `tui` opens the
 terminal dashboard; press `?` there for its keys.
 
@@ -130,7 +186,7 @@ Closure is asynchronous: `closing` remains visible until AWS explicitly reports
 `CLOSED`. `unavailable` means suspension, pending activation, or an unknown state,
 not confirmed closure. `show` includes the provider state, request time, and
 closure observation time. After `--close-alert-after 24h` without confirmation,
-`reconcile` returns nonzero and attempts a one-shot lifecycle notification. It
+`reconcile` returns nonzero and sends the *overdue* notice once. It
 continues monitoring and retrying; operators must investigate rather than assume
 that submitting a close request stopped charges. See the [deployment safeguards](deploy.md)
 for the separately deployed purchase/trail SCP and existing-account checks.

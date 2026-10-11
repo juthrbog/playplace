@@ -11,6 +11,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"playplace/internal/notify"
 )
 
 // Notices are everything the TUI wants to tell the operator: the outcome of
@@ -44,6 +46,7 @@ const (
 // Feed turns slog records into notices. Hand slog.New(feed.Handler()) to the
 // service before starting the TUI. Records below Warn are dropped; the CLI's
 // --log-level does not apply inside the TUI, where Info would only be noise.
+// A lifecycle notice from notify.Log is at Warn, but it arrives as info.
 type Feed struct {
 	ch chan notice
 }
@@ -76,6 +79,14 @@ type feedHandler struct {
 func (h feedHandler) Enabled(_ context.Context, l slog.Level) bool { return l >= slog.LevelWarn }
 
 func (h feedHandler) Handle(_ context.Context, r slog.Record) error {
+	at := r.Time
+	if at.IsZero() {
+		at = time.Now()
+	}
+	if text, ok := lifecycleNotice(r); ok {
+		h.feed.push(notice{at: at, level: noticeInfo, text: text})
+		return nil
+	}
 	var parts []string
 	add := func(a slog.Attr) {
 		if a.Key == "" {
@@ -99,12 +110,37 @@ func (h feedHandler) Handle(_ context.Context, r slog.Record) error {
 	if r.Level >= slog.LevelError {
 		lvl = noticeError
 	}
-	at := r.Time
-	if at.IsZero() {
-		at = time.Now()
-	}
 	h.feed.push(notice{at: at, level: lvl, text: text})
 	return nil
+}
+
+// lifecycleNotice reads a record that notify.Log wrote. Such a record is at
+// Warn only so that the default --log-level of the CLI shows it. In the TUI
+// it is routine news, not a warning, so the feed shows it at info level,
+// with the subject and the body of the lifecycle notice. A failed delivery
+// logs at Error under the same message and stays an error.
+func lifecycleNotice(r slog.Record) (string, bool) {
+	if r.Message != notify.LogMessage || r.Level >= slog.LevelError {
+		return "", false
+	}
+	var subject, body string
+	r.Attrs(func(a slog.Attr) bool {
+		switch a.Key {
+		case "subject":
+			subject = a.Value.String()
+		case "body":
+			body = a.Value.String()
+		}
+		return true
+	})
+	if subject == "" {
+		return "", false
+	}
+	text := strings.TrimRight(subject, ". ")
+	if body = strings.TrimSpace(body); body != "" {
+		text += ". " + body
+	}
+	return text, true
 }
 
 func (h feedHandler) WithAttrs(attrs []slog.Attr) slog.Handler {

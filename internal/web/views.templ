@@ -195,7 +195,7 @@ templ pendingRow(pg page, q core.Request) {
 					@versionField(q)
 					<button type="submit">Approve</button>
 				</form>
-				<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-prompt="Reason for denying (sent to the requester)">
+				<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-prompt="Reason for denying (shown in the notice and in history)">
 					@versionField(q)
 					<button type="submit" class="danger">Deny</button>
 				</form>
@@ -231,6 +231,10 @@ templ breakable(s string) {
 	}
 }
 
+// pendingEditRow is the inline edit form. Every field holds the exact stored
+// value, and editSave sends only the fields that differ from it. The days
+// input takes part of a day, such as 1.5 for 36 hours, and the budget input
+// takes cents. The server refuses zero days.
 templ pendingEditRow(pg page, q core.Request) {
 	<tr id={ "req-" + q.Name }>
 		<td>{ q.Name }</td>
@@ -239,8 +243,8 @@ templ pendingEditRow(pg page, q core.Request) {
 				@versionField(q)
 				<div class="row">
 					<label>owner<input name="owner" value={ q.Owner } size="24"/></label>
-					<label>days<input name="ttl" type="number" min="1" value={ fmt.Sprintf("%d", int(q.TTL.Hours()/24)) } style="width:5rem"/></label>
-					<label>budget $<input name="budget" type="number" min="1" value={ fmt.Sprintf("%.0f", q.BudgetUSD) } style="width:6rem"/></label>
+					<label>{ dayLabel(q.TTL) }<input name="ttl" type="number" min="0" step="any" value={ dayValue(q.TTL) } style="width:5rem"/></label>
+					<label>budget $<input name="budget" type="number" min="0.01" step="0.01" value={ budgetValue(q.BudgetUSD) } style="width:6rem"/></label>
 					<label>purpose<input name="purpose" value={ q.Purpose } size="28" maxlength={ fmt.Sprint(core.MaxPurpose) } pattern={ tagPattern } title="letters, numbers, spaces, and _ . : / = + - @"/></label>
 					<label title="allow values above the ceilings">override limits<input type="checkbox" name="override" checked?={ q.OverrideLimits }/></label>
 					<button type="submit">Save</button>
@@ -373,7 +377,7 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 					</dd>
 				}
 				if a.WarnedAt != nil {
-					<dt>owner warned</dt><dd>{ a.WarnedAt.Format("2006-01-02 15:04 MST") }</dd>
+					<dt>expiring notice sent</dt><dd>{ a.WarnedAt.Format("2006-01-02 15:04 MST") }</dd>
 				}
 				if a.CloseRequestedAt != nil {
 					<dt>close requested</dt><dd>{ a.CloseRequestedAt.Format("2006-01-02 15:04 MST") }</dd>
