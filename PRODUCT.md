@@ -38,8 +38,8 @@ lifetime or budget without someone seeing it.
 playplace keeps no database. The Playground OU says which accounts exist,
 and tags on each account say everything else. Every decision binds to a
 request version, so an approver acts only on the values they saw. Approval,
-not creation, is the human step, because AWS cannot close a new account for
-four days.
+not creation, is the human step, because a new account counts toward the
+account limit of the organization until 90 days after it closes.
 
 ## Operating Context
 

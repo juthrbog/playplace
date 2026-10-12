@@ -197,7 +197,9 @@ Every command writes the lifecycle notices it sends to stderr at `warn`, and
 not warn, because it runs on a schedule and the warning would repeat on every
 run. See [Notices](configuration.md#notices).
 `serve` runs the web UI and, by default, refreshes every minute. `tui` opens the
-terminal dashboard; press `?` there for its keys.
+terminal dashboard; press `?` there for its keys. In the TUI, `r` (reload) and
+`S` (sync) pull costs from Cost Explorer again for every open account, and
+Cost Explorer bills each call. The automatic reloads use the hourly cache.
 
 Closure is asynchronous: `closing` remains visible until AWS explicitly reports
 `CLOSED`. `unavailable` means suspension, pending activation, or an unknown state,

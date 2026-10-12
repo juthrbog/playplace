@@ -187,7 +187,7 @@ For a local walkthrough using LocalStack and Dex instead of real AWS, see
 ## Important boundaries
 
 - **Budgets and TTLs are not hard spending caps.** Billing data is delayed, and
-  AWS closure is asynchronous and subject to account-age and quota restrictions.
+  AWS closure is asynchronous and subject to quota restrictions.
 - **A close request is not confirmed closure.** Playplace keeps accounts visible
   while closing and flags unconfirmed closures after `--close-alert-after`
   (default `24h`). Suspension alone is not treated as closure.

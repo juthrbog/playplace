@@ -34,7 +34,7 @@ budgets stop provisioning.
 |---|---|---|
 | `--max-ttl` | `90d` | longest lifetime a request may ask for; admins can override; `0` removes the limit |
 | `--max-budget` | `500` | largest monthly budget a request may ask for; admins can override; `0` removes the limit |
-| `--max-per-owner` | `1` | open accounts plus pending requests one person may hold; `0` removes the limit |
+| `--max-per-owner` | `1` | open accounts plus pending requests one person may hold. An account counts until AWS confirms its closure; `0` removes the limit |
 | `--request-ttl` | `7d` | how long a request waits for approval before it is dropped; must be positive |
 | `--allow-self-approval` | off | let requesters approve their own requests |
 
@@ -130,6 +130,10 @@ shared record, run every process with `--history cloudwatch` and the same
 `--history-log-group`. When playplace creates the log group, it tries to set
 a retention of one year. It does not change the retention of a group that
 already exists.
+
+The plan is to replace these modes with a dedicated history store in
+DynamoDB. That change removes the `cloudwatch` and `none` modes and does not
+migrate their records. `file` then stays only for development.
 
 ### Notices
 

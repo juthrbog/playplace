@@ -310,6 +310,16 @@ to reach operators). The clock starts when playplace first observes an externall
 initiated `PENDING_CLOSURE`. Alerts occur on refresh, not via an AWS TTL timer.
 The `--alert-email` setting is for **Budgets**, not closure notices.
 
+AWS limits closures. Within a rolling 30 days, an organization can close 250
+member accounts or 20% of them, whichever is higher, up to 1,000. Only three
+closures can run at the same time. When AWS refuses a close for one of these
+limits, playplace keeps the close intent and retries it on a later refresh.
+
+A closed account counts toward the account limit of the organization until
+AWS closes it permanently, 90 days after the closure. The default limit is
+10 accounts. You can ask for a higher limit in the Service Quotas console.
+See [Quotas for AWS Organizations](https://docs.aws.amazon.com/organizations/latest/userguide/orgs_reference_limits.html).
+
 Playplace retries refusals while the provider still reports `ACTIVE`, monitors
 pending requests without resubmitting them, and records `closed` only after
 observing `CLOSED`. Closure markers in account tags prevent repeated notices
@@ -318,7 +328,7 @@ delivery are best-effort, not an exactly-once alerting system. Alert on worker
 errors, missed schedules, and failed reconciliation independently. Do not silence
 them because a close API call previously returned success.
 
-Inspect account-age restrictions, closure quotas, IAM failures, Control Tower
+Inspect closure quotas, IAM failures, Control Tower
 requirements, and unexpected suspension when closure stalls. Restrict remaining
 access through your infrastructure incident procedure if required; playplace
 only revokes its configured Identity Center assignment, not every credential or

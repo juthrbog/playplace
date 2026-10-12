@@ -287,7 +287,8 @@ provider, audit sinks, worker, CLI, TUI, and the deploy files.
   intervals need a unit.
 - [x] **TUI approve dialog defaulted to Approve.** The [design rule](ARCHITECTURE.md#rules) is that
   dialogs default to the safe button, and approval creates an account that
-  cannot be closed for four days. It defaults to Cancel now (test).
+  counts toward the account limit until 90 days after it closes. It
+  defaults to Cancel now (test).
 - [x] **TUI went stale in silence.** After the first good load, a failed poll
   kept the old rows and said nothing. The header now shows a stale marker and
   a failed reload flashes the error; rows are kept (test).

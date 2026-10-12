@@ -16,7 +16,8 @@ system of the web UI, see [DESIGN.md](DESIGN.md).
   inside an account is somebody else's concern.
 - **Every account starts as an approved request.** Requests wait as tags on
   the OU. Approval, not creation, is the human step, because a created
-  account cannot be closed for four days and counts against quota.
+  account counts against the account quota of the organization until 90
+  days after it closes.
 - **Guardrails are data, not code paths.** Owner, expiry, budget, and the
   approval trail are tags. Ceilings and limits are configuration.
 - **Cost Explorer bills per call.** Nothing polls it. Views cache for an
@@ -277,8 +278,10 @@ Statuses are derived, never stored:
                 it more than one hour ago
 
 AWS lets you close 20% of member accounts or 250, whichever is higher, per
-rolling 30 days (capped at 1000, at most 3 closures in flight), and a new
-account cannot be closed for its first 4 days. A refused close leaves the
+rolling 30 days (capped at 1000, at most 3 closures in flight). A closed
+account counts against the account quota until AWS closes it permanently,
+90 days later. The 4-day minimum age in the AWS quotas applies to removing
+an account from the organization, not to closing it. A refused close leaves the
 intent in the tag and each refresh retries while AWS still reports ACTIVE.
 `CloseAccount` is asynchronous: accepting it is not confirmed closure. Pending
 closures stay visible and consume the owner's account slot. Each refresh checks

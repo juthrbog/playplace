@@ -184,7 +184,8 @@ The canvas holds one frame for each screen.
   own and reports a result for each row. One stale request does not stop the
   others.
 - **Confirmation.** Approving two or more requests shows a summary first,
-  because AWS cannot close a new account for four days. Deny always asks for
+  because each new account counts toward the account limit of the
+  organization until 90 days after it closes. Deny always asks for
   a reason in a native `<dialog>`. Return (close) shows its consequences
   first. A single Approve on a focused row does not ask again.
 - **Feedback.** Each action answers next to its control and in one live
