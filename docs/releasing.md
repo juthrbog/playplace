@@ -12,9 +12,10 @@ intend to release. Local snapshots and normal CI never publish or update the tap
 
 - `.goreleaser.yaml` builds CGO-disabled binaries for Linux, macOS, and Windows,
   on amd64 and arm64. Windows archives use ZIP; the others use tar.gz.
-- Archives contain the executable, Apache-2.0 license, documentation/deployment
-  material, and bash/zsh/fish completions. Web assets and generated views are
-  embedded in the executable; no Node or templ runtime is required.
+- Archives contain the executable, Apache-2.0 license, the user guides and
+  deployment files, and bash/zsh/fish completions. Contributor docs stay in the
+  repository. The AUR recipe installs the same docs. Web assets and generated
+  views are embedded in the executable; no Node or templ runtime is required.
 - Releases include a prefixed source archive and SHA-256 `checksums.txt`.
 - `tools/package-release` checks the actual bytes of all seven archives against
   the manifest before generating `playplace.rb`, `PKGBUILD`, `SRCINFO`, and

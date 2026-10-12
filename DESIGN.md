@@ -423,14 +423,10 @@ show it in words next to the field, for example `now 36 hours`.
 
 With a Slack app configured, each request submitted in the web UI also posts
 a message with Approve and Deny buttons to a channel. Requests queued from the
-CLI or the TUI do not post a message:
+CLI or the TUI do not post a message. The setup is in
+[Configuration](docs/configuration.md#slack).
 
-    playplace serve ... --base-url https://playplace.example.com \
-      --slack-channel C0123456 --slack-signing-secret ... --slack-bot-token xoxb-...
-
-The app needs `chat:write` and `users:read.email`, and its interactivity URL
-must point at `https://playplace.example.com/slack/interact`. A click is
-verified with the signing secret, the clicker's Slack email is checked against
+A click is verified with the signing secret, the clicker's Slack email is checked against
 the approver list, and the message is rewritten with the outcome. Approving in
 Slack and approving in the UI act on the same queue entry. The message shows
 the exact budget, the exact lifetime, and the limit override, because its

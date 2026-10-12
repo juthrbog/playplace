@@ -12,7 +12,7 @@ Intervals and waits (`--every`, `--close-alert-after`, `create --timeout`) need 
 
 | flag | default | meaning |
 |---|---|---|
-| `--ou-name` | `Playground` | name of the organizational unit that holds playground accounts. It must be a direct child of the organization root. For an OU nested in another OU, use `--ou-id`. Only `playplace init` creates the OU, and other commands fail when it is missing. Run `init` only when no Playground OU exists yet, because it creates a new, empty OU under the root |
+| `--ou-name` | `Playground` | name of the organizational unit that holds playground accounts. It must be a direct child of the organization root. For an OU nested in another OU, use `--ou-id`. Only `playplace init` creates the OU, and other commands fail when it is missing. Run `init` only when no Playground OU exists yet, because it creates a new, empty OU under the root. The OU must hold only accounts that playplace may close. See [the deployment guide](deploy.md#the-playground-ou) |
 | `--ou-id` | | ID of the organizational unit that holds playground accounts, for example `ou-ab12-cd34ef56`. The OU can be at any depth, also nested in other OUs. Playplace reads it by ID and does not use `--ou-name`. Playplace refuses to start when you also set `--ou-name`. `init` never creates an OU for it. The OU must hold only accounts that you want playplace to manage. On the first refresh, playplace takes over every active account in the OU that does not have the `playplace:managed=true` tag. The account keeps each valid playplace owner, expires and budget tag, and gets the defaults for the rest. playplace closes the account when its lifetime ends. It starts the closure at once if the account has expired or has a `playplace:close-requested` tag. Move every other account out of the OU before you set `--ou-id`. Then run `init` before any other command, and check the OU name and the accounts that it lists. See [the deployment guide](deploy.md#the-playground-ou) |
 | `--email-pattern` | `aws+pp-{name}@example.com` | root email for new accounts; `{name}` is replaced |
 | `--default-ttl` | `14d` | lifetime when a request does not say; must be positive and at most `--max-ttl` |
@@ -43,6 +43,17 @@ budgets stop provisioning.
 | flag | default | meaning |
 |---|---|---|
 | `--permission-set` | | IAM Identity Center permission set, by name or ARN, granted to owners. Empty disables owner validation and access grants |
+
+Before you set `--permission-set`, enable IAM Identity Center in the
+management account and create the permission set, for example
+`PlaygroundOwner`. Its policies decide what owners can do in their accounts.
+playplace does not create it.
+
+With `--permission-set`, every owner must be an Identity Center user, given
+by email or user name. playplace refuses a request for any other owner. In
+the web UI, the signed-in email becomes the owner, so it must match an
+Identity Center user. playplace grants the permission set to the owner when
+it places the account, and it removes the grant when the account closes.
 
 The Identity Center and identity store calls use the default AWS region, so
 `--aws-region` or the profile must point at the Identity Center home region.
@@ -85,7 +96,24 @@ that at the provider.
 | `--slack-signing-secret` | verifies clicks; prefer `PLAYPLACE_SLACK_SIGNING_SECRET` |
 | `--slack-bot-token` | needs `chat:write` and `users:read.email`; prefer `PLAYPLACE_SLACK_BOT_TOKEN` |
 
-Point the Slack app's interactivity URL at `BASE_URL/slack/interact`.
+Slack approvals are optional. If you set `--slack-bot-token` or
+`--slack-signing-secret`, `serve` refuses to start unless all three flags are
+set and OIDC sign-in is on. playplace uses sign-in to know the approvers. A
+person can approve in Slack when their Slack email is in `--approvers` or
+`--admins`.
+
+Set `--base-url` to the public URL of the web UI:
+
+```sh
+playplace serve ... --base-url https://playplace.example.com \
+  --slack-channel C0123456 --slack-signing-secret ... --slack-bot-token xoxb-...
+```
+
+Point the interactivity URL of the Slack app at `BASE_URL/slack/interact`,
+here `https://playplace.example.com/slack/interact`. Only requests made in the
+web UI post a message. playplace refuses a click on a button in a message
+that an older playplace version posted. See [Slack](approving.md#slack) for
+what approvers see.
 
 ## Notifications and history
 
@@ -95,6 +123,13 @@ Point the Slack app's interactivity URL at `BASE_URL/slack/interact`.
 | `--history` | `file` | `file`, `cloudwatch`, or `none` |
 | `--history-file` | `~/.playplace/history.jsonl` | for `--history file` |
 | `--history-log-group` | `/playplace/history` | for `--history cloudwatch` |
+
+`--history file` writes to a file on the machine that runs the command. A
+`serve` process and a CLI on a laptop then keep separate records. To keep one
+shared record, run every process with `--history cloudwatch` and the same
+`--history-log-group`. When playplace creates the log group, it tries to set
+a retention of one year. It does not change the retention of a group that
+already exists.
 
 ### Notices
 

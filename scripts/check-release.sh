@@ -37,7 +37,7 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE
 
 tar -xzf "$archive" -C "$tmpdir"
 [[ "$("$tmpdir/playplace" --version)" == "playplace version $version" ]]
-for file in LICENSE README.md DESIGN.md DEVELOPMENT.md \
+for file in LICENSE README.md docs/configuration.md \
   deploy/README.md deploy/aws/playground-safeguards-scp.json \
   completions/playplace.bash completions/_playplace completions/playplace.fish; do
   test -s "$tmpdir/$file"

@@ -121,7 +121,7 @@ notices, go to the channel of `--slack-webhook`. playplace does not send them
 to people.
 
 See [deployment instructions](deploy/README.md) and the
-[Slack setup notes](DESIGN.md#slack-approvals-optional).
+[Slack setup](docs/configuration.md#slack).
 
 ## Running your own instance
 
@@ -209,6 +209,13 @@ before using playplace with real accounts.
 | [Approving requests](docs/approving.md) | Approver and admin workflow |
 | [CLI](docs/cli.md) · [Configuration](docs/configuration.md) | Commands, flags, and environment variables |
 | [Deployment](deploy/README.md) | IAM, hosting, and billing safeguards |
+
+These guides are for contributors. They are in the
+[source repository](https://github.com/juthrbog/playplace), not in the release
+packages.
+
+| Guide | Covers |
+|---|---|
 | [Design](DESIGN.md) | Architecture, lifecycle rules, and interface decisions |
 | [Development](DEVELOPMENT.md) | Build setup, local testing, and contributor workflows |
 | [Releasing](docs/releasing.md) | CI, release snapshots, Homebrew, and AUR packaging |

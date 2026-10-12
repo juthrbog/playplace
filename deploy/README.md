@@ -52,6 +52,26 @@ the OU in one of two ways:
 Set only one of them. Playplace refuses to start when you set both, because
 it would ignore `--ou-name`.
 
+Playplace treats every account in the Playground OU as its own. Every
+refresh, not only the first, adopts each active account in the OU that does
+not have the `playplace:managed=true` tag. This is true for `--ou-name` and
+for `--ou-id`, and also for an account that someone moves into the OU after
+setup. An adopted account keeps each valid playplace owner, expires and
+budget tag. It gets the defaults for the rest, and playplace closes it when
+its lifetime ends. Do not move an account into the OU unless playplace may
+close it. To bring in an account on purpose, set its `playplace:owner` tag
+to the email of the owner before you move it. After the next refresh, look
+at it with `playplace show ACCOUNT`. If the default lifetime or budget does
+not fit, use `playplace extend` or `playplace budget`.
+
+Pending requests are tags on the Playground OU itself, one
+`playplace:req:NAME` tag for each request. AWS allows 50 tags on a resource,
+so the queue holds at most 50 requests, less the other tags on the OU. The
+count includes approved requests whose account is not placed yet. Playplace
+refuses a new request when the queue is full. Do not let other tools manage
+the tags of the OU, for example infrastructure as code that sets the full
+tag list. Such a tool deletes the pending requests when it applies its list.
+
 To use an existing nested OU:
 
 1. Find the ID of the OU in the AWS Organizations console, or with
