@@ -116,6 +116,11 @@ Structured details support investigation; the timeline must not depend solely on
 parsing human-readable messages. Details exposed to readers must respect the
 same authorization boundary as the event, not become a raw provider-response dump.
 
+When playplace sends a lifecycle notice, the event of the same action stores the
+notice kind, subject and body. The notice is not a separate business action. Its
+text follows the access rules of its event. When a notice has no event of its
+own, playplace records one for it. The ready notice gets a new `ready` event.
+
 ## Shared storage and delivery
 
 DynamoDB is the selected primary shared store for events, journey metadata,

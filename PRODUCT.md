@@ -15,10 +15,10 @@ Two groups use the web UI about equally. The owner confirmed this on
   status, spend and expiry of their own accounts. They extend, close or
   withdraw their own requests. They do not hold AWS credentials, so the web
   UI is their usual entry point.
-- Approvers and admins work the approval queue and watch the fleet. An
-  approver sees every pending request but only their own accounts. An admin
-  sees every account, edits pending requests, overrides limits, changes
-  budgets and runs "Sync with AWS".
+- Approvers work the approval queue. An approver sees every pending request
+  but only their own accounts. Admins also watch the fleet. An admin sees
+  every account, edits pending requests, overrides limits, changes budgets
+  and runs "Sync with AWS".
 
 Operators run the CLI and TUI with management-account credentials. They are
 not web UI users, but the web UI must agree with what those tools show.
@@ -94,7 +94,10 @@ account limit of the organization until 90 days after it closes.
 - Devices: desktop first. On a phone, people approve from the Slack link
   and check one account, so those tasks work well at phone width. The full
   fleet table stays desktop-first.
-- Undecided: request presets.
+- Requests are free-form (owner, 2026-10-12). The web form starts with the
+  default lifetime and budget and states the ceilings. The overhaul adds no
+  admin-defined presets. A later preset will only fill in the form, so the
+  request record keeps exact values and never a preset name.
 
 ## Brand Commitments
 
@@ -121,7 +124,8 @@ could belong to any product.
   lifetime, exact budget, the request version, and who asked.
 - Never hide state. Every account shows its lifecycle status, its budget
   health and what it waits for, and unknown stays unknown.
-- Serve both roles without a mode switch. Engineers see their own accounts
-  first, and approvers and admins see what needs attention first.
+- Serve every role without a mode switch. Engineers see their own accounts
+  first. Approvers see the waiting requests first. Admins see what needs
+  attention first.
 - Agree with the CLI, TUI, Slack and the docs. One word means one thing in
   every interface.

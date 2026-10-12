@@ -5,6 +5,7 @@ colors:
   shelf: "#2F5D50"
   shelf-deep: "#264D42"
   shelf-rule: "#A9BDB4"
+  shelf-ink: "#2F5D50"
   card: "#EDE3CC"
   card-hover: "#E8DEC4"
   card-sel: "#E2D5B6"
@@ -279,6 +280,11 @@ components:
     typography: "{typography.stamp-date-large}"
     rounded: "{rounded.stamp}"
     padding: "7px 10px 5px"
+  date-unset:
+    textColor: "{colors.ink-2}"
+    typography: "{typography.label}"
+    rounded: "{rounded.stamp}"
+    padding: "4px 7px 3px"
   stamp-approved:
     textColor: "{colors.violet}"
     typography: "{typography.stamp-word}"
@@ -291,7 +297,7 @@ components:
   stamp-expired:
     textColor: "{colors.ink-2}"
   stamp-closed:
-    textColor: "{colors.shelf}"
+    textColor: "{colors.shelf-ink}"
   stamp-overdue:
     textColor: "{colors.red-ink}"
   status-label:
@@ -308,7 +314,7 @@ components:
     width: "100%"
     height: "6px"
   meter-fill:
-    backgroundColor: "{colors.shelf}"
+    backgroundColor: "{colors.shelf-ink}"
   meter-fill-high:
     backgroundColor: "{colors.ink}"
   meter-fill-over:
@@ -347,10 +353,14 @@ components:
 # Design System: playplace
 
 This file is the visual system of the playplace web UI. The tokens in the
-frontmatter are normative. The approved mockups on the design canvas
-"playplace web UI overhaul" are the source of the values. Where two mockups
-disagree, this file decides. [docs/design/web-ui-overhaul.md](docs/design/web-ui-overhaul.md)
-keeps the research, the reasons and the list of resolved disagreements.
+frontmatter are normative. The first values came from the mockups on the
+design canvas "playplace web UI overhaul" and in `.impeccable/mocks/decision/`.
+These mockups are now a record. They show the layout and the content of each
+screen, but their values are older than this file. Where a mockup or a
+design brief in `.impeccable/surfaces/` disagrees with this file, this file
+is correct.
+[docs/design/web-ui-overhaul.md](docs/design/web-ui-overhaul.md) keeps the
+research, the reasons and the list of resolved disagreements.
 [ARCHITECTURE.md](ARCHITECTURE.md) is the architecture document.
 
 The Go templates do not use these tokens yet. Phase 1 of the overhaul builds
@@ -391,7 +401,8 @@ The palette is the circulation desk: a green shelf, buff card stock, and a
 stamp pad with violet and red ink, set on paper and ground.
 
 ### Primary
-- **Shelf Green** (#2F5D50): the shell bar and its navigation. Also the healthy state: the check icon, the spend meter below 75%, the CLOSED stamp and the live-update dot.
+- **Shelf Green** (#2F5D50): the shell bar and its navigation.
+- **Shelf Ink** (#2F5D50): green as a foreground, for the healthy state. The check icon, the spend meter below 75%, the CLOSED stamp and the live-update dot use it. By day it is the same as shelf green. At night it is #7AB8A6, because the night shelf is only 1.1:1 on the night paper.
 - **Deep Shelf** (#264D42): hover and the current page in the shell, and the hover of the ghost button.
 - **Shelf Rule** (#A9BDB4): the border of the ghost button and the role badge on the shell.
 
@@ -415,44 +426,84 @@ stamp pad with violet and red ink, set on paper and ground.
 - **Panel Rule** (#D6D1C4): panel borders, table head rules, and the keycap border.
 - **Soft Rule** (#E7E3D9): row lines, the meter track, and the disabled fill.
 - **Reading-Room Ground** (#F2F1EC): the page behind the panels.
-- **Paper** (#FFFFFF): panels, tables, text fields, and text on violet, shelf-deep and red-ink fills.
+- **Paper** (#FFFFFF): panels, tables, text fields, and the text on violet, pressed violet, red-ink and deep red-ink fills in both palettes. By day it is also the text on deep shelf.
 - **Paper Tint** (#F8F6F0): table heads, day-group heads, row hover, plain button hover, unread notices, and the dialog footer.
 - **Warm Paper** (#FBF8F1): the search field on the shell and the incomplete-history banner.
 
 ### Night desk
 
-The night desk is a proposal. The page follows the operating system
-setting, and a toggle stores the choice in a cookie. Each text pair must
-pass 4.5:1 before the night desk ships.
+The night desk is the dark palette. It is a desk lamp over a dark desk.
+Card stock keeps its warm hue, violet stays violet, and red ink stays red.
+Every text pair passes 4.5:1. Every field border, icon, meter fill,
+stamp border and focus ring passes 3:1. The ratios in the table are cut
+down to one decimal, never rounded up.
 
-| Token | Night | Check |
-|---|---|---|
-| shelf | #16302A | ink on it 11.4:1 |
-| shelf-deep | #21443B | ink on it 8.7:1 |
-| card | #2C2A22 | ink on it 11.6:1 |
-| card-sel | #3A3729 | ink on it 9.7:1 |
-| card-rule | #4A4536 | rule, no text |
-| ground | #121614 | ink on it 14.8:1 |
-| paper | #1B201D | ink on it 13.4:1 |
-| rule | #353B37 | rule, no text |
-| rule-soft | #272D29 | rule, no text |
-| ink | #ECE7DA | on paper 13.4:1 |
-| ink-2 | #B3AD9F | on card-sel 5.3:1 |
-| violet | #A996E6 | on card-sel 4.7:1 |
-| red | #F07A80 | on card 5.3:1 |
-| red-ink | #F59BA0 | on card-sel 5.7:1 |
+Phase 1 writes the day and the night tokens, but the night desk stays off.
+After phase 4, one small change turns it on: the `prefers-color-scheme`
+rule, the theme cookie and the theme control (see Theme control).
 
-At night the text on the shell is ink, and the focus ring on the shell is
-ink too (11.4:1 on the night shelf), because night card stock on the night
-shelf is only 1.02:1. The text on the Approve button is the night ground
-(#121614, 7.1:1 on violet). Shelf green as a foreground (the check icon, the
-meter fill, the CLOSED stamp and the live dot) needs its own night value,
-because the night shelf is only 1.17:1 on the night paper. Phase 1 sets that
-value and the night values of the other tokens.
+| Token | Day | Night | Check at night |
+|---|---|---|---|
+| shelf | #2F5D50 | #16302A | ink on it 11.4:1 |
+| shelf-deep | #264D42 | #21443B | ink on it 8.7:1 |
+| shelf-rule | #A9BDB4 | #6A8C80 | 3.8:1 on shelf |
+| shelf-ink | #2F5D50 | #7AB8A6 | 5.2:1 on card-sel |
+| card | #EDE3CC | #2C2A22 | ink on it 11.6:1 |
+| card-hover | #E8DEC4 | #332F27 | ink-2 on it 5.9:1 |
+| card-sel | #E2D5B6 | #3A3729 | ink on it 9.6:1 |
+| card-rule | #CDBF9E | #4A4536 | rule, no text |
+| violet | #5A3E9B | #A996E6 | 4.6:1 on card-sel |
+| violet-deep | #4A3184 | #9682D9 | paper on it 5.1:1 |
+| red | #C8323C | #F07A80 | 4.4:1 on card-sel, icons only |
+| red-ink | #A8262F | #F59BA0 | 5.7:1 on card-sel |
+| red-deep | #8E1F27 | #E3868C | paper on it 6.3:1 |
+| ink | #22201C | #ECE7DA | 13.3:1 on paper |
+| ink-2 | #55514A | #B3AD9F | 5.3:1 on card-sel |
+| control-rule | #8E8A80 | #7A756A | 3.6:1 on paper |
+| rule | #D6D1C4 | #353B37 | rule, no text |
+| rule-soft | #E7E3D9 | #272D29 | rule, no text |
+| ground | #F2F1EC | #121614 | ink on it 14.7:1 |
+| paper | #FFFFFF | #1B201D | ink on it 13.3:1 |
+| paper-tint | #F8F6F0 | #212622 | ink-2 on it 6.8:1 |
+| paper-warm | #FBF8F1 | #25231D | ink-2 on it 7.0:1 |
+
+Most components use the same tokens at night. These roles change:
+
+- Text, icons and the focus ring on the shell use ink, at 11.4:1 on the night shelf. Night card stock on the night shelf is only 1.0:1. At night both parts of the brand word, "play" and "place", are ink.
+- Text on deep shelf uses ink. Night paper on night deep shelf is only 1.5:1.
+- Card stock on the shell (the count pill and New request) is an ink fill with paper text. The hover fill of New request is pencil grey.
+- The search field on the shell gets a 1 px shelf-rule border, because no dark fill reaches 3:1 on the night shelf.
+- Stamps use normal blending, not multiply (see Elevation & Depth).
+- The dialog scrim is black, not ink.
+- The root sets `color-scheme: dark`, so native checkboxes, selects and scroll bars are dark.
+
+The text on violet, pressed violet, red-ink and deep red-ink fills is paper
+in both palettes. Night paper is dark, so it passes 6.4:1 on night violet
+and 7.9:1 on night red ink. Green as a foreground is shelf ink in both
+palettes, so it needs no night rule.
+
+The stylesheet keeps the night differences in the token layer, as role
+variables for each palette, for example `--on-shell`, `--shell-chip`,
+`--search-edge`, `--stamp-blend` and `--scrim`. Components read the role
+variables, so no component has its own night rule. Plain CSS needs the night
+values under `[data-theme=night]` and again under
+`@media (prefers-color-scheme: dark)` for `:root:not([data-theme=day])`. If
+every browser that the web UI supports has `light-dark()`, phase 1 uses it
+for the colors. `light-dark()` covers only colors, so `--stamp-blend` keeps
+its own rule. If one does not, the stylesheet has two copies of the night
+values, and a test keeps the two copies equal.
+
+Violet on selected card is the tightest text pair at 4.6:1. If a turned
+stamp on a selected row reads weak at night, the first fallback is the
+screen blend for stamps at night. It gives 5.8:1 with no token change. The
+second fallback is night violet #AE9CE8. Night card stock is only 1.1:1 on
+paper (1.2:1 by day), so the desk and the date-due column stand out less at
+night. The maintainer looks at the night card stock again in the screenshot
+round at the end of phase 1.
 
 ### Named Rules
 
-**The Shelf Owns the Shell Rule.** Shelf green fills the shell and nothing else. In the content area it appears only as a healthy icon, the meter fill, the CLOSED stamp and the live dot. No content button is green.
+**The Shelf Owns the Shell Rule.** Shelf green fills the shell and nothing else. In the content area, green appears only as shelf ink: a healthy icon, the meter fill, the CLOSED stamp and the live dot. No content button is green.
 
 **The Card Stock Is the Desk Rule.** Card stock marks the places where someone decides or reads a due date: the approval desk, the date-due column and the loan card. A plain list or a form sits on paper.
 
@@ -535,11 +586,13 @@ is closed by a 1 px rule. No surface has a shadow at rest or on hover. The
 sticky bulk bar (the bar for decisions on many requests at once) is
 separated by its card-rule top border, not a shadow.
 
-The dialog is the only raised surface. A 1 px ink border and an ink scrim at
-45 percent opacity (rgba(34,32,28,.45)) raise it. Stamps use
-`mix-blend-mode: multiply` by day, so the card stock shows through the ink.
-At night they use normal blending, because multiply on a dark card hides the
-stamp.
+The dialog is the only raised surface. A 1 px ink border and a scrim raise
+it. By day the scrim is ink at 45 percent opacity (rgba(34,32,28,.45)). At
+night it is black at 55 percent (rgba(0,0,0,.55)), because night ink is
+light. Stamps use `mix-blend-mode: multiply` by day, so the card stock shows
+through the ink. At night they use normal blending, because multiply on a
+dark card hides the stamp. One role variable, `--stamp-blend`, holds the
+blend mode of each palette.
 
 ### Named Rules
 
@@ -606,7 +659,14 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 - **Style:** the shell holds the brand (the mark and "playplace" at 19 px, "play" bold in card stock and "place" regular in paper), then nav links in 14 px medium card text with 6 px by 11 px padding.
 - **States:** hover and the current page get the deep shelf fill with paper text. The current page sets `aria-current="page"`. Focus is the card-stock ring.
 - **By role:** engineers see Home, History and Notices. Approvers also see Queue with its count. Admins see Queue, Accounts, History and Notices, and the brand is their link home. Admins also see Sync with AWS and the role badge.
+- **Until phase 5:** the shell that phase 1 builds leaves out the History and Notices links and the Notices count pill. Phase 5 adds them when it builds those pages.
 - **Mobile:** a 44 px menu button opens the navigation, New request and Sign out.
+
+### Theme control
+- **Place:** a footer on every page. On a page that polls, the footer also holds the live-update line.
+- **Style:** a segmented control with three items: Auto, Day and Night. Auto is the default and follows the operating system setting.
+- **Behavior:** radio inputs in a `<fieldset>`, inside one form that posts to `/theme`, with a Save button. `app.js` can submit the form on change. Day and Night set the `theme` cookie. Auto deletes the cookie. When the cookie is set, the server writes `data-theme` on the `<html>` element, so the first paint has the right palette with no script. With Auto, the page has no `data-theme`, and the operating system setting decides.
+- **Timing:** the control comes with the change after phase 4 that turns on the night desk.
 
 ### Date stamp
 
@@ -618,7 +678,7 @@ the day with no leading zero, and the year.
 - **Sizes:** 15 px in tables, slips and lists. 22 px for the one due date at the top of an account page or a loan card.
 - **Last 3 days:** the stamp changes to red ink.
 - **Renewal:** after an extension, the old date stays above the new stamp as "extended from OCT 20", with the old date in Courier Prime at 13.5 px and struck through with a 1 px ink line.
-- **No date yet:** a pending request shows a dashed card-rule box that says "Stamped at approval". A pending account says "Set when it is ready".
+- **No date yet:** a pending request shows a dashed card-rule box that says "Stamped at approval" in 12 px pencil grey. An account that AWS is still creating and that has no approved record says "Set when it is ready". An approved account that AWS is still creating already has a due date from the approved record, so it shows the date stamp. The box stays upright, because it is not a stamp. Its token is `date-unset`.
 - **Motion:** when someone approves or extends, the stamp lands in two frames over 90 ms with no fade. Frame 1 (0 ms) shows it at 112 percent size and upright. Frame 2 (45 ms) shows it at full size, turned 1.8 degrees. Under `prefers-reduced-motion`, frame 1 is skipped.
 
 ### Word stamps
@@ -632,20 +692,37 @@ reader does not spell the word out.
 - **DENIED:** ink, with the required reason beside it.
 - **WITHDRAWN:** pencil grey with a dashed border. The owner withdrew a pending request.
 - **EXPIRED:** pencil grey with a solid border. No decision came in 7 days.
-- **CLOSED:** shelf green. AWS confirmed the closure, so the account is back on the shelf.
+- **CLOSED:** shelf ink. AWS confirmed the closure, so the account is back on the shelf.
 - **OVERDUE:** red ink, followed by "by 2 hours" in 12 px semibold red ink. The closure is late.
 
-Notice kinds in the notice feed use the same word stamps and colors. Stamps
-for open and pending journeys in the History hub are not decided. Phase 5
-adds them here.
+In the notice feed, the approved, denied, request expired, closed and
+closure overdue notices use the matching word stamp and its color. The
+requested, edited, ready, expiring and budget notices show a status label,
+not a stamp.
+
+A word stamp is a fact that does not change. There is no OPEN, PENDING, ON
+LOAN or OUT stamp. A journey is the history of one request and the account
+that it became, or of an account that started without a request. A journey
+ends when history records one of four outcome events: denied, withdrawn,
+request-expired or closed. The stamp follows that recorded event: DENIED,
+WITHDRAWN, EXPIRED or CLOSED. The same recorded outcome drives retention and
+the Open/Ended filter of the History hub. A reader can tell an ended journey
+from an open one by its shape, without color.
+
+- **History hub row:** one mark in the State column. An ended journey shows its turned outcome stamp. An open journey shows the upright status label (icon and word) of its current stage. The word and the icon are the same as in the queue and the fleet table. A turned stamp in the State column always means an ended journey.
+- **Reader who cannot see the current account:** for example, an approver on the journey of another owner. The State cell never shows APPROVED. It shows the provisioning outcome that the reader can see as a label (creating or failed). If there is none, it shows only the qualifier "later history not shown" in 12 px pencil grey. The row never tells this reader whether the account closed.
+- **Failed creation:** the "failed" label comes from the recorded failed event, so it stays after the account leaves the inventory. A failure is not an outcome, so the journey stays open.
+- **State not known:** the "unavailable" label with a qualifier that says why, for example "not in the playground OU" or "outcome unknown". There is no "unknown" status word. Core already uses "unavailable" for an unknown provider state, and the TUI, the CLI and PRODUCT.md use the same word.
+- **Journey view:** the journey view in `/history` has a head that shows the same mark as the row. For owners and admins, the head links to the account page. It has no 22 px date stamp and no card stock.
+- **Timeline:** a stamp marks a decision, an outcome or a late closure: APPROVED, DENIED, WITHDRAWN, EXPIRED, CLOSED and OVERDUE. APPROVED and OVERDUE are not outcomes, so in the History hub they appear only on the timeline, never in the State column. The account event "expired" means that the due date passed and closure started. It never gets the EXPIRED stamp. EXPIRED is only for a request that no one decided in 7 days.
 
 ### Status label
 
 A status is an icon and a word, never color alone. Icons are 16 px. A
 qualifier such as "getting ready" or "overdue" follows in 12 px pencil grey.
 
-- **Normal** (no one needs to act): pending (slip, ink), active (check, shelf), closed (shut door, pencil grey). Budget: ready (check, shelf), alerts-only (bell), alerts-disabled (bell off), retired (minus), and not checked (dashed circle), all pencil grey.
-- **Settling** (progress, not failure): creating (clock arc, violet), closing (box, ink), and active while getting ready (check, shelf). Budget: setup-pending (clock), restricting (lock), recovering (open lock) and retiring (minus), all violet, with the words "settling protection".
+- **Normal** (no one needs to act): pending (slip, ink), active (check, shelf ink), closed (shut door, pencil grey). Budget: ready (check, shelf ink), alerts-only (bell), alerts-disabled (bell off), retired (minus), and not checked (dashed circle), all pencil grey.
+- **Settling** (progress, not failure): creating (clock arc, violet), closing (box, ink), and active while getting ready (check, shelf ink). Budget: setup-pending (clock), restricting (lock), recovering (open lock) and retiring (minus), all violet, with the words "settling protection".
 - **Needs attention** (someone must act): failed (crossed circle, red), unavailable (ban, ink), closing and overdue (box, red), expiring (hourglass, violet). Budget: restricted (lock, red), error (alert, red), and settling for over 2 hours (clock, red).
 
 ### Spend meter
@@ -654,7 +731,7 @@ Spend sits above a thin bar. The inline meter is 96 by 4 px with 2 px
 corners on a soft-rule track. The account page, the loan card and the phone
 use a full-width 6 px meter.
 
-- **Below 75 percent:** shelf fill and no label.
+- **Below 75 percent:** shelf ink fill and no label.
 - **From 75 percent:** ink fill and an "NN% used" label in 12 px semibold ink.
 - **From 95 percent:** red fill, an alert icon and the "NN% used" label in red ink.
 - **Over budget:** a full red bar and the words "over budget" with an alert icon.
@@ -688,7 +765,7 @@ message is the page's one `aria-live="polite"` region.
 ### Feedback
 - **Inline note:** paper with a panel-rule border, 6px corners, a 16 px icon, a bold first line and a 13.5 px body. A refusal uses a red-ink border and an alert icon and names the recovery. An empty desk uses card stock.
 - **Dialog:** a native `<dialog>` on paper with a 1 px ink border, 8px corners and a maximum width of 640 px. The head and the footer are separated by panel rules, and the footer is paper tint. Only three tasks use it: the deny reason, the bulk approval summary, and the consequences of Return.
-- **Live update:** an 8 px shelf dot and "Updated 12 seconds ago" in the footer. The dot hides for one 90 ms step when new data arrives, with no fade. Under `prefers-reduced-motion` it does not blink.
+- **Live update:** an 8 px shelf ink dot and "Updated 12 seconds ago" in the footer. `app.js` resets the Updated time after each successful poll, also when nothing changed. The dot hides for one 90 ms step only when new data arrives, with no fade. Under `prefers-reduced-motion` it does not blink.
 - **Keycap:** 12 px semibold pencil grey on paper, with a panel-rule border that is 2 px at the bottom.
 
 ### Icons
@@ -700,10 +777,16 @@ and 22 px in phone icon buttons. One icon name has one shape on every page.
 
 ### Mark
 
-The current mark in [ARCHITECTURE.md](ARCHITECTURE.md#the-mark) stays in the
-shell at 28 px. The canvas proposes a redraw: the cloud inside a round date
-stamp lettered PLAYPLACE, which drops the lettering at 24 px. The maintainer has
-not decided on it.
+The mark is the cloud and the slide of the first playplace logo, drawn as
+one line. It uses the icon style: a 24 px grid, round caps and joins, and
+`currentColor`. It has no ball-pit colors.
+
+- **Shell:** the line cloud with one ball, at 28 px with a 1.5 stroke. It is card stock by day and ink at night.
+- **Favicon, touch icon and docs logo:** the line cloud without the ball, in card stock on a shelf-green tile, with a stroke of 2 on the 24 px grid. It reads at 16 px.
+- **Banner:** the line cloud inside a round stamp lettered PLAYPLACE in Public Sans 700 capitals. Only the banner of the README and the documentation home page uses it, because smaller lettering cannot be read.
+
+The mark is not one of the page stamps. It never turns, and it is never
+violet. Violet stays the ink of due dates and decisions.
 
 ### Named Rules
 

@@ -73,7 +73,8 @@ lead. The maintainer chose Date Due, the library circulation desk, on
 
 ### Tokens
 
-These are the 14 core tokens. `DESIGN.md` has the full set of 21 tokens.
+These are the 14 core tokens. `DESIGN.md` has the full set of 22 tokens and
+the night value of each one.
 
 | Token | Light | Night desk | Job |
 |---|---|---|---|
@@ -92,9 +93,11 @@ These are the 14 core tokens. `DESIGN.md` has the full set of 21 tokens.
 | `--red` | `#C8323C` | `#F07A80` | Overdue, over budget, failed |
 | `--red-ink` | `#A8262F` | `#F59BA0` | Red text and red stamps |
 
-The night desk values are a proposal. Each pair must pass 4.5:1 for text
-before it ships. The page follows the operating system setting, and a
-toggle stores the choice in a cookie.
+Every night pair passes 4.5:1 for text and 3:1 for borders, icons and meter
+fills. A Go test measures each pair in both palettes. The night desk stays off
+until one small change after phase 4 turns it on (see Phases). Then the page
+follows the operating system setting, and an Auto, Day and Night control in
+the page footer can override it.
 
 ### Type
 
@@ -116,27 +119,37 @@ Numbers use tabular figures. Letter spacing never goes below -0.03em.
 
 Corners are 2 to 9 px, and `DESIGN.md` has the full scale. Panels have a
 1 px rule and no shadow. Stamps are rotated by one or two degrees and use
-`mix-blend-mode: multiply`. The one
+`mix-blend-mode: multiply` by day and normal blending at night. The one
 motion is stamping: an approval or an extension lands as a stamp in two
 frames over 90 ms, with no fade. The live-update dot is the only other
 animated element. Under `prefers-reduced-motion`, the stamp appears at once.
 
 ### Brand mark
 
-The logo is not binding. The canvas proposes a redrawn mark: the cloud mark
-inside a round date stamp lettered PLAYPLACE. The favicon set changes only
-if the maintainer accepts it.
+The maintainer chose to adapt the mark on 2026-10-12. The mark keeps the
+cloud and the slide of the first logo as one line in one color, without the
+ball-pit colors. The shell draws the line cloud with one ball at 28 px. The
+favicon, the touch icon and the docs logo use the line cloud without the
+ball, in card stock on a shelf-green tile. Only the banner of the README and
+the docs home page puts the cloud inside a round stamp lettered PLAYPLACE.
+The mark never turns and is never violet. `DESIGN.md` has the rules.
+
+The favicon set, the wordmark and the banner come in one separate change
+that blocks no phase. That change also updates "The mark" in
+[ARCHITECTURE.md](../../ARCHITECTURE.md), which documents the current files.
+Phase 1 updates only the `logo.svg` row there, because the header stops
+using that file.
 
 ## Information architecture
 
 | Route | Content | Who |
 |---|---|---|
-| `/` | Home. Engineers see their accounts and requests first. Approvers and admins see what needs attention, the approval desk and the fleet. The `#pending` anchor stays, because notices and Slack link to it. | Everyone |
+| `/` | Home. Engineers see their accounts and requests first. Approvers see the approval desk first, then their own accounts and requests. Admins see what needs attention, the approval desk and the fleet. The fleet and Needs attention are admin views. The `#pending` anchor stays, because notices and Slack link to it. | Everyone |
 | `/accounts` | The fleet table with search, filters, sorting and pages. Parameters: `q`, `status`, `budget`, `owner`, `attention`, `sort`, `dir`, `page`. | Everyone, scoped by role |
 | `/accounts/{id}` | The account page. | Owner, admin |
 | `/requests/new` | The request form. | Everyone |
 | `/requests/{name}` | One pending request, with its history. | Requester, owner, approvers |
-| `/history` | The History hub from [the history design](lifecycle-history.md). | Everyone, scoped by role |
+| `/history` | The History hub from [the history design](lifecycle-history.md), with a view of each journey. | Everyone, scoped by role |
 | `/notices` | The feed of lifecycle notices. | Everyone, scoped by role |
 
 Engineers see Home, History and Notices in the navigation. Approvers also
@@ -146,7 +159,8 @@ shell shows a band that says sign-in is off and every visitor is an admin.
 
 ## Screens
 
-The canvas holds one frame for each screen.
+The canvas holds one frame for each screen. A frame shows the layout of its
+screen until its phase ships. After that, the real page is the reference.
 
 - **Home, admin.** A "Needs attention" list beside the approval desk, then
   the fleet sorted by due date. The date-due column sits on card stock.
@@ -161,21 +175,30 @@ The canvas holds one frame for each screen.
 - **New request.** The form beside a live slip that shows what approvers
   will see, with the limits stated before the person submits.
 - **History hub.** Search and filters over journeys, including denied,
-  withdrawn and expired ones, with a journey timeline.
+  withdrawn and expired ones, with a journey timeline. An ended journey
+  shows its outcome stamp. An open journey shows the status label of its
+  current stage, because a stamp is a fact that does not change.
 - **Lifecycle notices.** The same notices that go to the log and Slack,
   grouped by day, with unread state.
 - **Phone.** Approving from the Slack link, and checking one account.
 - **Design system.** Tokens, type, stamps, status words, controls, row
-  states, feedback and the proposed mark.
+  states, feedback and the first drafts of the mark. Brand mark has the
+  decision.
 
 ## Interaction model
 
-- **Live updates.** The home page polls every 15 seconds with a conditional
-  request. The server answers 304 when nothing changed. A changed fragment
-  is merged into the page with a morph swap, so focus, scroll and open forms
-  stay. The approval desk refreshes too. Server-sent events wait until the
-  production host is known, because App Runner ends a request after 120
-  seconds.
+- **Live updates.** The home page polls every 15 seconds. Each poll sends
+  the hash of the fragment that the page shows. The server renders the
+  fragment again and hashes it without the Updated time. When the hash is
+  the same, the server answers 204 No Content, and htmx keeps the page as it
+  is. When the hash is different, htmx merges the new fragment into the page
+  with a morph swap, so focus, scroll and open forms stay. The approval desk
+  refreshes too.
+- **Live time and host.** After each successful poll, `app.js` resets the
+  Updated time. The live dot blinks only when new data arrives. The response
+  sends `Cache-Control: private, no-cache`. Polling works behind any host or
+  proxy, so the design does not depend on the production host. The overhaul
+  does not use server-sent events.
 - **Keyboard.** `/` focuses search. `j` and `k` move the focused row, `x`
   selects it, `a` approves and `d` denies, and `Enter` opens it. `?` lists the
   keys. Shortcuts never fire inside a text field.
@@ -195,6 +218,21 @@ The canvas holds one frame for each screen.
 - **Extend.** Engineers choose 3, 7 or 14 days or a date. The control shows
   the latest due date that the lifetime ceiling allows. Admins get an
   override checkbox instead of an implicit override.
+- **Request form.** Requests are free-form. The form starts with the
+  default lifetime and budget and states both ceilings. The form hides a
+  choice above the lifetime ceiling, except for admins. Admins keep the
+  owner field and the override checkbox. The admin edit row uses the same
+  control. The web form then differs from the TUI form, which keeps typed
+  days.
+- **Lifetime control.** Lifetime is the segmented control of `DESIGN.md`
+  with 3, 7 and 14 days and an Other field for a number of days. The
+  control preselects the default lifetime. When the default lifetime is not
+  3, 7 or 14 days, it is its own choice, with a label in the format of
+  `core.Lifetime`, for example "36 hours". It is not the Extend control,
+  because a request has no date to choose.
+- **Presets.** The overhaul adds no admin-defined presets. If presets come
+  later, a preset only fills in the form. The request record keeps the
+  exact lifetime and budget and never a preset name.
 - **Unknown values.** A failed cost pull shows "unavailable", never $0.00. A
   damaged expiry shows "unknown". A history failure never reads as empty.
 
@@ -236,13 +274,14 @@ The plan:
 | Capability | Work |
 |---|---|
 | AWS sign-in link | A new `--access-portal-url` setting. Show `AccessGrantedTo` and the readiness blocker that the CLI already prints. |
-| Notice feed | A readable store of lifecycle notices. One option is to write each notice as a history event and read the feed from the history sink. |
+| Notice feed | Each lifecycle notice goes out at a place where playplace records a lifecycle history event. That event also stores the notice kind, subject and body, the same text that goes to the log and Slack. A new `ready` event records the ready notice. A `budget-protection` event stores a notice only when a notice went out. The feed reads these events through the role rules of the History hub. It needs the DynamoDB history store at runtime and the ownership-period rules of checkpoint 3 in [the history implementation plan](lifecycle-history-implementation.md). A cookie holds the time of the last notice that the person read, so unread state belongs to one browser. Approvers do not see the ready notice until the maintainer decides whether it is a minimal provisioning outcome. |
 | History hub | The DynamoDB runtime wiring and the role rules in [the history design](lifecycle-history.md). |
 | Bulk approve and deny | A handler that takes several name and version pairs and returns a result for each. |
 | Fleet search and filters | Server-side filtering, sorting and pages over the cached inventory. |
 | Extend by any span | The web handler accepts `by` today. Add a date and an explicit override. |
 | Safe error text | Typed core errors, so pages stop showing raw AWS SDK errors. |
 | Unknown spend | Return "unavailable" for a failed cost pull, as the CLI does. |
+| Theme choice | A `POST /theme` handler takes Auto, Day or Night and redirects to the page that sent the form. It accepts only a local path as the target. Day and Night set the `theme` cookie. Auto deletes it. The cookie sets `Secure` behind TLS, as the session cookie does. When the cookie is set, the server writes `data-theme` on the `<html>` element. With Auto, the page has no `data-theme`. A page response that has an ETag must include the theme in it. |
 
 ## Accessibility
 
@@ -258,14 +297,37 @@ The plan:
 
 1. **Foundation.** The stylesheet, tokens, fonts, shell, styled error pages,
    the live region, the CSP change and the htmx upgrade. Fix the over-budget
-   bar and the focus loss on poll. The stylesheet takes its values from
-   `DESIGN.md`. At the end of the phase, a new `impeccable document` scan of
-   the real stylesheet updates `DESIGN.md` and `.impeccable/design.json`.
+   bar and the focus loss on poll, with the 204 and hash rule of Live
+   updates. The stylesheet takes its values from `DESIGN.md`.
+   - The shell leaves out the History and Notices links and the Notices
+     count pill until phase 5 builds them.
+   - The shell draws the line mark of `DESIGN.md`. The shell task updates
+     the `logo.svg` assertion in `internal/web/server_test.go`. It replaces
+     the logo `<img>` in the header of `internal/web/views.templ` and its
+     CSS rule. It also updates the `logo.svg` row in "The mark" of
+     [ARCHITECTURE.md](../../ARCHITECTURE.md), because the header no longer
+     uses that file.
+   - The stylesheet holds the day and the night tokens and the role
+     variables (one CSS variable for each job that changes at night, for
+     example `--on-shell`). The night desk stays off.
+   - A Go test measures every color pair in both palettes. A second test
+     fails on a hex color outside the token layer (the rules that set the
+     tokens and the role variables) of the stylesheet. It also fails on a
+     fill or stroke color in a templ file.
+   - The server draws its SVG with CSS classes, not with a color in the
+     markup. The favicons are fixed files.
+   - At the end of the phase, a new `impeccable document` scan of the real
+     stylesheet updates `DESIGN.md` and `.impeccable/design.json`.
 2. **Home, fleet and queue.** Role-based home, the fleet table with search
    and filters, the approval desk with bulk decisions and keys.
 3. **Account page.** Sign-in link, extend control, spend chart, history.
 4. **Request form.** The form page with its live slip and stated limits.
 5. **Notices and History hub.** After their backend work.
+
+The night desk turns on after phase 4, as its own small change. That change
+adds the `prefers-color-scheme` rule, the theme cookie and the theme control
+in the page footer. Phase 5 builds its screens in both palettes from the
+start.
 
 Each phase updates its tests and the user docs together. About 86 string
 assertions in `internal/web/*_test.go` and the screens named in
@@ -304,7 +366,7 @@ from the mockups.
   drew it in shelf green, which breaks the rule that green belongs to the
   shell.
 - Copy ID is one small plain button. The mockups drew it three ways.
-- The live indicator is the 8 px shelf dot. The admin home and the queue drew a sync icon.
+- The live indicator is the 8 px shelf ink dot. The admin home and the queue drew a sync icon.
 - The spend meter has two sizes: inline 96 by 4 px and full width at 6 px.
   The 8 px meter with a border on the engineer home is removed. The label
   sits beside the inline meter.
@@ -324,13 +386,47 @@ from the mockups.
   shape on each screen, for example `i-back`, `i-copy` and `i-ext`. Phase 1
   gives each component one name and each icon one shape.
 
+## Decisions
+
+The maintainer decided these questions on 2026-10-12. `DESIGN.md` and the
+sections above hold the details.
+
+- **History hub stamps.** An ended journey shows the turned stamp of its
+  recorded outcome event: DENIED, WITHDRAWN, EXPIRED or CLOSED. An open
+  journey shows the status label of its current stage. No stamp exists for
+  an open or pending journey. A reader who cannot see the current account
+  never sees APPROVED in the State column.
+- **Night desk.** `DESIGN.md` sets the night value of all 22 color tokens,
+  with the new `shelf-ink` token for green as a foreground. Phase 1 writes
+  both palettes, the role variables and the tests, but the night desk stays
+  off. One small change after phase 4 turns it on, with an Auto, Day and
+  Night control in the page footer.
+- **Mark.** The mark adapts the first logo. The shell and the icons use the
+  line cloud. Only the banner uses the round stamp lettered PLAYPLACE. See
+  Brand mark.
+- **Canvas.** The canvas and `.impeccable/mocks/decision/` are a record. A
+  screen frame shows the layout until its phase ships. Where a mockup
+  disagrees with `DESIGN.md`, `DESIGN.md` is correct.
+- **Request presets.** Requests stay free-form. The form offers lifetime
+  choices and starts with the defaults. The overhaul adds no admin-defined
+  presets. See Interaction model.
+- **Live updates.** Polling is the final design on every host. The server
+  answers 204 No Content when the hash of the fragment is the same. The
+  overhaul does not use server-sent events.
+- **Notice feed.** The lifecycle history event of the same action stores
+  each notice. The feed reads it through the role rules of the History hub.
+  See Backend work for the new capabilities.
+- **Approver fleet view.** Approvers get no fleet view. The fleet and Needs
+  attention are admin views.
+
 ## Open questions
 
-- Request presets: free-form requests only, or admin-defined presets such
-  as "quick test, 3 days, $50"?
-- The stamps for open and pending journeys in the History hub. The sheet
-  has no stamp for them.
-- The production host, which decides between polling and server-sent events.
-- Whether to adopt the redrawn mark.
-- Where the notice feed reads from.
-- Whether non-admin approvers get a read-only fleet view.
+- Whether the ready notice counts as a minimal provisioning outcome that
+  approvers can see. Until the maintainer decides, approvers do not see it.
+- A failed account creation never gets a terminal outcome. Its journey
+  stays open, so the retention rule never removes it (`Journey.validate` in
+  `internal/audit/journey.go`, and Retention in
+  [the history design](lifecycle-history.md)). This is a history design
+  question, not a UI question.
+- Night card stock is only 1.1:1 on paper (1.2:1 by day). The maintainer
+  looks at it again in the screenshot round at the end of phase 1.
