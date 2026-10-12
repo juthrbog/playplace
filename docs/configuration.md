@@ -139,9 +139,23 @@ migrate their records. `file` then stays only for development.
 
 A lifecycle notice is a short message that playplace sends when a request or
 an account changes. playplace sends one for a new, approved, edited, denied,
-or expired request, for a ready, expiring, closed, or overdue account, and
-for a change in budget protection. Every command that changes a request or
-an account can send one, not only `serve`.
+or expired request. It also sends one for an account that AWS cannot create,
+for a ready, expiring, closed, or overdue account, and for a change in budget
+protection. Every command that changes a request or an account can send one,
+not only `serve`.
+
+When AWS reports that it cannot create an account, playplace sends the
+*creation failed* notice. Its subject is
+`Playground account creation failed`. The notice gives the reason from AWS
+and the next step, for example a request with another name, or a task for an
+admin such as a higher account limit. For an approved request, a refresh or
+the wait in `approve` sends it, whichever sees the failure first. playplace
+marks the request record as reported before it sends the notice. A crash can
+then lose the notice. Within one playplace process, a later refresh or wait
+does not send it again. Two processes that see the failure at the same moment
+can both send it. For `create`, only the wait sends the notice, because no
+request record names the creation. If you use `create --no-wait`, or the wait
+stops before AWS reports the failure, playplace sends no notice.
 
 playplace writes each notice to its log at `warn`, so the default
 `--log-level` shows it. With `--slack-webhook`, playplace also posts the

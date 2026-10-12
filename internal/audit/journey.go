@@ -57,8 +57,9 @@ type OwnershipObservation struct {
 	Reference  string    `json:"reference"`
 }
 
-// TerminalOutcome accepts only confirmed closure or removal of an unfulfilled
-// request. An expiry, closure intent, missing account, or failure is not terminal.
+// TerminalOutcome accepts only confirmed closure, a confirmed creation failure,
+// or removal of an unfulfilled request. An expiry, closure intent, missing
+// account, or unresolved failure is not terminal.
 // Recording this evidence does not implement retention or authorize deletion.
 type TerminalOutcome struct {
 	Kind      string    `json:"kind"`
@@ -124,7 +125,7 @@ func (j Journey) validate() error {
 		return errors.New("too many journey correlations")
 	}
 	seen := map[Correlation]bool{}
-	accountCount := 0
+	accountCount, providerRequests := 0, 0
 	for _, c := range j.Correlations {
 		if err := c.validate(); err != nil {
 			return err
@@ -133,8 +134,11 @@ func (j Journey) validate() error {
 			return errors.New("duplicate journey correlation")
 		}
 		seen[c] = true
-		if c.Kind == CorrelationAccount {
+		switch c.Kind {
+		case CorrelationAccount:
 			accountCount++
+		case CorrelationProviderRequest:
+			providerRequests++
 		}
 	}
 	if accountCount > 1 {
@@ -171,6 +175,15 @@ func (j Journey) validate() error {
 		case "request-denied", "request-withdrawn", "request-expired":
 			if j.Origin != OriginRequest || t.Reference != j.ID || accountCount != 0 {
 				return errors.New("request termination requires an unfulfilled request journey")
+			}
+		case "creation-failed":
+			// AWS reported this exact creation request as FAILED and gives an
+			// account ID only on success, so we accept that it made no account.
+			// A second provider request can be an accepted attempt, so it blocks
+			// this. The producer must prove that no other attempt is unresolved.
+			if (j.Origin != OriginRequest && j.Origin != OriginDirect) || accountCount != 0 ||
+				providerRequests != 1 || !j.has(Correlation{CorrelationProviderRequest, t.Reference}) {
+				return errors.New("creation failure requires one exact provider request and no account")
 			}
 		default:
 			return errors.New("unconfirmed outcome is not terminal")

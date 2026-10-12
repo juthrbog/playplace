@@ -288,6 +288,42 @@ func dynamoContract(t *testing.T, api DynamoDBAPI, table string) {
 			t.Fatalf("archived account: %+v %v", got, err)
 		}
 	})
+	t.Run("confirmed creation failure ends request and direct journeys", func(t *testing.T) {
+		for _, origin := range []JourneyOrigin{OriginRequest, OriginDirect} {
+			d, _ := fresh(t)
+			j := journey(string(origin), origin)
+			j.Correlations = []Correlation{{CorrelationOperation, "op-1"}}
+			j = saveJourney(t, d, j)
+			j.Correlations = append(j.Correlations, Correlation{CorrelationProviderRequest, "car-1"})
+			j = saveJourney(t, d, j)
+			j.Terminal = &TerminalOutcome{"creation-failed", historyStart.Add(time.Hour), "car-1"}
+			j = saveJourney(t, d, j)
+			if got, err := d.GetJourney(ctx, j.ID); err != nil || !reflect.DeepEqual(got, j) {
+				t.Fatalf("%s failure: %+v %v", origin, got, err)
+			}
+			if got, err := d.ResolveJourney(ctx, j.Correlations[1]); err != nil || !reflect.DeepEqual(got, j) {
+				t.Fatalf("%s failure by provider request: %+v %v", origin, got, err)
+			}
+			// validate refuses a late account before follows can, so this is
+			// not ErrConflict; the producer must surface it as a conflict.
+			late := j
+			late.Correlations = append(append([]Correlation(nil), j.Correlations...), Correlation{CorrelationAccount, "123456789012"})
+			if _, err := d.PutJourney(ctx, late); err == nil {
+				t.Fatalf("%s failure joined a late account", origin)
+			}
+			if _, err := d.ResolveJourney(ctx, Correlation{CorrelationAccount, "123456789012"}); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("%s late account resolved: %v", origin, err)
+			}
+			changed := j
+			changed.Correlations = append(append([]Correlation(nil), j.Correlations...), Correlation{CorrelationOperation, "op-2"})
+			if _, err := d.PutJourney(ctx, changed); !errors.Is(err, ErrConflict) {
+				t.Fatalf("%s failure history changed: %v", origin, err)
+			}
+			if got, err := d.GetJourney(ctx, j.ID); err != nil || !reflect.DeepEqual(got, j) {
+				t.Fatalf("%s failure after refused writes: %+v %v", origin, got, err)
+			}
+		}
+	})
 	t.Run("request to account evidence survives queue removal", func(t *testing.T) {
 		d, ns := fresh(t)
 		j := journey("request", OriginRequest)

@@ -296,6 +296,8 @@ components:
     textColor: "{colors.ink-2}"
   stamp-expired:
     textColor: "{colors.ink-2}"
+  stamp-failed:
+    textColor: "{colors.ink}"
   stamp-closed:
     textColor: "{colors.shelf-ink}"
   stamp-overdue:
@@ -420,7 +422,7 @@ stamp pad with violet and red ink, set on paper and ground.
 - **Deep Red Ink** (#8E1F27): the Deny button hover.
 
 ### Neutral
-- **Desk Ink** (#22201C): text, strong fills, the current segment, the flag chip, the DENIED stamp, and the spend meter from 75%.
+- **Desk Ink** (#22201C): text, strong fills, the current segment, the flag chip, the DENIED and FAILED stamps, and the spend meter from 75%.
 - **Pencil Grey** (#55514A): secondary text, column heads, hints, placeholders, disabled text, and the WITHDRAWN and EXPIRED stamps.
 - **Control Rule** (#8E8A80): the border of plain buttons, text fields, selects and segmented controls on paper and ground. On card stock these borders are pencil grey.
 - **Panel Rule** (#D6D1C4): panel borders, table head rules, and the keycap border.
@@ -692,29 +694,33 @@ reader does not spell the word out.
 - **DENIED:** ink, with the required reason beside it.
 - **WITHDRAWN:** pencil grey with a dashed border. The owner withdrew a pending request.
 - **EXPIRED:** pencil grey with a solid border. No decision came in 7 days.
+- **FAILED:** ink with a solid border. AWS did not create the account, so the journey ended with no account. The fleet row keeps the red failed label for the 7 days that the fleet shows a failed creation, because the owner must make a new request to get an account. The stamp records the end of the journey, so it is ink.
 - **CLOSED:** shelf ink. AWS confirmed the closure, so the account is back on the shelf.
 - **OVERDUE:** red ink, followed by "by 2 hours" in 12 px semibold red ink. The closure is late.
 
 In the notice feed, the approved, denied, request expired, closed and
 closure overdue notices use the matching word stamp and its color. The
-requested, edited, ready, expiring and budget notices show a status label,
-not a stamp.
+creation failed notice uses the FAILED stamp only when history recorded the
+creation-failed outcome for its creation request. Otherwise it shows the
+failed status label. The requested, edited, ready, expiring and budget
+notices show a status label, not a stamp.
 
 A word stamp is a fact that does not change. There is no OPEN, PENDING, ON
 LOAN or OUT stamp. A journey is the history of one request and the account
 that it became, or of an account that started without a request. A journey
-ends when history records one of four outcome events: denied, withdrawn,
-request-expired or closed. The stamp follows that recorded event: DENIED,
-WITHDRAWN, EXPIRED or CLOSED. The same recorded outcome drives retention and
-the Open/Ended filter of the History hub. A reader can tell an ended journey
-from an open one by its shape, without color.
+ends when history records one of five outcomes: request-denied,
+request-withdrawn, request-expired, creation-failed or account-closed. The
+stamp follows that recorded
+outcome: DENIED, WITHDRAWN, EXPIRED, FAILED or CLOSED. The same recorded
+outcome drives retention and the Open/Ended filter of the History hub. A
+reader can tell an ended journey from an open one by its shape, without color.
 
 - **History hub row:** one mark in the State column. An ended journey shows its turned outcome stamp. An open journey shows the upright status label (icon and word) of its current stage. The word and the icon are the same as in the queue and the fleet table. A turned stamp in the State column always means an ended journey.
-- **Reader who cannot see the current account:** for example, an approver on the journey of another owner. The State cell never shows APPROVED. It shows the provisioning outcome that the reader can see as a label (creating or failed). If there is none, it shows only the qualifier "later history not shown" in 12 px pencil grey. The row never tells this reader whether the account closed.
-- **Failed creation:** the "failed" label comes from the recorded failed event, so it stays after the account leaves the inventory. A failure is not an outcome, so the journey stays open.
+- **Reader who cannot see the current account:** for example, an approver on the journey of another owner. The State cell never shows APPROVED. It shows the provisioning outcome that the reader can see. That is the creating or failed label of an open journey, or the turned FAILED stamp when a confirmed creation failure ended the journey. If there is none, it shows only the qualifier "later history not shown" in 12 px pencil grey. The row never tells this reader whether the account closed.
+- **Failed creation:** a confirmed creation failure (see Retention in [the history design](docs/design/lifecycle-history.md)) ends the journey, and the row shows the turned FAILED stamp. The stamp comes from history, so it stays after the failed row leaves the inventory. If history has a failed event but the journey cannot end, the row shows the "failed" label with the qualifier "another attempt not resolved". If history has no failed event and the outcome is not known, the row shows the "unavailable" label with the qualifier "outcome unknown".
 - **State not known:** the "unavailable" label with a qualifier that says why, for example "not in the playground OU" or "outcome unknown". There is no "unknown" status word. Core already uses "unavailable" for an unknown provider state, and the TUI, the CLI and PRODUCT.md use the same word.
 - **Journey view:** the journey view in `/history` has a head that shows the same mark as the row. For owners and admins, the head links to the account page. It has no 22 px date stamp and no card stock.
-- **Timeline:** a stamp marks a decision, an outcome or a late closure: APPROVED, DENIED, WITHDRAWN, EXPIRED, CLOSED and OVERDUE. APPROVED and OVERDUE are not outcomes, so in the History hub they appear only on the timeline, never in the State column. The account event "expired" means that the due date passed and closure started. It never gets the EXPIRED stamp. EXPIRED is only for a request that no one decided in 7 days.
+- **Timeline:** a stamp marks a decision, an outcome or a late closure: APPROVED, DENIED, WITHDRAWN, EXPIRED, FAILED, CLOSED and OVERDUE. APPROVED and OVERDUE are not outcomes, so in the History hub they appear only on the timeline, never in the State column. The failed event gets the FAILED stamp only when history recorded the creation-failed outcome for its creation request. Any other failed event shows the failed status label. The account event "expired" means that the due date passed and closure started. It never gets the EXPIRED stamp. EXPIRED is only for a request that no one decided in 7 days.
 
 ### Status label
 

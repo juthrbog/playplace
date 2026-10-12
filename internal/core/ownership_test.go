@@ -58,7 +58,7 @@ func TestOwnedGuardrailDamagePausesPreparationUntilOperatorRepair(t *testing.T) 
 					if err != nil {
 						t.Fatal(err)
 					}
-					if _, err := h.svc.PollCreate(ctx, requests[0].RequestID); err == nil {
+					if _, err := h.svc.PollCreate(ctx, requests[0].RequestID, nil); err == nil {
 						t.Fatal("poll bypassed repair requirement")
 					}
 					if _, err := h.svc.SetBudget(ctx, a.ID, 75, "admin", "not a repair", true); err == nil {
@@ -243,7 +243,7 @@ func TestDamagedCreationCannotBePlaced(t *testing.T) {
 				t.Fatal(err)
 			}
 			before := h.prov.Tags(creation.ProviderID)
-			if _, err := h.svc.PollCreate(ctx, req.RequestID); err == nil {
+			if _, err := h.svc.PollCreate(ctx, req.RequestID, nil); err == nil {
 				t.Fatal("poll placed damaged account")
 			}
 			if sum, err := h.svc.Refresh(ctx); err == nil || !sum.Empty() {

@@ -23,7 +23,7 @@ func TestFailedCreationRetainsRequestJourney(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err = h.svc.PollCreate(ctx, a.RequestID)
+	a, err = h.svc.PollCreate(ctx, a.RequestID, nil)
 	if err != nil || a.Status != core.StatusFailed || a.HistoryID() != r.JourneyID {
 		t.Fatalf("failed creation=%+v %v", a, err)
 	}

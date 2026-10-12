@@ -49,9 +49,9 @@ account limit of the organization until 90 days after it closes.
   The CLI and TUI also exist, and Slack posts approval messages with
   Approve and Deny buttons for web requests.
 - Lifecycle notices (*requested*, *approved*, *edited*, *denied*, *expired*,
-  *ready*, *expiring*, *closed*, *overdue*, and budget notices) go to the log
-  and to an optional Slack webhook. They never go to a person. Notices and
-  Slack link to `BASE/#pending`.
+  *creation failed*, *ready*, *expiring*, *closed*, *overdue*, and budget
+  notices) go to the log and to an optional Slack webhook. They never go to
+  a person. Notices and Slack link to `BASE/#pending`.
 - AWS takes a few minutes to create an account. Cost Explorer data lags
   about a day and is pulled at most once an hour per account. Closure is
   asynchronous, and charges can continue while an account is closing.

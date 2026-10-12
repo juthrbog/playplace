@@ -65,7 +65,9 @@ that did not finish, unless someone moved the account to another OU. If the
 new account has no playplace creation tags, for example because an emulator
 dropped them, the error says so, and no refresh places it. Move or tag the
 account by hand. When AWS cannot create the account, the error gives the
-reason from AWS.
+reason from AWS. playplace records the failure in the history and sends the
+*creation failed* notice. See [Notices](configuration.md#notices) for when
+the notice can be lost or sent twice.
 
 ## Accounts
 

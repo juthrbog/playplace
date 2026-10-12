@@ -126,6 +126,25 @@ Provide reconciliation that records reliable observations without replaying AWS
 mutations merely to repair history. Classify the remaining request mutations
 explicitly so another entry point cannot bypass a gate.
 
+Record a confirmed creation failure (see Retention in the accepted design).
+For an approved request, Refresh or the CLI wait loop already records the
+failed event once and sends the *creation failed* notice. For a direct
+creation, only the CLI wait loop does this. The store already accepts
+`creation-failed`. No runtime code writes it yet. Do these steps:
+
+- Allocate the creation operation correlation just before `RequestAccount`. An
+  error before that call then leaves no unresolved attempt.
+- Bind the provider request ID to the journey when AWS returns it.
+- Derive the identity of the failed event from the provider request ID. A
+  repeated observation then adds no business event.
+- When a creation failure is confirmed, write the `creation-failed` terminal
+  outcome. Its time is the time at which playplace observed the failure.
+- If history refuses a late account join on a `creation-failed` journey, show
+  the refusal as a history conflict that an operator can see. A log line alone
+  is not enough.
+
+A failure that history cannot tie to one exact request stays unresolved.
+
 **Done when:** tests lose the producer process/disk, retry delivery, duplicate
 responses, interrupt execution before/after AWS acceptance, and fail history
 storage. They prove shared durability, no duplicate displayed events, refusal of
@@ -133,6 +152,9 @@ exposure-increasing mutations before durable intent, and continued safety action
 with explicit gap warnings. Successful AWS outcomes are not relabeled failed;
 unprovable outcomes remain unknown. Core continues deriving lifecycle decisions
 from provider facts, not history. Record how unresolved work is surfaced and retried.
+Tests cover a creation that fails while no one waits in the CLI, a failed direct
+creation after the producer restarts, a failure that follows an attempt with an
+unknown result, and a refused late account join.
 
 ### [ ] 3. Historical authorization and archived journey queries
 
@@ -161,6 +183,7 @@ reader semantics in web/CLI/TUI. Add failure grouping and visible known pending
 or unknown-outcome states; retain expandable, escaped structured details.
 
 **Done when:** route/render tests exercise all roles, every terminal request path,
+a confirmed creation failure of a request journey and of a direct journey,
 accounts absent from inventory, full pagination in both supported orders, and
 query errors versus empty/incomplete/pending history. Repeated failures remain
 investigable without hiding changes or recovery. CLI JSON and TUI browsing work
@@ -176,8 +199,10 @@ web server. It must handle delivery/outcome reconciliation and journey-based
 retention. Define behavior for retries, partial cleanup, and late event delivery.
 
 **Done when:** controlled-clock tests preserve entire open/unresolved journeys,
-start the one-year clock only on accepted terminal outcomes, and remove the
-expired journey's events/index/authorization metadata consistently. Exercise
+start the one-year clock only on accepted terminal outcomes, including
+`creation-failed`, and remove the expired journey's events/index/authorization
+metadata consistently. An unresolved failure never starts the clock. Retention
+never expires a journey with a recorded history conflict. Exercise
 interrupted cleanup, concurrent or late delivery, and repeated maintenance;
 expired data must not be silently resurrected. An expired account, closure
 request, or missing inventory object must not alone authorize history deletion.

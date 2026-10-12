@@ -598,7 +598,13 @@ func (e *CreatedError) Unwrap() error { return e.Err }
 // PollCreate checks one creation request and, on success, places the new
 // account in the OU with its tags and budget. Loop on it to wait in place.
 // When a step after the creation fails, the error is a *CreatedError.
-func (s *Service) PollCreate(ctx context.Context, requestID string) (*Account, error) {
+//
+// started is the account that Request or Approve returned for this
+// creation, or nil. Creation status has no tags, so when no approved record
+// names the creation, as for a direct creation, a failure takes its journey
+// and owner from started. Such a failure is reported on every call that
+// sees it; a wait makes one.
+func (s *Service) PollCreate(ctx context.Context, requestID string, started *Account) (*Account, error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 	r, err := s.provider.CreateStatus(ctx, requestID)
@@ -655,8 +661,25 @@ func (s *Service) PollCreate(ctx context.Context, requestID string) (*Account, e
 		}
 		return a, nil
 	case CreateFailed:
-		a := s.creationAccount(ctx, r)
-		s.audit(ctx, "failed", a, ActorSystem, "", fmt.Sprintf("AWS could not create %s: %s", a.Name, r.FailureReason), map[string]string{"reason": r.FailureReason, "request_id": r.RequestID})
+		// Without the queue, a reported failure cannot be told from a new one.
+		records, err := s.allRequests(ctx)
+		if err != nil {
+			return nil, err
+		}
+		a := FromCreateRequest(r)
+		for _, rec := range records {
+			if rec.Approved && rec.CreateRequestID == r.RequestID {
+				rec.fill(a)
+				if rec.FailureReported {
+					return a, nil
+				}
+				return a, s.reportCreationFailure(ctx, rec, r)
+			}
+		}
+		if started != nil && started.RequestID == r.RequestID {
+			a.JourneyID, a.Owner = started.JourneyID, started.Owner
+		}
+		s.announceCreationFailure(ctx, a, r)
 		return a, nil
 	default:
 		return s.creationAccount(ctx, r), nil
@@ -1352,6 +1375,11 @@ func (s *Service) SubmitRequest(ctx context.Context, in RequestInput, via string
 	if err := r.Validate(); err != nil {
 		return Request{}, err
 	}
+	// The write below replaces the record of a failed creation with this
+	// name, so report that failure first.
+	if err := s.reportReplacedFailure(ctx, r.Name); err != nil {
+		return Request{}, err
+	}
 	if err := s.provider.SetOUTags(ctx, map[string]string{r.Key(): r.Encode()}); err != nil {
 		return Request{}, fmt.Errorf("queue request: %w", err)
 	}
@@ -1618,7 +1646,8 @@ func (s *Service) Withdraw(ctx context.Context, ref RequestRef, by string) error
 
 // expireRequests drops pending requests nobody acted on within RequestTTL,
 // and approved records whose creation failed or is no longer known to the
-// provider.
+// provider. It reports each failed creation of an approved record once,
+// also when nobody waited for it.
 func (s *Service) expireRequests(ctx context.Context, sum *Summary) error {
 	all, err := s.allRequests(ctx)
 	if err != nil {
@@ -1635,9 +1664,19 @@ func (s *Service) expireRequests(ctx context.Context, sum *Summary) error {
 	now := s.Now()
 	var keys []string
 	var expired []Request
+	var errs []error
 	for _, r := range all {
 		if r.Approved {
 			c, known := byID[r.CreateRequestID]
+			if known && c.State == CreateFailed && !r.FailureReported {
+				// Report before the removal below, so that a record past
+				// FailedRetention is still reported once. Keep a record whose
+				// report was not recorded, or the failure is never reported.
+				if err := s.reportCreationFailure(ctx, r, c); err != nil {
+					errs = append(errs, err)
+					continue
+				}
+			}
 			stale := !known && now.Sub(r.ApprovedAt) > 24*time.Hour
 			failedLongAgo := known && c.State == CreateFailed && now.Sub(c.CompletedAt) > s.cfg.FailedRetention
 			// Placement removes the record; if that call failed the record
@@ -1657,7 +1696,7 @@ func (s *Service) expireRequests(ctx context.Context, sum *Summary) error {
 	}
 	if len(keys) > 0 {
 		if err := s.provider.RemoveOUTags(ctx, keys); err != nil {
-			return err
+			return errors.Join(append(errs, err)...)
 		}
 	}
 	// A failed removal is not a terminal outcome. Announce expiry only after
@@ -1668,7 +1707,7 @@ func (s *Service) expireRequests(ctx context.Context, sum *Summary) error {
 		s.notifyAll(ctx, "Playground request expired: "+r.Name,
 			fmt.Sprintf("Nobody approved the request for %s within %s; it was dropped. Submit it again if still needed.", r.Name, Lifetime(s.cfg.RequestTTL)), r.Owner, "req:"+r.Name)
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (s *Service) notifyAll(ctx context.Context, subject, body, owner, id string) {

@@ -104,7 +104,7 @@ func TestPlacedAccountMovedOutIsNeverMovedBack(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			a, err := h.svc.PollCreate(ctx, r.RequestID)
+			a, err := h.svc.PollCreate(ctx, r.RequestID, nil)
 			if err != nil || a.Status != core.StatusActive {
 				t.Fatalf("poll: %+v %v", a, err)
 			}
@@ -115,7 +115,7 @@ func TestPlacedAccountMovedOutIsNeverMovedBack(t *testing.T) {
 			if err != nil || len(sum.Placed) != 0 || p.places != 0 || inOU(t, h, a.ProviderID) {
 				t.Fatalf("moved back: %s err=%v places=%d", sum, err, p.places)
 			}
-			if _, err := h.svc.PollCreate(ctx, r.RequestID); err != nil || p.places != 0 || inOU(t, h, a.ProviderID) {
+			if _, err := h.svc.PollCreate(ctx, r.RequestID, nil); err != nil || p.places != 0 || inOU(t, h, a.ProviderID) {
 				t.Fatalf("poll moved it back: %v places=%d", err, p.places)
 			}
 			inv, err := h.svc.Inventory(ctx, true)
@@ -140,7 +140,7 @@ func TestCreationMovedOutBeforePlacementIsLeftAlone(t *testing.T) {
 	if sum, err := h.svc.Refresh(ctx); err != nil || len(sum.Placed) != 0 {
 		t.Fatalf("refresh: %s %v", sum, err)
 	}
-	if _, err := h.svc.PollCreate(ctx, r.RequestID); err == nil || !strings.Contains(err.Error(), "not the organization root") {
+	if _, err := h.svc.PollCreate(ctx, r.RequestID, nil); err == nil || !strings.Contains(err.Error(), "not the organization root") {
 		t.Fatalf("poll should refuse to move it: %v", err)
 	}
 	if inOU(t, h, created.ProviderID) {
@@ -276,7 +276,7 @@ func TestStaleRootListingDoesNotRepeatTheHandoff(t *testing.T) {
 	worker := readinessService(h, p)
 	p.afterRootList = func() {
 		// The CLI approve loop places the account and hands it off.
-		if a, err := cli.PollCreate(ctx, r.RequestID); err != nil || a.Status != core.StatusActive {
+		if a, err := cli.PollCreate(ctx, r.RequestID, nil); err != nil || a.Status != core.StatusActive {
 			t.Fatalf("cli poll: %+v %v", a, err)
 		}
 	}
@@ -312,7 +312,7 @@ func TestStalePollReadDoesNotRepeatTheHandoff(t *testing.T) {
 			t.Fatalf("worker refresh: %s %v", sum, err)
 		}
 	}
-	if a, err := cli.PollCreate(ctx, r.RequestID); err != nil || a.Status != core.StatusActive {
+	if a, err := cli.PollCreate(ctx, r.RequestID, nil); err != nil || a.Status != core.StatusActive {
 		t.Fatalf("cli poll: %+v %v", a, err)
 	}
 	created, _ := h.prov.CreateStatus(ctx, r.RequestID)
@@ -394,7 +394,7 @@ func TestPollCreateShowsPendingActivationAsTheInventoryDoes(t *testing.T) {
 	// poll polls the creation and checks that the inventory agrees.
 	poll := func(t *testing.T, h *harness, requestID string) *core.Account {
 		t.Helper()
-		a, err := h.svc.PollCreate(ctx, requestID)
+		a, err := h.svc.PollCreate(ctx, requestID, nil)
 		if err != nil {
 			t.Fatalf("poll: %+v %v", a, err)
 		}
@@ -468,7 +468,7 @@ func TestPollingAnUntaggedCreationFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.prov.Settle()
-	if a, err := h.svc.PollCreate(ctx, id); err == nil || !strings.Contains(err.Error(), "no playplace creation tags") {
+	if a, err := h.svc.PollCreate(ctx, id, nil); err == nil || !strings.Contains(err.Error(), "no playplace creation tags") {
 		t.Fatalf("poll = %+v %v", a, err)
 	}
 	created, _ := h.prov.CreateStatus(ctx, id)

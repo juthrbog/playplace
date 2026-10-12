@@ -39,7 +39,7 @@ func TestPollCreateSaysWhetherADamagedCreationIsPlaced(t *testing.T) {
 			if err := h.prov.SetTags(ctx, id, map[string]string{core.TagExpires: "soon"}); err != nil {
 				t.Fatal(err)
 			}
-			_, err = h.svc.PollCreate(ctx, r.RequestID)
+			_, err = h.svc.PollCreate(ctx, r.RequestID, nil)
 			var ce *core.CreatedError
 			if !errors.As(err, &ce) || ce.Placed != placed || ce.Account.ProviderID != id || ce.Account.Name != name {
 				t.Fatalf("err = %v (%+v), want a CreatedError for %s with Placed %v", err, ce, id, placed)

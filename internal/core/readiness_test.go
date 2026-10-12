@@ -86,7 +86,7 @@ func TestReadinessPendingSetupResumesOnceAcrossRestarts(t *testing.T) {
 			}
 			if entry == "poll" {
 				// Pending protection is progress: the poll succeeds.
-				if a, err := h.svc.PollCreate(ctx, request.RequestID); err != nil || a == nil || a.BudgetHealth != "setup-pending" || !a.HandoffPending() {
+				if a, err := h.svc.PollCreate(ctx, request.RequestID, nil); err != nil || a == nil || a.BudgetHealth != "setup-pending" || !a.HandoffPending() {
 					t.Fatalf("want placed account awaiting protection: %+v %v", a, err)
 				}
 			} else {
@@ -114,7 +114,7 @@ func TestReadinessPendingSetupResumesOnceAcrossRestarts(t *testing.T) {
 			for range 2 {
 				h.svc = readinessService(h, p)
 				h.svc.SetAuditor(audit)
-				if _, err := h.svc.PollCreate(ctx, request.RequestID); err != nil {
+				if _, err := h.svc.PollCreate(ctx, request.RequestID, nil); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := h.svc.Refresh(ctx); err != nil {
@@ -157,7 +157,7 @@ func TestReadinessWaitsForAccessAndItsDurableGrant(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			a, err := h.svc.PollCreate(ctx, r.RequestID)
+			a, err := h.svc.PollCreate(ctx, r.RequestID, nil)
 			if err == nil || a == nil || readyNotices(h) != 0 {
 				t.Fatalf("premature readiness: %+v %v", a, err)
 			}
@@ -185,7 +185,7 @@ func TestReadinessSurvivesCreationAndPlacementInterruptions(t *testing.T) {
 				t.Fatal(err)
 			}
 			if failure == "after-move" {
-				if _, err := h.svc.PollCreate(ctx, r.RequestID); err == nil {
+				if _, err := h.svc.PollCreate(ctx, r.RequestID, nil); err == nil {
 					t.Fatal("expected placement error")
 				}
 			} else {
@@ -322,7 +322,7 @@ func TestReadinessNeverHandsOffExpiredOrClosingAccounts(t *testing.T) {
 				a.Status = "SUSPENDED"
 			}
 			h.prov.Seed(a)
-			_, _ = h.svc.PollCreate(ctx, r.RequestID)
+			_, _ = h.svc.PollCreate(ctx, r.RequestID, nil)
 			_, _ = h.svc.Refresh(ctx)
 			if readyNotices(h) != 0 || len(h.prov.Grants[a.ProviderID]) != 0 {
 				t.Fatal("unsafe handoff/access")
@@ -345,7 +345,7 @@ func TestReadinessDurableWritesMustSucceedBeforeHandoff(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := h.svc.PollCreate(ctx, r.RequestID); err == nil {
+			if _, err := h.svc.PollCreate(ctx, r.RequestID, nil); err == nil {
 				t.Fatal("expected handoff tag failure")
 			}
 			h.svc = readinessService(h, p)
@@ -403,7 +403,7 @@ func TestReadinessDeliveryFailureDoesNotRepeatHandoff(t *testing.T) {
 						panic(v)
 					}
 				}()
-				if _, err := h.svc.PollCreate(ctx, r.RequestID); err != nil {
+				if _, err := h.svc.PollCreate(ctx, r.RequestID, nil); err != nil {
 					t.Fatal(err)
 				}
 			}()
@@ -414,7 +414,7 @@ func TestReadinessDeliveryFailureDoesNotRepeatHandoff(t *testing.T) {
 			if _, err := h.svc.Refresh(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := h.svc.PollCreate(ctx, r.RequestID); err != nil {
+			if _, err := h.svc.PollCreate(ctx, r.RequestID, nil); err != nil {
 				t.Fatal(err)
 			}
 			if readyNotices(h) != 0 {
@@ -442,7 +442,7 @@ func TestReadinessNewBudgetActionSettlesOnTheNextPass(t *testing.T) {
 			}
 			var a *core.Account
 			if entry == "poll" {
-				if a, err = h.svc.PollCreate(ctx, r.RequestID); err != nil {
+				if a, err = h.svc.PollCreate(ctx, r.RequestID, nil); err != nil {
 					t.Fatalf("placed account reported as a failure: %v", err)
 				}
 			} else {
@@ -492,7 +492,7 @@ func TestReadinessUnsettledProtectionFailsOnlyWhenOverdue(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			a, err := h.svc.PollCreate(ctx, r.RequestID)
+			a, err := h.svc.PollCreate(ctx, r.RequestID, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
