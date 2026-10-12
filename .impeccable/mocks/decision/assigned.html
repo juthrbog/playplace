@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440"><link rel="icon" href="data:,">
+<title>playplace home</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Signika:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--band:#16202E;--ground:#F3F4F1;--surf:#FFFFFF;--ink:#16202E;--mute:#59616E;--line:#D5D8D0;--line2:#E6E8E3;--v:#5B3FE6;--tint:#F4F2FE;--amber:#F2A900;--amber-ink:#7A5000;--red:#D7263D;--red-ink:#B4192F;--green:#1F9A55;--green-ink:#15703D;
+  /* five sizes, one job each: label, data, name, heading, count */
+  --s1:12px;--s2:14px;--s3:16px;--s4:20px;--s5:26px;color-scheme:light}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--ground)}
+body{font:400 var(--s2)/20px 'Signika',system-ui,sans-serif;color:var(--ink);font-variant-numeric:tabular-nums lining-nums;-webkit-font-smoothing:antialiased}
+::selection{background:var(--v);color:#fff}
+:focus-visible{outline:2px solid var(--v);outline-offset:2px;border-radius:4px}
+.shell :focus-visible{outline-color:#fff}
+button,input,select{font:inherit;color:inherit}
+p,h1,h2,ul,ol,dl,dd{margin:0;padding:0}
+a{color:var(--v)}
+.root{width:1440px;height:900px;overflow:hidden;position:relative;background:var(--ground)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
+.s1{font-size:var(--s1);line-height:16px}.mute{color:var(--mute)}.na{color:var(--mute);font-style:italic}.bad{color:var(--red-ink)}.warn{color:var(--amber-ink)}.good{color:var(--green-ink)}
+.sub{display:block;font-size:var(--s1);line-height:16px;color:var(--mute)}.sub.bad{color:var(--red-ink)}.sub.warn{color:var(--amber-ink)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:6px;border:1px solid var(--line);background:var(--surf);font-weight:500;white-space:nowrap;text-decoration:none;cursor:pointer;color:var(--ink)}
+.btn.pri{background:var(--v);border-color:var(--v);color:#fff}
+.shell{height:56px;background:var(--band);color:#fff;display:flex;align-items:center;gap:20px;padding:0 32px}
+.brand{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font-size:var(--s3);font-weight:600;letter-spacing:.01em;margin-right:12px}
+.shell nav{display:flex;height:56px}
+.shell nav a{display:flex;align-items:center;gap:6px;padding:0 12px;color:#D3D8E0;text-decoration:none;font-weight:500}
+.pill{background:#fff;color:var(--band);border-radius:9px;padding:0 6px;font-size:var(--s1);line-height:18px;font-weight:600}
+.search{margin-left:auto;position:relative}
+.search .i{position:absolute;left:10px;top:9px;color:#AEB6C2}
+.search input{width:300px;height:34px;border-radius:6px;border:1px solid #445166;background:#223047;color:#fff;padding:0 12px 0 34px}
+.search input::placeholder{color:#AEB6C2;opacity:1}
+.ghost{background:transparent;border-color:#5A6678;color:#fff}
+.me{display:flex;align-items:center;gap:8px;padding-left:20px;border-left:1px solid #3A475A}
+.role{font-size:var(--s1);line-height:18px;font-weight:600;border:1px solid #AEB6C2;border-radius:4px;padding:0 6px}
+.strip{background:var(--surf);border-bottom:1px solid var(--line);padding:12px 32px 8px}
+.map{position:relative;height:120px}
+.intro{position:absolute;left:0;top:0;width:230px}
+h1,h2{font-size:var(--s4);line-height:25px;font-weight:600;letter-spacing:.005em}
+.lines{position:absolute;left:0;top:0}
+.stn{position:absolute;top:0;height:54px;display:flex;align-items:baseline;gap:6px;padding-right:6px;color:var(--ink);text-decoration:none}
+.stn.sp{top:70px;height:50px;align-items:flex-end}
+.cnt{font-size:var(--s5);line-height:28px;font-weight:600}
+.nm{font-size:var(--s3);line-height:28px;font-weight:500;letter-spacing:.01em}
+.sp .cnt,.sp .nm{line-height:26px}.sp .cnt{color:var(--red-ink)}
+.stn[aria-current] .nm{font-weight:600}
+.note{position:absolute;top:54px;font-size:var(--s1);line-height:16px;color:var(--mute);display:flex;gap:4px;align-items:center}.note.bad{color:var(--red-ink)}
+.note .i{width:14px;height:14px}
+.main{padding:16px 32px 0;display:grid;gap:16px}
+.row{display:grid;grid-template-columns:320px 1fr;gap:16px;align-items:stretch}
+.panel{background:var(--surf);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.ph{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;min-height:56px}
+.ttl{display:flex;align-items:baseline;gap:10px}
+.alist{list-style:none;padding:0 16px}
+.alist li{display:grid;grid-template-columns:24px 1fr;gap:10px;padding:8px 0;border-top:1px solid var(--line2)}
+.alist a{color:var(--ink);font-weight:600;text-decoration:underline;text-decoration-color:#B9BDC6;text-underline-offset:3px}
+.alist p a{font-weight:400;color:var(--mute)}
+.plate{width:24px;height:24px;border-radius:5px;display:grid;place-items:center;background:var(--red);color:#fff}
+.plate.a{background:var(--amber);color:var(--ink)}.plate .i{width:14px;height:14px}
+.bulk{display:flex;align-items:center;gap:8px}
+input[type=checkbox]{accent-color:var(--v);width:16px;height:16px;margin:2px 0 0}
+.qrow{display:grid;grid-template-columns:20px 176px 64px minmax(0,1fr) 76px 104px 180px;column-gap:12px;align-items:start;padding:8px 16px;border-top:1px solid var(--line2)}
+.qh{padding:4px 16px;font-size:var(--s1);line-height:18px;font-weight:600;color:var(--mute)}
+.ql{list-style:none}
+.qn{font-size:var(--s3);line-height:20px;font-weight:600}
+.qrow .btn{height:30px}.dec{display:flex;gap:8px;justify-content:flex-end;align-items:center}
+.yours{font-size:var(--s1);color:var(--mute);font-style:italic;padding:0 4px}
+.badge{display:inline-flex;align-items:center;gap:4px;margin-top:4px;font-size:var(--s1);line-height:18px;font-weight:600;color:var(--amber-ink);border:1px solid var(--amber);border-radius:4px;padding:0 6px}
+.badge .i{width:12px;height:12px;vertical-align:0}
+.focus{background:var(--tint);outline:2px solid var(--v);outline-offset:-2px}
+.facts{grid-column:2/-1;margin-top:8px;padding-top:8px;border-top:1px solid #DCD6FA}
+.facts dl{display:grid;grid-template-columns:1.25fr 1fr 1fr 1.45fr;gap:16px;margin-bottom:6px}
+.facts dt{font-size:var(--s1);line-height:16px;color:var(--mute)}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{text-align:left;height:34px;padding:0 12px;border-top:1px solid var(--line2);border-bottom:1px solid var(--line);font-size:var(--s1)}
+td{padding:6px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th:first-child,td:first-child{padding-left:16px}
+.sort{display:inline-flex;align-items:center;gap:2px;background:none;border:0;padding:0;font-weight:600;color:var(--mute);cursor:pointer}
+.sort .i{width:14px;height:14px}
+td a{font-weight:600;text-decoration:none}
+.id{letter-spacing:.02em}
+.chip{display:inline-block;padding:0 6px;border-radius:4px;font-size:var(--s1);line-height:20px;font-weight:600}
+.chip.a{background:var(--amber);color:var(--ink)}.chip.r{background:var(--red);color:#fff}.chip.k{background:var(--ink);color:#fff}
+.bar{display:block;width:120px;height:4px;margin-top:5px;border-radius:2px;background:#E4E6E0}
+.bar i{display:block;height:4px;border-radius:2px;background:var(--v)}.bar i.o{background:var(--red)}
+.rt{--c:var(--v);display:block;position:relative;width:70px;height:12px;margin-top:4px;background:linear-gradient(var(--c),var(--c)) 5px 5px/calc(var(--p)*12px) 2px no-repeat,linear-gradient(#C3C7CF,#C3C7CF) 5px 5px/60px 2px no-repeat}
+.rt::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 5px 6px,#fff 1.5px,#8A909A 1.8px 2.6px,transparent 3px) 0 0/12px 12px repeat-x}
+.rt::after{content:"";position:absolute;top:0;left:calc(var(--p)*12px - 1px);width:12px;height:12px;border-radius:50%;background:var(--d,var(--c));border:2px solid #fff}
+.rt.x{--c:var(--red)}
+.fleet select{height:32px;border:1px solid var(--line);border-radius:6px;background:var(--surf);padding:0 8px;margin-left:8px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
+<symbol id="i-sync" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.3L4 9M4 4v5h5M4 13a8 8 0 0 0 14.3 4.3L20 15M20 20v-5h-5"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5l9 16H3z"/><path d="M12 10v4M12 17h.01"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+<symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/></symbol>
+<symbol id="i-xc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9 9l6 6M15 9l-6 6"/></symbol>
+<symbol id="i-ok" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.5l7 2.5v5.5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></symbol>
+<symbol id="i-end" viewBox="0 0 24 24"><path d="M4 12h11M11 8l4 4-4 4M19 5v14"/></symbol>
+<symbol id="i-load" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5"/></symbol>
+<symbol id="i-sort" viewBox="0 0 24 24"><path d="M8 9.5l4-4 4 4M8 14.5l4 4 4-4"/></symbol>
+</defs></svg>
+<div class="root">
+<header class="shell">
+  <a class="brand" href="/"><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="6" fill="#5B3FE6"/><path d="M6 14h16" stroke="#fff" stroke-width="3"/><circle cx="8" cy="14" r="3.5" fill="#fff"/><circle cx="20" cy="14" r="3.2" fill="#5B3FE6" stroke="#fff" stroke-width="2.4"/></svg>playplace</a>
+  <nav aria-label="Main"><a href="#pending">Queue <span class="pill" aria-label="3 waiting">3</span></a><a href="/accounts">Accounts</a><a href="/history">History</a><a href="/notices">Notices</a></nav>
+  <form class="search" role="search" action="/accounts"><label class="sr" for="q">Search accounts, owners and IDs</label><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><input id="q" name="q" type="search" placeholder="Search accounts, owners, IDs"></form>
+  <form action="/sync" method="post"><button class="btn ghost" type="submit"><svg class="i" aria-hidden="true"><use href="#i-sync"/></svg>Sync with AWS</button></form>
+  <a class="btn pri" href="/requests/new"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>New request</a>
+  <div class="me"><span>maya@example.com</span><span class="role">admin</span></div>
+</header>
+<section class="strip" aria-labelledby="h-fleet">
+  <div class="map">
+    <div class="intro"><h1 id="h-fleet">Fleet</h1><p class="mute">Sunday 11 October 2026</p><p><b>$4,812.40</b> spent this month to date</p><p class="s1 mute">Cost data lags about a day.</p></div>
+    <svg class="lines" width="1376" height="120" viewBox="0 0 1376 120" aria-hidden="true">
+      <path d="M650 42 L688 80 H910" fill="none" stroke="#D7263D" stroke-width="6" stroke-linejoin="round"/>
+      <path d="M270 42 H1310" stroke="#5B3FE6" stroke-width="6"/>
+      <circle cx="270" cy="42" r="15" fill="#5B3FE6"/><circle cx="270" cy="42" r="6" fill="#fff"/>
+      <g fill="#fff" stroke="#5B3FE6" stroke-width="4"><circle cx="440" cy="42" r="8"/><circle cx="610" cy="42" r="8"/><circle cx="780" cy="42" r="8"/><circle cx="1140" cy="42" r="8"/><circle cx="1310" cy="42" r="8"/></g>
+      <circle cx="960" cy="42" r="8" fill="#F2A900" stroke="#5B3FE6" stroke-width="4"/>
+      <g fill="#fff" stroke="#D7263D" stroke-width="4"><circle cx="740" cy="80" r="8"/><circle cx="910" cy="80" r="8"/></g>
+    </svg>
+    <a class="stn" style="left:255px" href="?line=all#fleet" aria-current="true"><b class="cnt">112</b><span class="nm">All open</span></a>
+    <a class="stn" style="left:430px" href="?status=pending#fleet"><b class="cnt">3</b><span class="nm">Requested</span></a>
+    <a class="stn" style="left:600px" href="?status=creating#fleet"><b class="cnt">1</b><span class="nm">Creating</span></a>
+    <a class="stn" style="left:770px" href="?status=active#fleet"><b class="cnt">101</b><span class="nm">Active</span></a>
+    <a class="stn" style="left:950px" href="?status=expiring#fleet"><b class="cnt">6</b><span class="nm">Expiring</span></a>
+    <a class="stn" style="left:1130px" href="?status=closing#fleet"><b class="cnt">3</b><span class="nm">Closing</span></a>
+    <a class="stn" style="left:1300px" href="/history?status=closed"><span class="nm">Closed</span></a>
+    <a class="stn sp" style="left:730px" href="?status=failed#fleet"><b class="cnt">1</b><span class="nm">Failed</span></a>
+    <a class="stn sp" style="left:900px" href="?status=unavailable#fleet"><b class="cnt">1</b><span class="nm">Unavailable</span></a>
+    <span class="note" style="left:472px">approver decides</span>
+    <span class="note" style="left:950px">within 3 days</span>
+    <span class="note bad" style="left:1130px"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg>1 overdue</span>
+    <span class="note" style="left:1300px">in History</span>
+  </div>
+</section>
+<main class="main">
+  <div class="row">
+    <section class="panel" aria-labelledby="h-att">
+      <div class="ph"><h2 id="h-att">Needs attention now</h2></div>
+      <ul class="alist">
+        <li><span class="plate"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg></span><div><a href="/accounts/100000000019">Closure overdue by 2 hours</a><p class="s1 mute">stuck-close-env: closure unconfirmed, charges may continue</p></div></li>
+        <li><span class="plate"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg></span><div><a href="?budget=restricted#fleet">2 budgets restricted</a><p class="s1 mute">cost-spike-test: $74.15 of $50.00, over budget</p></div></li>
+        <li><span class="plate"><svg class="i" aria-hidden="true"><use href="#i-xc"/></svg></span><div><a href="?status=failed#fleet">1 failed creation</a><p class="s1 mute">dup-email-test: EMAIL_ALREADY_EXISTS</p></div></li>
+        <li><span class="plate"><svg class="i" aria-hidden="true"><use href="#i-ban"/></svg></span><div><a href="?status=unavailable#fleet">1 account unavailable</a><p class="s1 mute">suspended-sbx: AWS reports SUSPENDED</p></div></li>
+        <li><span class="plate a"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg></span><div><a href="?status=expiring#fleet">6 expiring within 3 days</a><p class="s1 mute">Soonest: ml-gpu-bench on Oct 13</p></div></li>
+      </ul>
+    </section>
+    <section class="panel" id="pending" aria-labelledby="h-q">
+      <div class="ph"><div class="ttl"><h2 id="h-q">Approval queue</h2><span class="mute">3 requests, oldest first</span></div>
+        <div class="bulk"><input type="checkbox" id="all"><label for="all">Select all</label><span class="mute" style="margin:0 8px">1 selected</span><button class="btn" type="button"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Approve selected</button><button class="btn" type="button"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg>Deny selected</button></div></div>
+      <div class="qrow qh" aria-hidden="true"><span></span><span>Request</span><span>Version</span><span>Owner</span><span>Lifetime</span><span>Budget</span><span style="text-align:right">Decision</span></div>
+      <ol class="ql">
+        <li class="qrow"><input type="checkbox" id="r1" aria-label="Select perf-load-2026"><div><span class="qn">perf-load-2026</span><br><span class="badge"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg>limits overridden</span></div><span class="id">9b1f44</span><div><span style="white-space:nowrap">jordan.lee-whitfield@</span><wbr><span style="white-space:nowrap">platform-engineering.example.com</span><span class="sub">requested by maya@example.com (you) via web, yesterday</span></div><b>120 days</b><span><b>$900.00</b><span class="sub">a month</span></span><div class="dec"><span class="yours">your request</span><button class="btn" type="button" aria-label="Deny perf-load-2026, version 9b1f44"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg>Deny</button></div></li>
+        <li class="qrow focus" tabindex="0" aria-label="priya-glue-etl, focused"><input type="checkbox" id="r2" checked aria-label="Select priya-glue-etl"><span class="qn">priya-glue-etl</span><span class="id">7f3a91</span><div>priya@example.com<span class="sub">via web, 2 hours ago</span></div><b>14 days</b><span><b>$75.00</b><span class="sub">a month</span></span><div class="dec"><button class="btn pri" type="button" aria-label="Approve priya-glue-etl, version 7f3a91"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Approve</button><button class="btn" type="button" aria-label="Deny priya-glue-etl, version 7f3a91"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg>Deny</button></div>
+          <div class="facts"><dl><div><dt>Purpose</dt><dd>Glue ETL spike for the Q4 data platform</dd></div><div><dt>Requested by</dt><dd>priya@example.com, the owner</dd></div><div><dt>Limits</dt><dd>Within 90 days, $500.00</dd></div><div><dt>After approval</dt><dd>AWS creates the account in a few minutes and cannot close it for four days.</dd></div></dl>
+          <p class="s1 mute">Approve and Deny act on version 7f3a91. If the request changes first, playplace refuses the action and shows the new version.</p></div></li>
+        <li class="qrow"><input type="checkbox" id="r3" aria-label="Select alex-network-lab"><span class="qn">alex-network-lab</span><span class="id">c02e5d</span><div>alex@example.com<span class="sub">via Slack, 40 minutes ago</span></div><b>36 hours</b><span><b>$12.50</b><span class="sub">a month</span></span><div class="dec"><button class="btn pri" type="button" aria-label="Approve alex-network-lab, version c02e5d"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Approve</button><button class="btn" type="button" aria-label="Deny alex-network-lab, version c02e5d"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg>Deny</button></div></li>
+      </ol>
+    </section>
+  </div>
+  <section class="panel fleet" id="fleet" aria-labelledby="h-f">
+    <div class="ph"><div class="ttl"><h2 id="h-f">Accounts</h2><span class="mute">Whole line: 112 open accounts and 1 failed creation, sorted by what needs attention</span></div>
+      <div><label for="sort" class="mute">Sort by</label><select id="sort"><option>Needs attention first</option><option>Expiry, soonest first</option><option>Spend, highest first</option></select></div></div>
+    <table>
+      <colgroup><col style="width:96px"><col style="width:180px"><col style="width:130px"><col style="width:190px"><col style="width:170px"><col style="width:170px"><col style="width:170px"><col></colgroup>
+      <thead><tr><th scope="col"><span class="sr">Place on the line</span></th><th scope="col"><button class="sort" type="button">Name<svg class="i" aria-hidden="true"><use href="#i-sort"/></svg></button></th><th scope="col"><button class="sort" type="button">Account ID<svg class="i" aria-hidden="true"><use href="#i-sort"/></svg></button></th><th scope="col"><button class="sort" type="button">Owner<svg class="i" aria-hidden="true"><use href="#i-sort"/></svg></button></th><th scope="col"><button class="sort" type="button">Status<svg class="i" aria-hidden="true"><use href="#i-sort"/></svg></button></th><th scope="col"><button class="sort" type="button">Budget health<svg class="i" aria-hidden="true"><use href="#i-sort"/></svg></button></th><th scope="col"><button class="sort" type="button">Spend this month<svg class="i" aria-hidden="true"><use href="#i-sort"/></svg></button></th><th scope="col"><button class="sort" type="button">Expires<svg class="i" aria-hidden="true"><use href="#i-sort"/></svg></button></th></tr></thead>
+      <tbody>
+        <tr><td><span class="rt" style="--p:4;--d:var(--ink)" aria-hidden="true"></span></td><td><a href="/accounts/100000000019">stuck-close-env</a></td><td class="id">100000000019</td><td>jordan@example.com</td><td><span class="chip k">Closing</span><span class="sub">closure requested Oct 10</span></td><td class="mute"><svg class="i" aria-hidden="true"><use href="#i-end"/></svg> retiring</td><td>$3.10 <span class="mute">of $50.00</span><span class="bar"><i style="width:6%"></i></span></td><td class="bad"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg> Overdue by 2 hours<span class="sub bad">closure unconfirmed, charges may continue</span></td></tr>
+        <tr><td><span class="rt" style="--p:2" aria-hidden="true"></span></td><td><a href="/accounts/100000000014">cost-spike-test</a></td><td class="id">100000000014</td><td>alex@example.com</td><td>Active</td><td class="bad"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg> restricted</td><td>$74.15 <span class="mute">of $50.00</span><span class="sub bad"><svg class="i" aria-hidden="true" style="width:12px;height:12px;vertical-align:-2px"><use href="#i-alert"/></svg> over budget</span></td><td>Oct 30</td></tr>
+        <tr><td><span class="rt x" style="--p:1" aria-hidden="true"></span></td><td><a href="/requests/dup-email-test">dup-email-test</a></td><td class="na">none</td><td>sam@example.com</td><td><span class="chip r">Failed</span><span class="sub">EMAIL_ALREADY_EXISTS</span></td><td class="na">none</td><td class="na">none</td><td class="na">none</td></tr>
+        <tr><td><span class="rt x" style="--p:2" aria-hidden="true"></span></td><td><a href="/accounts/100000000008">suspended-sbx</a></td><td class="id">100000000008</td><td>jordan@example.com</td><td><span class="chip r">Unavailable</span><span class="sub">AWS reports SUSPENDED</span></td><td class="na">unknown</td><td class="na">unknown</td><td class="na">unknown</td></tr>
+        <tr><td><span class="rt" style="--p:3;--d:var(--amber)" aria-hidden="true"></span></td><td><a href="/accounts/100000000011">ml-gpu-bench</a></td><td class="id">100000000011</td><td>sam@example.com</td><td><span class="chip a">Expiring</span></td><td class="good"><svg class="i" aria-hidden="true"><use href="#i-ok"/></svg> ready</td><td>$412.80 <span class="mute">of $500.00</span><span class="bar"><i style="width:83%"></i></span></td><td>Oct 13<span class="sub warn"><svg class="i" aria-hidden="true" style="width:12px;height:12px;vertical-align:-2px"><use href="#i-clock"/></svg> 2 days 4 hours left</span></td></tr>
+        <tr><td><span class="rt" style="--p:1" aria-hidden="true"></span></td><td><a href="/requests/k8s-upgrade-lab">k8s-upgrade-lab</a></td><td class="na">pending</td><td>jordan@example.com</td><td><svg class="i" aria-hidden="true"><use href="#i-load"/></svg> Creating<span class="sub">AWS is creating it, 3 minutes so far</span></td><td class="na">not checked</td><td class="na">none yet</td><td class="na">not set yet</td></tr>
+        <tr><td><span class="rt" style="--p:2" aria-hidden="true"></span></td><td><a href="/accounts/100000000021">data-pipeline-poc</a></td><td class="id">100000000021</td><td>priya@example.com</td><td>Active</td><td><svg class="i mute" aria-hidden="true"><use href="#i-shield"/></svg> setup-pending<span class="sub">settling protection</span></td><td>$8.40 <span class="mute">of $75.00</span><span class="bar"><i style="width:11%"></i></span></td><td>Oct 25</td></tr>
+        <tr><td><span class="rt" style="--p:2" aria-hidden="true"></span></td><td><a href="/accounts/100000000002">alex-sandbox</a></td><td class="id">100000000002</td><td>alex@example.com</td><td>Active</td><td class="good"><svg class="i" aria-hidden="true"><use href="#i-ok"/></svg> ready</td><td>$79.02 <span class="mute">of $150.00</span><span class="bar"><i style="width:53%"></i></span></td><td>Oct 27<span class="sub">16 days left</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</div>
+</body>
+</html>

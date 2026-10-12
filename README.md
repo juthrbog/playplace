@@ -217,6 +217,7 @@ packages.
 | Guide | Covers |
 |---|---|
 | [Architecture](ARCHITECTURE.md) | Architecture, lifecycle rules, and interface decisions |
+| [Design system](DESIGN.md) | Colors, type, layout, and components of the web UI |
 | [Development](DEVELOPMENT.md) | Build setup, local testing, and contributor workflows |
 | [Releasing](docs/releasing.md) | CI, release snapshots, Homebrew, and AUR packaging |
 

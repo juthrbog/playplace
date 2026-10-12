@@ -45,7 +45,8 @@ repo's mise configuration. The site is built by [Zensical](https://zensical.org)
 pages under `docs/`: an overview, guides for requesters and approvers, the
 CLI and configuration references, and the deployment guide, which includes
 [deploy/README.md](deploy/README.md) as it is. Architecture and interface design
-notes live in [ARCHITECTURE.md](ARCHITECTURE.md).
+notes live in [ARCHITECTURE.md](ARCHITECTURE.md). The visual design system of
+the web UI lives in [DESIGN.md](DESIGN.md).
 
 ## Layout
 

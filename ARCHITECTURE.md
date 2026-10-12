@@ -2,7 +2,8 @@
 
 Architecture, lifecycle rules, and interface design decisions for playplace.
 For an overview and usage, see [the README](README.md); for contributor setup
-and local testing, see [Development](DEVELOPMENT.md).
+and local testing, see [Development](DEVELOPMENT.md). For the visual design
+system of the web UI, see [DESIGN.md](DESIGN.md).
 
 ## Principles
 
