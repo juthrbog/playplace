@@ -34,8 +34,16 @@ Correlations and ownership observations are append-only.
 Origin, start time, and accepted terminal outcomes are immutable.
 Names can change without changing identity.
 
-Terminal metadata accepts confirmed account closure or denial, withdrawal, or expiry of an unfulfilled request.
-It rejects account expiry, closure intent, and provisioning failure as terminal outcomes.
+Terminal metadata accepts confirmed account closure, the denial, withdrawal, or expiry of an unfulfilled request, and a confirmed creation failure.
+It rejects account expiry, closure intent, and every other kind, such as `failed`, as terminal outcomes.
+The adapter accepts `creation-failed` only when all of these are true:
+
+- The journey has a request or direct origin.
+- The journey has exactly one provider request correlation and no account correlation.
+- The terminal reference is that provider request ID.
+
+For `creation-failed`, the adapter checks structure only.
+An unresolved creation failure can pass this check, so the producer must prove that AWS reported the request as `FAILED` and that no other creation attempt of the journey is unresolved.
 The producer must supply reliable evidence for these assertions.
 The adapter checks structure and exact references, not the truth of an AWS observation.
 Checkpoint 2 must establish those recording semantics.

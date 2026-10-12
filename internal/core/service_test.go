@@ -61,7 +61,7 @@ func (h *harness) active(t *testing.T, name, owner string, ttl time.Duration) *c
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err = h.svc.PollCreate(ctx, a.RequestID)
+	a, err = h.svc.PollCreate(ctx, a.RequestID, nil)
 	if err != nil || a.Status != core.StatusActive {
 		t.Fatalf("poll: %+v %v", a, err)
 	}
@@ -101,11 +101,11 @@ func TestRequestThenPollPlacesAndTags(t *testing.T) {
 		t.Fatalf("inventory while creating = %+v", inv)
 	}
 
-	a, _ = h.svc.PollCreate(ctx, a.RequestID)
+	a, _ = h.svc.PollCreate(ctx, a.RequestID, nil)
 	if a.Status != core.StatusCreating {
 		t.Fatalf("first poll should still be creating, got %s", a.Status)
 	}
-	a, err = h.svc.PollCreate(ctx, a.RequestID)
+	a, err = h.svc.PollCreate(ctx, a.RequestID, nil)
 	if err != nil || a.Status != core.StatusActive || a.ProviderID == "" {
 		t.Fatalf("second poll: %+v %v", a, err)
 	}
@@ -278,7 +278,7 @@ func TestFailedCreationIsVisibleThenForgotten(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, _ = h.svc.PollCreate(ctx, a.RequestID)
+	a, _ = h.svc.PollCreate(ctx, a.RequestID, nil)
 	if a.Status != core.StatusFailed || a.LastError != "EMAIL_ALREADY_EXISTS" {
 		t.Fatalf("poll = %+v", a)
 	}
@@ -364,7 +364,7 @@ func TestAccessGrantedOnPlaceAndRevokedOnClose(t *testing.T) {
 	if err != nil || a.Owner != "alex@example.com" {
 		t.Fatalf("request = %+v %v", a, err)
 	}
-	a, err = h.svc.PollCreate(ctx, a.RequestID)
+	a, err = h.svc.PollCreate(ctx, a.RequestID, nil)
 	if err != nil || a.Status != core.StatusActive {
 		t.Fatalf("poll = %+v %v", a, err)
 	}
@@ -511,7 +511,7 @@ func TestFreeTextFieldsAreValidatedEverywhere(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	acc, _ = h.svc.PollCreate(ctx, acc.RequestID)
+	acc, _ = h.svc.PollCreate(ctx, acc.RequestID, nil)
 	if h.prov.Tags(acc.ProviderID)[core.TagPurpose] != "fine: bedrock/agents = ok" {
 		t.Fatalf("purpose tag = %q", h.prov.Tags(acc.ProviderID)[core.TagPurpose])
 	}
@@ -556,7 +556,7 @@ func TestSubmitApproveFlow(t *testing.T) {
 	if pending, _ := h.svc.PendingRequests(ctx); len(pending) != 0 {
 		t.Fatal("approved request should leave the queue")
 	}
-	acc, _ = h.svc.PollCreate(ctx, acc.RequestID)
+	acc, _ = h.svc.PollCreate(ctx, acc.RequestID, nil)
 	tags := h.prov.Tags(acc.ProviderID)
 	if tags[core.TagRequestedBy] != "anna@example.com" || tags[core.TagApprovedBy] != "ops@example.com" || tags[core.TagPurpose] != "bedrock" || tags[core.TagBudget] != "20" {
 		t.Fatalf("audit tags = %v", tags)
@@ -724,7 +724,7 @@ func TestTTLAndBudgetCeilingsWithAdminOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if acc, err = h.svc.PollCreate(ctx, acc.RequestID); err != nil || acc.Status != core.StatusActive {
+	if acc, err = h.svc.PollCreate(ctx, acc.RequestID, nil); err != nil || acc.Status != core.StatusActive {
 		t.Fatalf("place edge: %+v %v", acc, err)
 	}
 	if _, err := h.svc.Extend(ctx, acc.ID, acc.ExpiresAt.Add(24*time.Hour), "d@example.com", false); err == nil || !strings.Contains(err.Error(), "past the ceiling of 90 days") {
@@ -845,7 +845,7 @@ func TestLifecycleIsWrittenToHistory(t *testing.T) {
 	newP := "changed"
 	h.svc.UpdateRequest(ctx, h.ref(t, "hist"), "ops@example.com", core.RequestEdit{Purpose: &newP})
 	a, _ := h.svc.Approve(ctx, h.ref(t, "hist"), "lead@example.com")
-	a, _ = h.svc.PollCreate(ctx, a.RequestID)
+	a, _ = h.svc.PollCreate(ctx, a.RequestID, nil)
 	h.svc.Extend(ctx, a.ID, a.ExpiresAt.Add(48*time.Hour), "anna@example.com", false)
 	h.svc.RequestClose(ctx, a.ID, "anna@example.com")
 

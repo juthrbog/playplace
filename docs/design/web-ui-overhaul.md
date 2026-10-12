@@ -175,9 +175,9 @@ screen until its phase ships. After that, the real page is the reference.
 - **New request.** The form beside a live slip that shows what approvers
   will see, with the limits stated before the person submits.
 - **History hub.** Search and filters over journeys, including denied,
-  withdrawn and expired ones, with a journey timeline. An ended journey
-  shows its outcome stamp. An open journey shows the status label of its
-  current stage, because a stamp is a fact that does not change.
+  withdrawn, expired and failed ones, with a journey timeline. An ended
+  journey shows its outcome stamp. An open journey shows the status label of
+  its current stage, because a stamp is a fact that does not change.
 - **Lifecycle notices.** The same notices that go to the log and Slack,
   grouped by day, with unread state.
 - **Phone.** Approving from the Slack link, and checking one account.
@@ -392,10 +392,22 @@ The maintainer decided these questions on 2026-10-12. `DESIGN.md` and the
 sections above hold the details.
 
 - **History hub stamps.** An ended journey shows the turned stamp of its
-  recorded outcome event: DENIED, WITHDRAWN, EXPIRED or CLOSED. An open
+  recorded outcome: DENIED, WITHDRAWN, EXPIRED, FAILED or CLOSED. An open
   journey shows the status label of its current stage. No stamp exists for
   an open or pending journey. A reader who cannot see the current account
   never sees APPROVED in the State column.
+- **Failed creation.** A confirmed creation failure (see Retention in
+  [the history design](lifecycle-history.md)) ends its journey. The History
+  hub row shows a turned FAILED stamp in desk ink with a solid border, like
+  DENIED. The fleet row keeps its red "failed" label for the 7 days that the
+  fleet shows the failed creation. A failure that history cannot prove stays
+  open on purpose. Its label and qualifier follow the Failed creation rule in
+  `DESIGN.md`. A way for an operator to resolve such a journey waits for
+  checkpoint 3 or 5 of
+  [the history implementation plan](lifecycle-history-implementation.md).
+  playplace sends the *creation failed* notice once. For a direct `create`,
+  only the CLI wait sends it (see
+  [Notices](../configuration.md#notices)).
 - **Night desk.** `DESIGN.md` sets the night value of all 22 color tokens,
   with the new `shelf-ink` token for green as a foreground. Phase 1 writes
   both palettes, the role variables and the tests, but the night desk stays
@@ -423,10 +435,5 @@ sections above hold the details.
 
 - Whether the ready notice counts as a minimal provisioning outcome that
   approvers can see. Until the maintainer decides, approvers do not see it.
-- A failed account creation never gets a terminal outcome. Its journey
-  stays open, so the retention rule never removes it (`Journey.validate` in
-  `internal/audit/journey.go`, and Retention in
-  [the history design](lifecycle-history.md)). This is a history design
-  question, not a UI question.
 - Night card stock is only 1.1:1 on paper (1.2:1 by day). The maintainer
   looks at it again in the screenshot round at the end of phase 1.

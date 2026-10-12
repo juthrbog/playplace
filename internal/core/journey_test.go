@@ -43,7 +43,7 @@ func TestJourneySurvivesEditApprovalPlacementAndRestart(t *testing.T) {
 	if err != nil || len(inv) != 1 || inv[0].HistoryID() != r.JourneyID {
 		t.Fatalf("creating inventory = %+v, %v", inv, err)
 	}
-	a, err = restarted.PollCreate(ctx, a.RequestID)
+	a, err = restarted.PollCreate(ctx, a.RequestID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +125,19 @@ func TestJourneyRequestEncodingPreservesApprovedIdentity(t *testing.T) {
 	got, err := core.DecodeRequest(r.Key(), r.Encode())
 	if err != nil || got != r {
 		t.Fatalf("round trip = %+v, %v", got, err)
+	}
+	// The failure flag is a new letter in the same record version, and the
+	// approver never saw it, so it keeps the version.
+	reported := r
+	reported.FailureReported = true
+	if got, err := core.DecodeRequest(reported.Key(), reported.Encode()); err != nil || got != reported || got.Version() != r.Version() {
+		t.Fatalf("reported round trip = %+v, %v", got, err)
+	}
+	if !strings.HasPrefix(reported.Encode(), "v3 ") || !core.ValidTagValue(reported.Encode()) {
+		t.Fatalf("reported record = %q", reported.Encode())
+	}
+	if got, err := core.DecodeRequest(r.Key(), r.Encode()); err != nil || got.FailureReported {
+		t.Fatalf("unreported record = %+v, %v", got, err)
 	}
 	// Existing v2 records are readable, but a name alone cannot invent a journey.
 	old, err := core.DecodeRequest("playplace:req:legacy", "v2 13:a@example.com 2:24 2:20 13:a@example.com 10:1789488000 3:web 0: 0:")

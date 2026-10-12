@@ -9,7 +9,7 @@ A distinct playground request's progression and any resulting account lifecycle,
 _Avoid_: Account name (as journey identity)
 
 **Request journey**:
-A lifecycle journey beginning with one playground request submission, including its edits and decisions and any account it produces. Resubmission after denial, withdrawal, or request expiry starts a separate journey, even when the name is reused.
+A lifecycle journey beginning with one playground request submission, including its edits and decisions and any account it produces. Every submission starts a separate journey, even when the name is reused. This includes a resubmission after denial, withdrawal, request expiry, or a failed creation.
 
 **Request version**:
 A pending request's journey together with the values an actor saw: owner, lifetime, budget, purpose, limit override, and who asked and when. An approval, denial, withdrawal, or edit applies only to the version the actor saw. After an edit or a resubmission, the actor must look at the request again.
@@ -18,6 +18,10 @@ _Avoid_: Request name (as the target of a decision)
 **Lifecycle history**:
 The shared operational record of lifecycle journeys, including requests that never produce an account. It makes known gaps explicit; it is not an authoritative audit trail or proof of current account state.
 _Avoid_: Audit trail (as a synonym), account history (when excluding requests)
+
+**Confirmed creation failure**:
+The end of a journey whose account AWS did not create. The conditions are in Retention in `docs/design/lifecycle-history.md`. History records it as `creation-failed`. Any other failed creation leaves the journey open.
+_Avoid_: Failed account (no account exists)
 
 **Playplace ownership**:
 An account's enrollment under playplace management, independent of whether its stored lifetime, approved budget, or close intent is usable. This is distinct from the human owner responsible for the account. Ownership applies in the Playground OU, and to a new account that waits in the organization root for placement. On an account that someone moved out of the OU, the `playplace:managed` tag has no effect.

@@ -435,6 +435,7 @@ var createPoll = 5 * time.Second
 // The wait prints a line only when the state changes.
 func waitForAccount(ctx context.Context, a *app, acc *core.Account, maxWait time.Duration) error {
 	fmt.Printf("waiting for AWS to create %s\n", acc.Name)
+	started := acc // a poll of a direct creation cannot see its journey or owner
 	deadline := time.Now().Add(maxWait)
 	var err error
 	activating := false
@@ -452,7 +453,7 @@ func waitForAccount(ctx context.Context, a *app, acc *core.Account, maxWait time
 			return ctx.Err()
 		case <-time.After(createPoll):
 		}
-		if acc, err = a.svc.PollCreate(ctx, acc.RequestID); err != nil {
+		if acc, err = a.svc.PollCreate(ctx, acc.RequestID, started); err != nil {
 			return createdFailure(err)
 		}
 	}

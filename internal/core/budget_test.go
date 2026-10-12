@@ -28,7 +28,7 @@ func TestBudgetFailureWithholdsAccessAndRetriesManagedAccounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err = h.svc.PollCreate(ctx, a.RequestID)
+	a, err = h.svc.PollCreate(ctx, a.RequestID, nil)
 	if err == nil || a == nil {
 		t.Fatalf("placement should report pending protection: %v", err)
 	}

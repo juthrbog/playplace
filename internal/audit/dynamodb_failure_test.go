@@ -177,6 +177,38 @@ func TestDynamoDBRejectsInvalidEvidence(t *testing.T) {
 			j.Terminal = &TerminalOutcome{"request-expired", historyStart, j.ID}
 		},
 		"backdated terminal": func(j *Journey) { j.Terminal = &TerminalOutcome{"request-expired", historyStart.Add(-time.Hour), j.ID} },
+		"failure without provider request": func(j *Journey) {
+			j.Terminal = &TerminalOutcome{"creation-failed", historyStart, "car-1"}
+		},
+		"failure by journey identity": func(j *Journey) {
+			j.Correlations = []Correlation{{CorrelationProviderRequest, "car-1"}}
+			j.Terminal = &TerminalOutcome{"creation-failed", historyStart, j.ID}
+		},
+		"failure of another request": func(j *Journey) {
+			j.Correlations = []Correlation{{CorrelationProviderRequest, "car-1"}}
+			j.Terminal = &TerminalOutcome{"creation-failed", historyStart, "car-2"}
+		},
+		"failure after account": func(j *Journey) {
+			j.Correlations = []Correlation{{CorrelationProviderRequest, "car-1"}, {CorrelationAccount, "account"}}
+			j.Terminal = &TerminalOutcome{"creation-failed", historyStart, "car-1"}
+		},
+		"failure among attempts": func(j *Journey) {
+			j.Correlations = []Correlation{{CorrelationProviderRequest, "car-1"}, {CorrelationProviderRequest, "car-2"}}
+			j.Terminal = &TerminalOutcome{"creation-failed", historyStart, "car-1"}
+		},
+		"adopted failure": func(j *Journey) {
+			j.Origin = OriginAdoption
+			j.Correlations = []Correlation{{CorrelationProviderRequest, "car-1"}}
+			j.Terminal = &TerminalOutcome{"creation-failed", historyStart, "car-1"}
+		},
+		"operation as failure evidence": func(j *Journey) {
+			j.Correlations = []Correlation{{CorrelationOperation, "op-1"}}
+			j.Terminal = &TerminalOutcome{"creation-failed", historyStart, "op-1"}
+		},
+		"backdated failure": func(j *Journey) {
+			j.Correlations = []Correlation{{CorrelationProviderRequest, "car-1"}}
+			j.Terminal = &TerminalOutcome{"creation-failed", historyStart.Add(-time.Hour), "car-1"}
+		},
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {

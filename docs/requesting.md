@@ -29,7 +29,8 @@ An account counts until AWS confirms its closure. While the table shows it as
 ## After approval
 
 playplace sends a notice when your request is approved, denied, edited, or
-dropped, when the account is ready, before it expires, and when it closes.
+dropped. It also sends one when AWS cannot create the account, when the
+account is ready, before it expires, and when it closes.
 A notice is a short message that playplace writes to its log. If your
 organization set up a Slack channel for notices, playplace also posts each
 notice there. playplace does not message you directly. If you see no
@@ -43,6 +44,12 @@ with the account id. After an hour as *creating*, the row also shows a note
 that the account waits outside the Playground OU for the next reconcile.
 Until then it has no budget or guardrails. If the note is still there after a
 day, tell an operator.
+
+If AWS cannot create the account, the row shows as *failed* for 7 days, and
+playplace sends a *creation failed* notice. No account exists. The notice
+gives the reason from AWS and the next step. Some reasons need a new request
+with another name. Others need an admin first, for example when the
+organization reached its account limit.
 
 The account is in your AWS access portal under the playground permission
 set. Sign in there to reach the console or to get CLI credentials.

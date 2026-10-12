@@ -25,7 +25,10 @@ import (
 // it is written. flags is a set of letters: "o" means an admin overrode the
 // TTL and budget ceilings, "a" means the request was approved and the record
 // is kept until the account is placed, followed by approvedBy, approvedAt,
-// and the provider's create request id.
+// and the provider's create request id. "f" means playplace recorded that
+// AWS could not create the approved account and sent the notice. Older
+// binaries look for single letters and ignore the ones they do not know, so
+// a new flag needs no new record version.
 const (
 	RequestTagPrefix = "playplace:req:"
 	requestVersion   = "v3"
@@ -52,6 +55,10 @@ type Request struct {
 	ApprovedBy      string    `json:"approved_by,omitempty"`
 	ApprovedAt      time.Time `json:"approved_at,omitempty"`
 	CreateRequestID string    `json:"create_request_id,omitempty"`
+
+	// FailureReported is set when AWS reported the creation as failed and
+	// playplace wrote the failed event and sent the notice, so neither repeats.
+	FailureReported bool `json:"failure_reported,omitempty"`
 }
 
 // Key is the OU tag key for this request.
@@ -173,6 +180,9 @@ func (r Request) Encode() string {
 	if r.Approved {
 		flags += "a"
 	}
+	if r.FailureReported {
+		flags += "f"
+	}
 	parts := []string{
 		field(r.Owner),
 		field(strconv.Itoa(int(math.Ceil(r.TTL.Hours())))), // whole hours, rounded up; a shorter TTL would decode as unset
@@ -235,8 +245,9 @@ func DecodeRequest(key, value string) (Request, error) {
 		Via:         parts[5],
 		Purpose:     parts[6],
 
-		OverrideLimits: strings.Contains(parts[7], "o"),
-		Approved:       strings.Contains(parts[7], "a"),
+		OverrideLimits:  strings.Contains(parts[7], "o"),
+		Approved:        strings.Contains(parts[7], "a"),
+		FailureReported: strings.Contains(parts[7], "f"),
 	}
 	if baseFields == 9 {
 		r.JourneyID = parts[8]

@@ -136,7 +136,7 @@ func TestPlacementKeepsAnotherJourneysRecord(t *testing.T) {
 	if err := h.prov.SetOUTags(ctx, map[string]string{other.Key(): other.Encode()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.svc.PollCreate(ctx, a.RequestID); err != nil {
+	if _, err := h.svc.PollCreate(ctx, a.RequestID, nil); err != nil {
 		t.Fatal(err)
 	}
 	if q, err := h.svc.GetRequest(ctx, "demo"); err != nil || q.JourneyID != other.JourneyID {

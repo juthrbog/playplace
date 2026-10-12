@@ -336,7 +336,12 @@ database. A request records owner, TTL, budget, purpose, who asked, and when.
 Approving marks the record approved first and requests the account second,
 so a second approver, in the same process or another, finds nothing pending.
 If AWS refuses the creation the mark is removed and the request is pending
-again. Within one process the refresh pass and every change to the queue are
+again. If AWS accepts the request and reports the creation as failed later,
+the approved record stays for 7 days. The first refresh or CLI wait that sees
+the failure sets an `f` flag in the record, then writes the *failed* history
+event and sends the *creation failed* notice. The flag comes first, so a
+crash can lose the notice but a later pass in the same process does not
+repeat it. Older binaries ignore the flag. Within one process the refresh pass and every change to the queue are
 serialized, so the worker, the web UI, and Slack never run the same pass or
 act on the same request at once. The account carries `requested-by` and
 `approved-by` tags for audit. Requests nobody acts on expire after

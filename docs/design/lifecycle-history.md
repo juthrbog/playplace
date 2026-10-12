@@ -44,6 +44,11 @@ not establish the delivery contract. Current runtime writes remain best-effort.
 In-flight or failed direct creations without a queue record still need runtime
 integration with the new metadata adapter for identity recovery after restart.
 
+For an approved request, Refresh or the CLI wait loop records the failed
+event of a creation once and sends the *creation failed* notice. For a direct
+creation, only the CLI wait loop does this. No runtime code writes a terminal
+outcome yet. Checkpoint 2 writes the `creation-failed` outcome (see Retention).
+
 The existing CloudWatch adapter remains in the runtime reader interface until
 cutover. This is not a new compatibility-window commitment. Runtime readers
 still scan matching records. The DynamoDB adapter uses transactional indexes,
@@ -54,6 +59,7 @@ but its two-second capacity target remains unmeasured.
 Lifecycle history is a shared operational record of a request's journey and any
 resulting account lifecycle. Requests that are denied, withdrawn, or expire
 without producing an account are first-class journeys, not missing history.
+A creation that AWS reports as failed is a first-class journey too.
 
 The record supports investigation, not compliance-grade claims of completeness,
 immutability, or authenticated attribution for every producer. Known gaps and
@@ -93,8 +99,9 @@ current account does not authorize unrelated older records sharing its name.
 
 - Each request submission starts a distinct request journey. Edits preserve its
   identity. Approval connects the resulting account to that same journey.
-- Resubmission after denial, withdrawal, or request expiry starts a new journey,
-  even when its name is identical.
+- Every submission starts a new journey, even when its name is identical. This
+  includes a resubmission after denial, withdrawal, request expiry, or a failed
+  creation.
 - Adoption or direct creation without a request starts an account-origin journey.
   Do not invent a request or approval that never occurred.
 - Names are searchable labels, never sufficient evidence that records belong to
@@ -219,7 +226,9 @@ late-arriving records need validation during implementation.
 ### Web
 
 Provide a role-scoped **History** destination with search and links to individual
-journeys, including pending, denied, withdrawn, expired, and closed journeys.
+journeys, including pending, denied, withdrawn, expired, failed, and closed
+journeys. A journey with a failed creation stays in the hub after its failed row
+leaves the inventory.
 Embed the same timeline on relevant request/account pages rather than providing
 conflicting versions of the story.
 
@@ -246,12 +255,36 @@ event meanings and completeness/error semantics, even where layout differs.
 
 Keep a complete journey while it is open, then retain it for one year after:
 
-- confirmed account closure; or
-- denial, withdrawal, or expiry of an unfulfilled request.
+- confirmed account closure,
+- denial, withdrawal, or expiry of an unfulfilled request, or
+- a confirmed creation failure.
+
+A creation failure is confirmed only when all of these are true:
+
+- AWS reports the exact creation request of the journey as `FAILED`.
+- The journey has no account.
+- No other creation attempt of the journey has an unknown result.
+
+AWS gives an account ID only for a successful creation. It does not say that a
+`FAILED` request made no account, and it does not say that `FAILED` is final.
+playplace accepts the assumption that a `FAILED` request made no account. If an
+account later joins a journey that ended this way, history refuses the join.
+Checkpoint 2 must show that refusal as a history conflict for operator
+investigation. A log line alone is not enough. A history conflict is a write
+that history refused because it contradicts a recorded outcome. Retention
+never expires a journey with a recorded history conflict.
 
 Account expiry, a closure request, missing inventory, or an unresolved
-provisioning/closure failure is not a terminal outcome. Such journeys must not
-expire merely because their last event is old.
+provisioning/closure failure is not a terminal outcome. A failure is unresolved
+when an account can exist, or when history cannot tie the failure to one exact
+creation request. Such journeys must not expire merely because their last event
+is old. They stay open on purpose (see Uncertain outcomes). Examples are a
+transport error after which AWS can have accepted the request, a creation that
+AWS stopped listing before playplace saw its result, and an account that left
+the OU. A way for an operator to
+resolve such a journey waits for checkpoint 3 or 5. AWS CloudTrail records the
+`CreateAccountResult` and `AccountJoinedOrganization` events, which can serve as
+evidence.
 
 This is journey-based retention, not a rolling one-year lifetime for individual
 events. Cleanup must preserve the opening request and approval while their
