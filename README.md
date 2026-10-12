@@ -216,7 +216,7 @@ packages.
 
 | Guide | Covers |
 |---|---|
-| [Design](DESIGN.md) | Architecture, lifecycle rules, and interface decisions |
+| [Architecture](ARCHITECTURE.md) | Architecture, lifecycle rules, and interface decisions |
 | [Development](DEVELOPMENT.md) | Build setup, local testing, and contributor workflows |
 | [Releasing](docs/releasing.md) | CI, release snapshots, Homebrew, and AUR packaging |
 

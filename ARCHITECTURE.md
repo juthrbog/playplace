@@ -1,4 +1,4 @@
-# Design
+# Architecture
 
 Architecture, lifecycle rules, and interface design decisions for playplace.
 For an overview and usage, see [the README](README.md); for contributor setup
