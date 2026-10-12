@@ -6,6 +6,10 @@ set -euo pipefail
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
 dist="${1:-dist}"
+if ! command -v ruby >/dev/null; then
+  echo 'The formula check needs Ruby. Install any recent Ruby with the system package manager.' >&2
+  exit 1
+fi
 case "$(uname -s)" in
   Darwin) os=darwin ;;
   Linux) os=linux ;;

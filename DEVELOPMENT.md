@@ -26,7 +26,9 @@ Linux job builds and smoke-tests distribution snapshots. Shell completions and
     task release:check      # generated views, tests, vet, GoReleaser checks
     task release:snapshot   # local archives and package recipes; never publish
 
-Snapshot validation also needs bash, tar, and Ruby. GoReleaser's source archive
+Snapshot validation also needs bash, tar, and Ruby. Any recent Ruby from the
+system package manager works, because the check only runs `ruby -c` on the
+generated formula. GoReleaser's source archive
 uses committed files; use the intended commit or a disposable local copy for
 pre-commit source-package checks. Generated views are committed so source
 packages do not need templ at build time; `scripts/check-generated.sh` checks
