@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>Overview · playplace</title>
+<style>
+:root{--fg:#0F172A;--fg2:#475569;--fg3:#64748B;--line:#E2E8F0;--line2:#CBD5E1;--soft:#F8FAFC;--hover:#F1F5F9;--acc:#2563EB;--accd:#1D4ED8;--accs:#EFF6FF;--accl:#BFDBFE;--red:#B91C1C;--reds:#FEF2F2;--redl:#FECACA;--amb:#B45309;--ambs:#FFFBEB;--ambl:#FDE68A;--grn:#15803D;--grns:#F0FDF4;--grnl:#BBF7D0;--sans:system-ui,-apple-system,"Segoe UI","Noto Sans","Helvetica Neue",sans-serif;--mono:ui-monospace,"SF Mono",Menlo,Consolas,"Noto Sans Mono",monospace;color-scheme:light}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden;background:#fff}
+body{font:14px/20px var(--sans);color:var(--fg);accent-color:var(--acc);caret-color:var(--acc);-webkit-font-smoothing:antialiased}
+::selection{background:var(--accl);color:var(--fg)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:6px}
+a{color:var(--accd);text-decoration:none}a:hover{text-decoration:underline;text-underline-offset:2px}
+button,input,select{font:inherit;color:inherit}button{cursor:pointer}
+.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.skip{position:absolute;left:16px;top:-48px;z-index:9;background:var(--acc);color:#fff;padding:8px 12px;border-radius:6px}.skip:focus{top:12px}
+.tn,td{font-variant-numeric:tabular-nums}.mu{color:var(--fg2)}.dim{color:var(--fg3)}.bad{color:var(--red)}.warn{color:var(--amb)}
+.id{font-family:var(--mono);font-size:12px;color:var(--fg2)}
+.app{display:grid;grid-template-columns:232px 1208px;grid-template-rows:56px 844px;width:1440px;height:900px;overflow:hidden}
+.side{grid-row:1/3;background:var(--soft);border-right:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:10px;height:56px;padding:0 20px;font-size:16px;font-weight:650;letter-spacing:-0.01em;color:var(--fg)}
+.brand:hover{text-decoration:none}
+.mark{display:grid;place-items:center;width:28px;height:28px;border-radius:7px;background:var(--acc);color:#fff}.mark .i{width:18px;height:18px}
+.nav{display:flex;flex-direction:column;gap:2px;padding:12px}
+.nav a{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:6px;color:var(--fg2);font-weight:500}
+.nav a:hover{background:var(--hover);color:var(--fg);text-decoration:none}
+.nav a[aria-current]{background:var(--accs);color:var(--accd);font-weight:600}
+.nav .i{width:18px;height:18px}
+.ct{margin-left:auto;min-width:22px;padding:0 6px;border-radius:999px;border:1px solid var(--line2);background:#fff;font-size:12px;line-height:18px;text-align:center;color:var(--fg2);font-variant-numeric:tabular-nums}
+.top{display:flex;align-items:center;gap:10px;padding:0 28px;border-bottom:1px solid var(--line)}
+.search{position:relative;width:440px}.search .i{position:absolute;left:12px;top:10px;color:var(--fg3)}
+.search input{width:100%;height:36px;padding:0 12px 0 36px;border:1px solid var(--line2);border-radius:8px;background:#fff}
+.search input::placeholder{color:var(--fg3)}
+.sp{flex:1}
+.btn{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border:1px solid var(--line2);border-radius:8px;background:#fff;color:var(--fg);font-weight:550;white-space:nowrap}
+.btn:hover{background:var(--soft);text-decoration:none}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}.btn.pri:hover{background:var(--accd)}
+.btn.s{height:30px;padding:0 11px;font-size:13px}
+.btn.ok{background:var(--accs);border-color:var(--accl);color:var(--accd)}
+.btn:disabled{background:var(--soft);border-color:var(--line);color:var(--fg3);cursor:not-allowed}
+.vr{width:1px;height:24px;background:var(--line);margin:0 4px}
+.me{display:flex;align-items:center;gap:8px;height:40px;padding:0 8px 0 4px;border:0;border-radius:8px;background:none;font-size:13px}
+.me:hover{background:var(--hover)}
+.av{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#DBEAFE;color:var(--accd);font-weight:650;font-size:13px}
+.tag{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:999px;border:1px solid;font-size:12px;font-weight:550;line-height:1;white-space:nowrap}
+.tag.adm{color:var(--accd);background:var(--accs);border-color:var(--accl)}
+.tag.ovr{color:var(--amb);background:var(--ambs);border-color:var(--ambl)}.tag .i{width:12px;height:12px}
+main{padding:18px 28px 0;overflow:hidden;min-width:0}
+.head{display:flex;align-items:baseline;gap:12px;height:34px;margin-bottom:10px}
+h1{font-size:22px;line-height:28px;font-weight:650;letter-spacing:-0.015em}
+.head .spend{margin-left:auto;display:flex;align-items:baseline;gap:8px;font-size:13px;color:var(--fg2)}
+.head .spend b{font-size:16px;font-weight:650;color:var(--fg)}
+.sum{display:flex;align-items:center;height:38px;padding:0 4px;margin-bottom:16px;border:1px solid var(--line);border-radius:10px;font-size:13px}
+.sum a{position:relative;display:flex;align-items:center;gap:6px;height:100%;padding:0 14px;color:var(--fg2)}
+.sum a+a::before{content:"";position:absolute;left:0;top:11px;bottom:11px;width:1px;background:var(--line)}
+.sum a:hover{color:var(--fg)}.sum b{color:var(--fg);font-weight:650}.sum .i{width:15px;height:15px}
+.panel{margin-bottom:16px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.ph{display:flex;align-items:center;gap:10px;height:46px;padding:0 16px;border-bottom:1px solid var(--line)}
+h2{font-size:15px;line-height:20px;font-weight:650}
+.ph .end{margin-left:auto;display:flex;align-items:center;gap:8px}
+.pill{padding:0 7px;border-radius:999px;background:var(--hover);font-size:12px;line-height:20px;font-weight:600;color:var(--fg2)}
+.note{font-size:13px;color:var(--fg2)}
+.att li{display:grid;grid-template-columns:16px 196px 252px 1fr auto;align-items:center;gap:12px;height:32px;padding:0 16px;list-style:none;font-size:13px}
+.att li+li{border-top:1px solid var(--line)}.att b{font-weight:600}.att .go{display:inline-flex;align-items:center;gap:4px;font-weight:550}.att .go .i{width:14px;height:14px}
+.t{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px}
+.t th{height:32px;padding:0 12px;background:var(--soft);border-bottom:1px solid var(--line);text-align:left;font-size:12px;font-weight:600;color:var(--fg2);white-space:nowrap}
+.t td{padding:6px 12px;line-height:18px;border-bottom:1px solid var(--line);vertical-align:middle}
+.t tbody tr:hover{background:var(--soft)}.t tbody tr:last-child td{border-bottom:0}
+.t th:first-child,.t td:first-child{padding-left:16px}
+.nm{font-weight:600;font-size:13.5px}
+.sub{display:block;font-size:12px;line-height:16px;color:var(--fg2)}
+.acts{display:flex;align-items:center;justify-content:flex-end;gap:6px}
+.nw{white-space:nowrap}.t th input{vertical-align:middle}.you{white-space:nowrap;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:550;color:var(--fg2)}.you .i{width:14px;height:14px}
+.sort{display:inline-flex;align-items:center;gap:4px;padding:0;border:0;background:none;font-size:12px;font-weight:600;color:var(--fg2)}
+.sort:hover{color:var(--fg)}.sort .i{width:13px;height:13px;color:var(--fg3)}[aria-sort] .sort,[aria-sort] .sort .i{color:var(--fg)}
+.st{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border:1px solid;border-radius:999px;font-size:12px;font-weight:550}.st .i{width:13px;height:13px}
+.st.g{color:var(--grn);background:var(--grns);border-color:var(--grnl)}.st.a{color:var(--amb);background:var(--ambs);border-color:var(--ambl)}
+.st.r{color:var(--red);background:var(--reds);border-color:var(--redl)}.st.b{color:var(--accd);background:var(--accs);border-color:var(--accl)}
+.st.n{color:var(--fg2);background:var(--hover);border-color:var(--line2)}
+.f .sub{margin-top:2px}.sub.bad{color:var(--red)}.sub.warn{color:var(--amb)}
+.bh{display:inline-flex;align-items:center;gap:5px}.bh .i{width:14px;height:14px}
+.bar{display:block;height:4px;margin-top:5px;border-radius:2px;background:var(--line);overflow:hidden}.bar i{display:block;height:100%;background:var(--acc)}
+.bar .w{background:#D97706}.bar .x{background:var(--red)}
+.ib{display:grid;place-items:center;width:30px;height:30px;border:0;border-radius:6px;background:none;color:var(--fg2)}.ib:hover{background:var(--hover);color:var(--fg)}
+.flt{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg2)}
+.sel{position:relative;display:inline-flex}.sel .i{position:absolute;right:8px;top:7px;width:14px;height:14px;pointer-events:none;color:var(--fg2)}
+.sel select{appearance:none;height:30px;padding:0 28px 0 10px;border:1px solid var(--line2);border-radius:7px;background:#fff;color:var(--fg);font-size:13px}
+.chk{display:inline-flex;align-items:center;gap:6px;margin-left:6px;color:var(--fg)}.chk input,.t input{width:15px;height:15px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="g-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="8" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="5" rx="1.5"/><rect x="13.5" y="11.5" width="7" height="9" rx="1.5"/><rect x="3.5" y="14.5" width="7" height="6" rx="1.5"/></symbol>
+<symbol id="g-inbox" viewBox="0 0 24 24"><path d="M3.5 13h4.5l1.5 2.5h5L16 13h4.5"/><path d="M6 4.5h12l2.5 8.5v5.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V13z"/></symbol>
+<symbol id="g-layers" viewBox="0 0 24 24"><path d="m12 3.5 8.5 4.25L12 12 3.5 7.75z"/><path d="m3.5 12 8.5 4.25L20.5 12"/><path d="m3.5 16.25 8.5 4.25 8.5-4.25"/></symbol>
+<symbol id="g-history" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6L3.5 8.5"/><path d="M3.5 4v4.5H8"/><path d="M12 7.5V12l3 2"/></symbol>
+<symbol id="g-bell" viewBox="0 0 24 24"><path d="M6 9.5a6 6 0 0 1 12 0c0 5.5 2.5 7.5 2.5 7.5h-17S6 15 6 9.5z"/><path d="M10 20.5a2.3 2.3 0 0 0 4 0"/></symbol>
+<symbol id="g-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></symbol>
+<symbol id="g-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="g-sync" viewBox="0 0 24 24"><path d="M19.5 10.5A7.8 7.8 0 0 0 5.6 7.4L4 9"/><path d="M4 4.5V9h4.5"/><path d="M4.5 13.5a7.8 7.8 0 0 0 13.9 3.1L20 15"/><path d="M20 19.5V15h-4.5"/></symbol>
+<symbol id="g-chev" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+<symbol id="g-alert" viewBox="0 0 24 24"><path d="M10.3 4.2 2.7 17.5a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4M12 17h.01"/></symbol>
+<symbol id="g-xc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m15 9-6 6M9 9l6 6"/></symbol>
+<symbol id="g-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m6 6 12 12"/></symbol>
+<symbol id="g-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9.5" rx="2"/><path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3"/></symbol>
+<symbol id="g-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+<symbol id="g-ok" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 12.2 2.4 2.4 4.6-4.8"/></symbol>
+<symbol id="g-spin" viewBox="0 0 24 24"><path d="M12 3.5A8.5 8.5 0 1 0 20.5 12"/></symbol>
+<symbol id="g-power" viewBox="0 0 24 24"><path d="M12 3.5V11"/><path d="M7 6.5a7.5 7.5 0 1 0 10 0"/></symbol>
+<symbol id="g-sort" viewBox="0 0 24 24"><path d="m8 9 4-4 4 4M8 15l4 4 4-4"/></symbol>
+<symbol id="g-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+<symbol id="g-more" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18.5" cy="12" r="1"/></symbol>
+<symbol id="g-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></symbol>
+<symbol id="g-shield" viewBox="0 0 24 24"><path d="M12 3.5 5 6v5.5c0 4.2 3 7.6 7 9 4-1.4 7-4.8 7-9V6z"/><path d="M12 8.5v4M12 15.5h.01"/></symbol>
+<symbol id="g-cloud" viewBox="0 0 24 24"><path d="M7.5 18.5a4 4 0 0 1-.6-8A5.5 5.5 0 0 1 17.6 9a4.8 4.8 0 0 1-.6 9.5z"/></symbol>
+<symbol id="g-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+</svg>
+<a class="skip" href="#main">Skip to content</a>
+<div class="app">
+<aside class="side">
+<a class="brand" href="/" aria-label="playplace home"><span class="mark"><svg class="i"><use href="#g-cloud"/></svg></span>playplace</a>
+<nav class="nav" aria-label="Main">
+<a href="/" aria-current="page"><svg class="i"><use href="#g-grid"/></svg>Overview</a>
+<a href="#pending"><svg class="i"><use href="#g-inbox"/></svg>Queue<span class="ct">3<span class="sr"> pending requests</span></span></a>
+<a href="/accounts"><svg class="i"><use href="#g-layers"/></svg>Accounts<span class="ct">112<span class="sr"> open accounts</span></span></a>
+<a href="/history"><svg class="i"><use href="#g-history"/></svg>History</a>
+<a href="/notices"><svg class="i"><use href="#g-bell"/></svg>Notices</a>
+</nav>
+</aside>
+<header class="top">
+<form class="search" role="search" action="/search"><label class="sr" for="q">Search accounts, owners, IDs</label><svg class="i"><use href="#g-search"/></svg><input id="q" name="q" type="search" placeholder="Search accounts, owners, IDs" autocomplete="off"></form>
+<span class="sp"></span>
+<button class="btn" type="button"><svg class="i"><use href="#g-sync"/></svg>Sync with AWS</button>
+<a class="btn pri" href="/requests/new"><svg class="i"><use href="#g-plus"/></svg>New request</a>
+<span class="vr"></span>
+<button class="me" type="button" aria-haspopup="menu"><span class="av" aria-hidden="true">M</span>maya@example.com<span class="tag adm">Admin</span><svg class="i"><use href="#g-chev"/></svg></button>
+</header>
+<main id="main">
+<div class="head"><h1>Overview</h1><span class="mu">Sunday, October 11, 2026</span><p class="spend">Month-to-date fleet spend <b class="tn">$4,812.40</b><span class="dim">Cost Explorer data lags about a day</span></p></div>
+<nav class="sum" aria-label="Fleet summary">
+<a href="/accounts"><svg class="i"><use href="#g-layers"/></svg><span><b class="tn">112</b> open accounts</span></a>
+<a href="#pending"><svg class="i"><use href="#g-inbox"/></svg><span><b class="tn">3</b> pending requests</span></a>
+<a href="/accounts?status=expiring"><svg class="i warn"><use href="#g-clock"/></svg><span><b class="tn">6</b> expiring within 3 days</span></a>
+<a href="/accounts?budget=restricted"><svg class="i bad"><use href="#g-lock"/></svg><span><b class="tn">2</b> budget restricted</span></a>
+<a href="/accounts?attention=overdue"><svg class="i bad"><use href="#g-alert"/></svg><span><b class="tn">1</b> closure overdue</span></a>
+<a href="/accounts?status=failed"><svg class="i bad"><use href="#g-xc"/></svg><span><b class="tn">1</b> failed creation</span></a>
+<a href="/accounts?status=unavailable"><svg class="i"><use href="#g-ban"/></svg><span><b class="tn">1</b> unavailable</span></a>
+</nav>
+<section class="panel" aria-labelledby="att-h">
+<div class="ph"><h2 id="att-h">Needs attention</h2><span class="pill tn">4</span><span class="note">Most urgent first</span><span class="end"><a href="/notices">View lifecycle notices</a></span></div>
+<ul class="att">
+<li><svg class="i bad"><use href="#g-alert"/></svg><b>Closure overdue by 2 hours</b><span><a href="/accounts/stuck-close-env">stuck-close-env</a> <span class="id">100000000019</span></span><span class="mu">Closure requested Oct 10 and still unconfirmed. Charges may continue.</span><a class="go" href="/accounts/stuck-close-env">Open account<svg class="i"><use href="#g-arrow"/></svg></a></li>
+<li><svg class="i bad"><use href="#g-lock"/></svg><b>Budget restricted</b><span><b class="tn">2</b> accounts</span><span class="mu"><a href="/accounts/cost-spike-test">cost-spike-test</a> has spent <span class="tn">$74.15</span> of its <span class="tn">$50.00</span> budget.</span><a class="go" href="/accounts?budget=restricted">Show both accounts<svg class="i"><use href="#g-arrow"/></svg></a></li>
+<li><svg class="i bad"><use href="#g-xc"/></svg><b>Creation failed</b><span><a href="/accounts/dup-email-test">dup-email-test</a></span><span class="mu">AWS failure reason: EMAIL_ALREADY_EXISTS</span><a class="go" href="/accounts/dup-email-test">Review failure<svg class="i"><use href="#g-arrow"/></svg></a></li>
+<li><svg class="i"><use href="#g-ban"/></svg><b>Unavailable</b><span><a href="/accounts/suspended-sbx">suspended-sbx</a> <span class="id">100000000008</span></span><span class="mu">AWS reports the account as SUSPENDED.</span><a class="go" href="/accounts/suspended-sbx">Open account<svg class="i"><use href="#g-arrow"/></svg></a></li>
+</ul>
+</section>
+<section class="panel" id="pending" aria-labelledby="q-h">
+<div class="ph"><h2 id="q-h">Approval queue</h2><span class="pill tn">3</span><span class="note">Each decision applies to the request version shown.</span><span class="end"><span class="note">0 selected</span><button class="btn s" type="button" disabled>Approve selected</button><button class="btn s" type="button" disabled>Deny selected</button></span></div>
+<table class="t">
+<colgroup><col style="width:44px"><col style="width:264px"><col style="width:240px"><col style="width:84px"><col style="width:120px"><col style="width:136px"><col style="width:78px"><col></colgroup>
+<thead><tr><th scope="col"><label class="sr" for="qa">Select all 3 requests</label><input id="qa" type="checkbox"></th><th scope="col">Request</th><th scope="col">Owner</th><th scope="col">Lifetime</th><th scope="col">Monthly budget</th><th scope="col">Requested</th><th scope="col">Version</th><th scope="col"><span class="sr">Decision</span></th></tr></thead>
+<tbody>
+<tr><td><label class="sr" for="q1">Select priya-glue-etl</label><input id="q1" type="checkbox"></td><td><a class="nm" href="/requests/priya-glue-etl">priya-glue-etl</a><span class="sub">Glue ETL spike for the Q4 data platform</span></td><td>priya@example.com</td><td>14 days</td><td>$75.00</td><td>2 hours ago<span class="sub">via web by owner</span></td><td class="id">7f3a91</td><td><div class="acts"><button class="btn s ok" type="button" name="approve" value="priya-glue-etl@7f3a91" aria-label="Approve priya-glue-etl, version 7f3a91">Approve</button><button class="btn s" type="button" name="deny" value="priya-glue-etl@7f3a91" aria-label="Deny priya-glue-etl, version 7f3a91">Deny</button></div></td></tr>
+<tr><td><label class="sr" for="q2">Select alex-network-lab</label><input id="q2" type="checkbox"></td><td><a class="nm" href="/requests/alex-network-lab">alex-network-lab</a><span class="sub">Transit gateway routing test</span></td><td>alex@example.com</td><td>36 hours</td><td>$12.50</td><td>40 minutes ago<span class="sub">via Slack</span></td><td class="id">c02e5d</td><td><div class="acts"><button class="btn s ok" type="button" name="approve" value="alex-network-lab@c02e5d" aria-label="Approve alex-network-lab, version c02e5d">Approve</button><button class="btn s" type="button" name="deny" value="alex-network-lab@c02e5d" aria-label="Deny alex-network-lab, version c02e5d">Deny</button></div></td></tr>
+<tr><td><label class="sr" for="q3">Select perf-load-2026</label><input id="q3" type="checkbox"></td><td><a class="nm" href="/requests/perf-load-2026">perf-load-2026</a> <span class="tag ovr"><svg class="i"><use href="#g-shield"/></svg>Limits overridden</span><span class="sub">Q4 load test at production scale</span></td><td>jordan.lee-whitfield<wbr><span class="nw">@platform-engineering.example.com</span></td><td>120 days</td><td>$900.00</td><td>Yesterday<span class="sub">via web by you</span></td><td class="id">9b1f44</td><td><div class="acts"><span class="you" title="Another approver must approve a request you made"><svg class="i"><use href="#g-user"/></svg>Your request</span><button class="btn s" type="button" name="deny" value="perf-load-2026@9b1f44" aria-label="Deny perf-load-2026, version 9b1f44">Deny</button></div></td></tr>
+</tbody>
+</table>
+</section>
+<section class="panel" aria-labelledby="f-h">
+<div class="ph"><h2 id="f-h">Accounts</h2><span class="pill tn">112</span><span class="note">open</span>
+<div class="flt"><label for="fs">Status</label><span class="sel"><select id="fs"><option>All statuses</option><option>Pending</option><option>Creating</option><option>Failed</option><option>Active</option><option>Expiring</option><option>Closing</option><option>Closed</option><option>Unavailable</option></select><svg class="i"><use href="#g-chev"/></svg></span>
+<label for="fb">Budget health</label><span class="sel"><select id="fb"><option>Any</option><option>Alerts only</option><option>Setup pending</option><option>Ready</option><option>Restricting</option><option>Restricted</option><option>Recovering</option><option>Retiring</option><option>Retired</option><option>Error</option><option>Not checked</option></select><svg class="i"><use href="#g-chev"/></svg></span>
+<label class="chk"><input type="checkbox">Needs attention only</label></div></div>
+<table class="t f">
+<colgroup><col style="width:166px"><col style="width:170px"><col style="width:124px"><col style="width:204px"><col style="width:150px"><col style="width:150px"><col style="width:134px"><col></colgroup>
+<thead><tr><th scope="col" aria-sort="ascending"><button class="sort" type="button">Name<svg class="i"><use href="#g-up"/></svg></button></th><th scope="col"><button class="sort" type="button">Owner<svg class="i"><use href="#g-sort"/></svg></button></th><th scope="col"><button class="sort" type="button">Account ID<svg class="i"><use href="#g-sort"/></svg></button></th><th scope="col"><button class="sort" type="button">Status<svg class="i"><use href="#g-sort"/></svg></button></th><th scope="col"><button class="sort" type="button">Budget health<svg class="i"><use href="#g-sort"/></svg></button></th><th scope="col"><button class="sort" type="button">Spend this month<svg class="i"><use href="#g-sort"/></svg></button></th><th scope="col"><button class="sort" type="button">Expires<svg class="i"><use href="#g-sort"/></svg></button></th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+<tbody>
+<tr><td><a class="nm" href="/accounts/alex-sandbox">alex-sandbox</a></td><td>alex@example.com</td><td class="id">100000000002</td><td><span class="st g"><svg class="i"><use href="#g-ok"/></svg>Active</span></td><td>Ready</td><td>$79.02 <span class="mu">of $150.00</span><span class="bar" aria-hidden="true"><i style="width:53%"></i></span></td><td>Oct 27<span class="sub">16 days left</span></td><td><button class="ib" type="button" aria-label="More actions for alex-sandbox"><svg class="i"><use href="#g-more"/></svg></button></td></tr>
+<tr><td><a class="nm" href="/accounts/cost-spike-test">cost-spike-test</a></td><td>alex@example.com</td><td class="id">100000000014</td><td><span class="st g"><svg class="i"><use href="#g-ok"/></svg>Active</span></td><td><span class="bh bad"><svg class="i"><use href="#g-lock"/></svg>Restricted</span><span class="sub">Over budget</span></td><td>$74.15 <span class="mu">of $50.00</span><span class="bar" aria-hidden="true"><i class="x" style="width:100%"></i></span></td><td>Oct 30</td><td><button class="ib" type="button" aria-label="More actions for cost-spike-test"><svg class="i"><use href="#g-more"/></svg></button></td></tr>
+<tr><td><a class="nm" href="/accounts/data-pipeline-poc">data-pipeline-poc</a></td><td>priya@example.com</td><td class="id">100000000021</td><td><span class="st g"><svg class="i"><use href="#g-ok"/></svg>Active</span></td><td>Setup pending<span class="sub">Settling protection</span></td><td>$8.40 <span class="mu">of $75.00</span><span class="bar" aria-hidden="true"><i style="width:11%"></i></span></td><td>Oct 25</td><td><button class="ib" type="button" aria-label="More actions for data-pipeline-poc"><svg class="i"><use href="#g-more"/></svg></button></td></tr>
+<tr><td><a class="nm" href="/accounts/dup-email-test">dup-email-test</a></td><td>sam@example.com</td><td class="dim">No account</td><td><span class="st r"><svg class="i"><use href="#g-xc"/></svg>Failed</span><span class="sub">EMAIL_ALREADY_EXISTS</span></td><td class="dim">Not checked</td><td class="dim">None</td><td class="dim">None</td><td><button class="ib" type="button" aria-label="More actions for dup-email-test"><svg class="i"><use href="#g-more"/></svg></button></td></tr>
+<tr><td><a class="nm" href="/accounts/k8s-upgrade-lab">k8s-upgrade-lab</a></td><td>jordan@example.com</td><td class="dim">ID pending</td><td><span class="st b"><svg class="i"><use href="#g-spin"/></svg>Creating</span><span class="sub">AWS is creating it (3 minutes)</span></td><td class="dim">Not checked</td><td class="dim">No data yet</td><td class="dim">Not set</td><td><button class="ib" type="button" aria-label="More actions for k8s-upgrade-lab"><svg class="i"><use href="#g-more"/></svg></button></td></tr>
+<tr><td><a class="nm" href="/accounts/ml-gpu-bench">ml-gpu-bench</a></td><td>sam@example.com</td><td class="id">100000000011</td><td><span class="st a"><svg class="i"><use href="#g-clock"/></svg>Expiring</span></td><td>Ready</td><td>$412.80 <span class="mu">of $500.00</span><span class="bar" aria-hidden="true"><i class="w" style="width:83%"></i></span></td><td>Oct 13<span class="sub warn">2 days 4 hours left</span></td><td><button class="ib" type="button" aria-label="More actions for ml-gpu-bench"><svg class="i"><use href="#g-more"/></svg></button></td></tr>
+<tr><td><a class="nm" href="/accounts/stuck-close-env">stuck-close-env</a></td><td>jordan@example.com</td><td class="id">100000000019</td><td><span class="st n"><svg class="i"><use href="#g-power"/></svg>Closing</span><span class="sub bad">Overdue by 2 hours</span></td><td>Retiring</td><td>$3.10 <span class="mu">of $50.00</span><span class="bar" aria-hidden="true"><i style="width:6%"></i></span></td><td>Closure requested<span class="sub">Oct 10</span></td><td><button class="ib" type="button" aria-label="More actions for stuck-close-env"><svg class="i"><use href="#g-more"/></svg></button></td></tr>
+<tr><td><a class="nm" href="/accounts/suspended-sbx">suspended-sbx</a></td><td>jordan@example.com</td><td class="id">100000000008</td><td><span class="st n"><svg class="i"><use href="#g-ban"/></svg>Unavailable</span><span class="sub">AWS reports SUSPENDED</span></td><td class="dim">Not checked</td><td class="dim">Unavailable</td><td class="dim">Unknown</td><td><button class="ib" type="button" aria-label="More actions for suspended-sbx"><svg class="i"><use href="#g-more"/></svg></button></td></tr>
+</tbody>
+</table>
+</section>
+</main>
+</div>
+</body>
+</html>

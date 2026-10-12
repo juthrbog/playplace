@@ -1,727 +1,740 @@
-# Design
-
-Architecture, lifecycle rules, and interface design decisions for playplace.
-For an overview and usage, see [the README](README.md); for contributor setup
-and local testing, see [Development](DEVELOPMENT.md).
-
-## Principles
-
-- **No state.** The Playground OU says which accounts exist; tags on each
-  account say everything else. Anything not derivable from AWS is not kept,
-  except an optional history log, which is queried for display but never used
-  to decide account lifecycle state. See [No state file](#no-state-file).
-- **Management account only.** The tool holds management-account
-  credentials and never assumes a role into a playground account. What runs
-  inside an account is somebody else's concern.
-- **Every account starts as an approved request.** Requests wait as tags on
-  the OU. Approval, not creation, is the human step, because a created
-  account cannot be closed for four days and counts against quota.
-- **Guardrails are data, not code paths.** Owner, expiry, budget, and the
-  approval trail are tags. Ceilings and limits are configuration.
-- **Cost Explorer bills per call.** Nothing polls it. Views cache for an
-  hour; `list` never touches it.
-
-## No state file
-
-There is no database and no state file. The playground OU decides which
-accounts are playgrounds, and tags on each account hold the rest:
-
-| tag | meaning |
-|---|---|
-| `playplace:managed` | `true` once the tool has tagged the account |
-| `playplace:journey` | stable history correlation identity, not lifecycle authority |
-| `playplace:owner` | who is responsible |
-| `playplace:expires` | RFC3339 expiry |
-| `playplace:budget` | desired approved monthly budget in USD |
-| `playplace:budget-policy` | configured restriction SCP; prevents silently removing enforcement |
-| `playplace:budget-health`, `playplace:budget-checked` | observed protection state and last state/error-change time |
-| `playplace:budget-error` | bounded base64url error text |
-| `playplace:budget-recovery` | compact base64url recovery intent: action ID, approved limit, pre-update spend, month and reverse/reset phase |
-| `playplace:warned-at` | set once the *expiring* notice was sent |
-| `playplace:close-requested` | durable close intent and start of the closure-monitoring clock |
-| `playplace:closed-at` | when playplace observed AWS `CLOSED` and recorded confirmation |
-| `playplace:close-alerted-at` | one-shot overdue-closure warning marker |
-| `playplace:access` | Identity Center principal the owner's access was granted to |
-| `playplace:handoff` | initial handoff progress: `placing`, `pending`, or `complete`; absent on legacy accounts |
-| `playplace:requested-by`, `playplace:approved-by`, `playplace:purpose` | audit trail from the request |
-
-Pending requests are tags on the Playground OU itself, keyed `playplace:req:<name>`.
-AWS allows 50 tags on a resource, so the queue holds at most 50 requests,
-pending and approved-but-not-yet-placed together, less any other tags on the
-OU. A request past that is refused with a message saying so.
-
-A name whose account was closed cannot be requested again while the closed
-account is still listed, because AWS never frees a root email and the email
-is derived from the name. `create --email` with a fresh address is the way
-around it.
-
-Everything stored in a tag obeys AWS's rules: values up to 256 characters made
-of letters, numbers, spaces, and `_ . : / = + - @`. Purpose is capped at 120
-characters so the request record fits. Owners, requesters, and purposes are
-checked on the way in and refused with a message that names the rule.
-
-Everything else is read live: account status from Organizations, in-flight
-and failed creations from `ListCreateAccountStatus`, finished creations that
-wait for placement from the organization root, spend from Cost Explorer.
-Accounts that land in the OU without tags are adopted with defaults on the
-next refresh. Cost Explorer bills per call, so `list` never touches it;
-`show`, `costs`, the TUI, and the web UI cache results for an hour.
-
-### Placement and the organization
-
-Only `playplace init` creates the organization or the Playground OU. Every
-other command looks them up and fails when either is missing. This stops a
-wrong AWS profile, a typo in the OU name, or an OU nested below another OU
-from creating a new, empty OU that has none of the operator's SCPs.
-
-Playplace finds the OU in one of two ways. `--ou-name` finds it by name
-among the direct children of the organization root. `--ou-id` finds it by
-ID at any depth, with one read-only `DescribeOrganizationalUnit` call, and
-takes the name of the OU from AWS for display. Playplace refuses to start
-when the operator sets both, because it would ignore the name. When
-`--ou-name` finds no OU, the error names `--ou-name` and points to `--ou-id`
-for a nested OU. It names `playplace init` only for the case where no
-Playground OU exists yet. When the real OU is nested, `init` without
-`--ou-id` creates a second OU under the root. With `--ou-id`, `init` creates
-nothing, not even the organization, because a new organization cannot hold
-the OU. It verifies the OU and reports it. An ID that AWS does not find, or
-that belongs to another organization, fails every command closed. AWS does
-not show an OU of another organization, so a wrong profile ends there too.
-A failed lookup is not cached, so a running `serve` continues once the
-lookup succeeds, for example after `init` runs.
-
-A valid ID of the wrong OU passes every check. The OU must hold only
-accounts that the operator wants playplace to manage. On the first refresh,
-playplace adopts every active account in the OU that does not have the
-`playplace:managed=true` tag. The account keeps each valid playplace owner,
-expires and budget tag. Without an owner tag, the owner is `unknown`.
-Without a valid expires or budget tag, the account gets the default
-lifetime or the default budget. playplace closes the account when its
-lifetime ends. Two kinds of account are not adopted. playplace starts to
-close an account with a `playplace:close-requested` tag at once. It leaves
-an account with a damaged `playplace:close-requested` tag alone until
-someone repairs the tag. So `init` lists these accounts with what the next
-refresh does to each. It also lists the active accounts in the OU that have
-the `playplace:managed=true` tag, and the creations of playplace that wait
-in the organization root. A quarantine OU that is named by mistake shows its
-accounts there. The next refresh resumes their management, and it closes
-each one that expired or has a `playplace:close-requested` tag. It moves
-each waiting creation into the named OU, unless the creation has damaged
-tags. Placement happens once, so a creation in the wrong OU stays there
-after the operator corrects the OU. `init` does not list the accounts in
-the OU that AWS is already closing, because the refresh only tracks that
-closure. The operator checks the list and moves every other account out of
-the OU before any other command, because most commands start with a
-refresh.
-
-AWS creates every new account in the organization root. Placement moves it
-from there into the OU, once. Playplace places an account only when it sits
-directly under the root and its tags say `playplace:managed=true` and
-`playplace:handoff=placing`. Readiness replaces `placing` right after the
-move, so a placed account never qualifies again. The provider also refuses
-to move an account from any parent other than the root. Placement does not
-write the handoff tag. Refresh and the creation poll of `create` and
-`approve` read the account again after they place it. A stale read then
-cannot undo a handoff that another process finished, and the `placed`
-history event and the *ready* notice are not repeated. A nested OU changes
-none of this. Placement moves an account straight from the root into it, and
-never from a parent OU.
-
-An operator can move an account out of the OU, for example to a quarantine
-OU. That ends playplace management for the account: playplace does not move
-it back, show it, close it at expiry, or revoke owner access. The budget and
-any owner access stay. Its name and its place in the per-owner limit are free
-again. Moving the account back into the OU resumes management with its
-existing tags. See
-[the deployment guide](deploy/README.md#move-an-account-out-of-the-playground-ou).
-
-A creation that is not placed yet stays in the root. The inventory shows it
-as `creating` with its owner from the creation tags. After one hour it also
-carries a note: it waits for the next reconcile and has no budget, OU
-guardrail, or expiry until then. The note does not say that placement
-failed, because the inventory cannot tell whether a reconcile ran. Every
-refresh retries the placement and fails while it fails. Nothing ages these
-accounts out, so they stay visible and keep failing reconciliation until
-placement succeeds or an operator acts. To stop the retries, remove the
-`playplace:handoff` tag from the account or move it to another OU.
-Playplace never closes an account in the root. If the approved expiry passed
-while the account waited there, the pass that places it also closes it.
-
-AWS can take a few minutes to activate a new account after it reports the
-creation as done. Until then AWS shows the account state as
-`PENDING_ACTIVATION`, and nothing places the account. For one hour after AWS
-created the account, the inventory and the creation poll of `create` and
-`approve` show it as `creating`. The creation poll keeps going, and refresh
-does not report the account. After that hour the account is `unavailable`,
-and refresh reports it.
-
-The root listing reads tags only for accounts that can be playplace
-creations. It skips the management account, invited accounts, and names that
-playplace never gives. If the root listing fails, the inventory still lists
-the OU and the queue, and refresh reports the failure. AWS can report a
-creation as done before it lists the new account. For one hour after that
-report, the inventory shows the creation from its status while neither the
-root nor the OU lists the account. This keeps the name taken.
-
-### Ownership is not tag validity
-
-The account module interprets `playplace:managed=true` as ownership independently
-of expiry, approved budget, and close-intent validity. Defaults belong to genuine
-adoption, not repair of owned accounts. Missing/invalid owned expiry or budget,
-and nonempty malformed close intent, produce field diagnostics rather than a new
-lifetime, a replacement approved amount, or assumed absence of closure intent.
-Unknown expiry/budget render as unknown (JSON `null` with `tag_errors`); lifecycle
-status remains derived separately. Repair never enrolls a legacy initial handoff.
-
-Readiness, placement, and budget changes require intact guardrail facts. While
-repair is needed, existing access and AWS protection remain; no new grant,
-handoff, budget update, reverse or reset is attempted. Extension requires known
-expiry and unambiguous close intent, not a valid budget. Neither extension nor
-budget mutation doubles as corruption repair, including with an override.
-
-There is deliberately no global all-tags-valid gate: valid expiry can still
-justify closure, valid close intent still progresses, explicit close remains
-available, and fresh AWS closure state supports monitoring and retirement.
-Malformed close intent alone cannot initiate closure. On observed
-`PENDING_CLOSURE`, a missing/unusable monitoring timestamp may be recorded as the
-current observation time, not a reconstruction of when closure was requested.
-Retirement ignores unrelated damaged facts and retains all fresh adapter safety
-checks. Active repair errors do not stop work on other accounts.
-
-This chooses explicit operator repair over automatic renewal, automatic closure
-based on unknown expiry, or a new repair command. See the
-[operator repair procedure](docs/budgets.md#damaged-account-guardrail-tags).
-No provider interface or durable tag format is added.
-
-
-## Budget protection
-
-The AWS adapter reconciles budget amounts, the two owned notification thresholds,
-and optional per-account AWS Budgets action configuration. The core budget module
-owns recovery approval, durable phase progression, and reverse/reset ordering.
-No-op passes never call
-`UpdateBudget`, which resets AWS's calculated spend. New owner grants wait for
-successful protection setup; failures on existing managed accounts are retried
-without preventing expiry/closure. Admin increases persist intent before AWS
-mutations. Reverse completion is observed before persisting the reset phase,
-so a crash after reset cannot authorize reversal of a newly executed action.
-Confirmed-closed accounts reconcile owned-action retirement independently of the
-closure-confirmation marker. The provider rechecks CLOSED, account/OU ownership,
-and the action's target/policy/role before deletion; only subsequent absence means
-`retired`. Failures retry across restarts without reverting closure. Budgets and
-alerts remain; retirement does not reverse/reset actions or clean up member resources.
-The SCP and execution role are deployed separately; runtime never directly
-attaches/detaches policies. See [Budget protection](docs/budgets.md) for coverage,
-authorization, recovery, retirement, and the single-writer deployment requirement.
-
-The budget module spans `internal/core/budget.go` and `budget_recovery.go`:
-`SetBudget` inspects pre-change spend and persists the approved amount and recovery
-intent before reconciliation can update AWS. `EnsureBudget` repairs configuration
-and returns observations, never recovery-phase instructions or reverse/reset
-requests. Core chooses explicit mutations through `ExecuteBudgetAction`; the AWS
-adapter rechecks the target and owned action before submitting them. Reverse
-success only advances the durable phase; reset is submitted on a later pass.
-Missing action observations mean setup is pending, while observed empty/unknown
-statuses remain errors. Recovery intent is retained on errors, even if the action
-has progressed; accepted mutations are not completion.
-A trigger repair (threshold, notification type or approval model) returns no
-observation, because it changes when AWS acts. A recipient rotation that AWS
-accepts returns the status that the pass read before the update, because a
-recipient does not change when or how AWS acts. So an accepted change of
-`--alert-email` from one address to another changes no budget health, keeps
-`playplace:budget-checked`, and sends no notice. If AWS rejects the update,
-for example while it locks the action during a transition, the pass fails
-like any other error, and a later pass retries it. A rotation reaches only
-active, unexpired accounts without a close request. Budgets of closed,
-closing and expired accounts keep the old address until an operator changes
-it in AWS Budgets.
-
-Settling protection is a state that a later pass completes: `setup-pending`,
-`restricting`, `recovering` or `retiring`. It is progress, not failure.
-Creation polling, budget changes, closure and refresh succeed while protection
-settles. New grants and the initial handoff wait for it. A pass fails only when
-one state lasts more than two hours after `playplace:budget-checked`, so
-protection that never settles still alerts. A recovery step that AWS reports
-as `REVERSE_FAILURE` or `RESET_FAILURE` is not settling. Playplace sends it
-again, and that pass fails at once while health stays `recovering`. Finished
-setup sends no budget notice, because the *ready* notice covers a new
-account. A repair from `error` is announced when it starts, not when it
-finishes.
-
-The fake adapter simulates remote completion of explicitly submitted operations,
-not recovery policy. Like AWS, it shows a newly created action only on the next
-pass. It records the alert recipient of each account, and a new recipient keeps
-the observation, as in the AWS adapter. The same core decisions run against
-both adapters. Recovery records retain
-their existing tag encoding and resume without migration; caller commands and
-health states are unchanged. Caller-interface
-tests use the real AWS adapter with loopback observations and durable mock tags to
-exercise interrupted writes, restarts, re-execution and period rollover together.
-These tests do not establish live AWS propagation, IAM or SCP behavior.
-
-## Lifecycle
-
-Statuses are derived, never stored:
-
-    pending    a request waiting for an approver (a tag on the OU)
-    creating   a creation request AWS has not finished, or a finished creation
-               that still waits in the organization root for placement
-    failed     a creation request AWS rejected (kept 7 days)
-    active     in the OU with no warning or close tag
-    expiring   the warned-at tag is set
-    closing    close intent is tagged or AWS reports PENDING_CLOSURE
-    closed     AWS explicitly reports CLOSED
-    unavailable AWS reports SUSPENDED or an unknown state, or it reports
-                PENDING_ACTIVATION and the account is placed or AWS created
-                it more than one hour ago
-
-AWS lets you close 20% of member accounts or 250, whichever is higher, per
-rolling 30 days (capped at 1000, at most 3 closures in flight), and a new
-account cannot be closed for its first 4 days. A refused close leaves the
-intent in the tag and each refresh retries while AWS still reports ACTIVE.
-`CloseAccount` is asynchronous: accepting it is not confirmed closure. Pending
-closures stay visible and consume the owner's account slot. Each refresh checks
-AWS's `State` field; suspension alone is never treated as closure. Older API
-emulators exposing only ambiguous `Status=SUSPENDED` show as unavailable.
-
-After `--close-alert-after` (default `24h`) without confirmation, reconciliation
-returns an error, logs the overdue account, records `closure-overdue` in history,
-and sends the *overdue* notice once. Monitoring continues until AWS reports
-`CLOSED`. playplace stores the confirmation and notice markers in account tags.
-When it cannot write one, it reports the error and tries again on the next
-refresh. Notices and history remain best-effort, so alert on failed scheduled
-reconciliation as well.
-
-Before granting playground access, deploy the purchase/trail guardrail SCP and
-review existing accounts using [the deployment safeguards guide](deploy/README.md#billing-and-closure-safeguards).
-The SCP blocks new commitments and Marketplace purchases and member-created
-trails; organization audit trails are preserved. Nothing runs `aws-nuke` or
-deletes account resources. Closure is not a guarantee of zero further bills:
-prior usage, existing commitments, Marketplace subscriptions, and central
-logging costs need separate operator review.
-
-### Lifecycle notices
-
-A lifecycle notice is a short message about a change to a request or an
-account. Examples are the *approved*, *denied*, *expiring*, and *closed*
-notices. `core.Service` hands each notice to one notifier. `notify.Log`
-always runs and writes the notice to the log at Warn, so the default
-`--log-level` of `warn` shows it. With `--slack-webhook`, `notify.Multi` also
-posts it to the webhook's channel. The log line stays next to Slack on
-purpose. The log then records what playplace sent, and a failed post leaves
-the text of the notice in the log next to the error. Warn does not raise an
-alert, because the deployment guide alerts on error logs.
-
-A notice goes to a log or a channel, never to a person. Its owner field names
-the account owner, or `approvers` for a new request. The requester is not a
-recipient. When the requester or the owner must know, an approver tells them,
-or they read the channel.
-
-`serve` logs one warning at startup when only the log carries notices. Other
-commands do not warn. They run on every operator call or, like `reconcile`,
-on a schedule, so the same warning would repeat on every run. The TUI moves
-the log notifier to its notice feed with the service logger.
-
-
-## Requests and approval
-
-Every account starts as a request, and every request needs an approver who is
-not the requester. Pending requests live as tags on the Playground OU, one tag
-per request, so the CLI, TUI, web UI, and Slack all see the same queue with no
-database. A request records owner, TTL, budget, purpose, who asked, and when.
-Approving marks the record approved first and requests the account second,
-so a second approver, in the same process or another, finds nothing pending.
-If AWS refuses the creation the mark is removed and the request is pending
-again. Within one process the refresh pass and every change to the queue are
-serialized, so the worker, the web UI, and Slack never run the same pass or
-act on the same request at once. The account carries `requested-by` and
-`approved-by` tags for audit. Requests nobody acts on expire after
-`--request-ttl` (7 days).
-
-A decision names the request version that the actor saw, not only the
-request name. A request version is the journey id and a short digest of the
-values in the pending record. It changes when an admin edits the request. It
-also changes when the request ends and someone submits a new request with the
-same name. playplace computes the version from the record, so the version
-needs no storage. Every interface sends the version that it showed. The web
-forms carry it in a hidden field. Slack buttons carry it in their value. The
-TUI takes it from the loaded row. The CLI prints the request and uses the
-version that it printed. Every view where an approver decides shows the exact
-budget and lifetime that the version binds: the CLI prompt, the TUI dialog,
-the web pending row, Slack, and the notices. A lifetime that is not a whole
-number of days shows in hours, for example `36 hours`, never as `1 day`. The
-TUI grid keeps its compact money format, for example `$1.3k`.
-
-Approve, deny, withdraw, and edit refuse a version that no longer matches,
-and the refusal tells the actor to look again. A refusal also drops the
-cached inventory, so the next view reads the queue live. The web UI shows the
-current pending card next to the error. The same check stops an edit form
-that was filled before another admin's edit from undoing that edit. Within
-one process the check is exact. Across processes a gap of about one AWS round
-trip stays open between the check and the write, because AWS tags have no
-compare-and-swap (a write that fails when the value changed since the read).
-Only an upgraded CLI, TUI, or `serve` checks the version. The record format
-did not change, so an older binary still reads the queue and acts by name
-alone. Every operator must upgrade the CLI and TUI before all decisions are
-bound to a version.
-
-Guardrails applied at request time: the name must be free, the owner must be
-an Identity Center user when `--permission-set` is set, one person may hold
-at most `--max-per-owner` open accounts plus pending requests (default 1),
-and a request may ask for at most `--max-ttl` (90d) and `--max-budget` ($500).
-Only admins can exceed the two ceilings: the override checkbox in the web
-form, or `--override-limits` on the CLI. The override is recorded on the
-request, shown to approvers, and carried into the account when approved.
-Approval applies the configuration of the process that approves, not the
-configuration of the process that queued the request. Without an override,
-approval checks the ceilings again against its own `--max-ttl` and
-`--max-budget`. It derives the root email from its own `--email-pattern`. It
-looks up the owner in Identity Center only when its own `--permission-set` is
-set. Run the CLI and TUI with the same `PLAYPLACE_*` environment as `serve`.
-Otherwise an approval from the CLI or the TUI can create an account with the
-default root email pattern, `aws+pp-{name}@example.com`.
-
-The lifetime ceiling holds after approval too. An extension may not push an
-account's expiry past `--max-ttl` counted from when it was created, so
-repeated extensions cannot walk around the limit. Admins may go past it: in
-the web UI every admin extend is an override, on the CLI and in the TUI it
-is `--override-limits` or the override field in the form. Each extension is
-written to history with whether the ceiling was overridden.
-
-Who may approve:
-
-- in the web UI, emails in `--approvers` and `--admins`
-- in Slack, the same people, identified by their Slack email
-- on the CLI and in the TUI, whoever holds management credentials; their
-  identity is recorded from `PLAYPLACE_OPERATOR` or the local user and host,
-  and it is also the requester of anything they queue, even for someone else
-
-Admins can edit a pending request before approving it: owner, days, budget,
-and purpose, from the Edit button in the web UI or `playplace edit-request`.
-The admin who edits a request can then approve it alone, also after an edit
-that sets the limit override. This is an accepted risk. Admins are trusted,
-history records the edit, and the *edited* notice lists each change.
-Self-approval is refused unless `--allow-self-approval` is set: nobody may
-approve a request they asked for or would own. A requester can withdraw
-their own request from the web UI, with `playplace withdraw`, or with `w` in
-the TUI; admins and operators can withdraw any. `create` on the CLI skips
-the queue for operators and records them as approver; it and `approve` do
-not apply the per-owner limit, which is checked when a request is queued.
-`create` refuses a name that a pending request holds. Deny or withdraw the
-request first, so that its journey ends with a recorded decision. When
-playplace places an account, it removes only the approved record of the same
-journey. It never removes a record that only has the same name.
-
-The edit forms in the web UI and the TUI hold the exact stored values, and
-they send only the fields that the editor changed. An untouched lifetime or
-budget keeps its exact value, even when it is not a whole number of days or
-dollars. The web form shows such a lifetime as part of a day, for example
-1.5, and the TUI form shows it in hours, for example `36h`. Both forms also
-show it in words next to the field, for example `now 36 hours`.
-
-### Slack approvals (optional)
-
-With a Slack app configured, each request submitted in the web UI also posts
-a message with Approve and Deny buttons to a channel. Requests queued from the
-CLI or the TUI do not post a message:
-
-    playplace serve ... --base-url https://playplace.example.com \
-      --slack-channel C0123456 --slack-signing-secret ... --slack-bot-token xoxb-...
-
-The app needs `chat:write` and `users:read.email`, and its interactivity URL
-must point at `https://playplace.example.com/slack/interact`. A click is
-verified with the signing secret, the clicker's Slack email is checked against
-the approver list, and the message is rewritten with the outcome. Approving in
-Slack and approving in the UI act on the same queue entry. The message shows
-the exact budget, the exact lifetime, and the limit override, because its
-buttons bind to them. playplace does not update the message when someone
-edits, withdraws, or decides the request elsewhere. The buttons carry the
-request version that the message shows. After any of those changes,
-playplace refuses a click with a private reply that points to the web UI.
-Buttons from an older playplace carry only the name, and playplace refuses
-them the same way.
-
-
-## Account readiness and initial handoff
-
-Placement in the Playground OU is not readiness. One readiness module in
-`internal/core/readiness.go` advances accounts from creation polling and refresh:
-observed budget protection, optional owner access, then initial handoff. Placement
-history is recorded independently of protection/access success. Lifecycle status
-stays derived as before; an `active` account can still be awaiting readiness.
-Settling protection is not a failure. Creation polling returns the placed
-account, and `approve` and `create` print what it still waits for.
-
-An initial handoff requires an unexpired ACTIVE account with no close intent,
-configured protection without an active budget restriction, and an identified
-owner. With managed access enabled, the owner grant must succeed and its principal
-must be recorded. Otherwise free-text owners are accepted, except blank values
-and the placeholders `unknown` (case-insensitive) and `?`. Pending protection,
-failed grants, and unidentified owners are retried without delaying expiry or
-closure. Existing access is not revoked solely because readiness is lost.
-
-New creation requests carry `playplace:handoff=placing` in their original tags,
-so interruption before OU placement does not lose eligibility. The same tag
-is the only permission to place: see
-[Placement and the organization](#placement-and-the-organization). After placement,
-`pending` is persisted before the best-effort placement history write. Newly
-adopted accounts start at `pending` in the same write that marks them managed.
-Both paths resume through refresh, including after a move succeeded but a tag
-write failed. Already-managed accounts without this tag receive no retroactive
-handoff notices, even when invalid lifecycle tags need repair; their protection
-and access still reconcile normally.
-
-Once readiness is observed, `complete` is persisted before attempting the existing
-*ready* notice. A failed completion write fails reconciliation and
-retries; a failed notification, or a crash after completion was persisted, may
-lose the notice rather than repeat it. History and notification delivery remain
-best-effort and are never consulted as state. Repeated polling, restarts, and later
-budget/access recovery do not reset the milestone. Keep the single-writer rule;
-this is not a transactional or exactly-once delivery guarantee.
-
-## Owner access
-
-With `--permission-set NAME_OR_ARN` (or `PLAYPLACE_PERMISSION_SET`), owners
-must be IAM Identity Center users, given by email or user name. When an
-account is placed in the OU the owner is assigned that permission set on it,
-so the account appears in their access portal. The grant is recorded in the
-`playplace:access` tag and removed when the account closes. Accounts adopted
-from the OU get the same treatment when their owner tag resolves to a user.
-Without the flag, owners are free text and nothing is granted.
-
-Identity Center must be enabled in the management account, and the
-permission set must already exist; create one such as `PlaygroundOwner` with
-the policies your sandboxes allow. The Identity Center calls go to the
-default region, so `--aws-region` (or the profile's region) must be the
-Identity Center home region.
-
-
-## Web UI and sign-in
-
-`playplace serve` runs the web UI and a refresh pass every minute. Sign-in is
-OpenID Connect against any provider, with a preset for Google:
-
-    export PLAYPLACE_OIDC_CLIENT_SECRET=...
-    playplace serve --oidc-preset google --oidc-client-id ... \
-      --oidc-redirect-url https://playplace.example.com/auth/callback \
-      --allowed-domain example.com --admins admin@example.com \
-      --approvers lead@example.com --base-url https://playplace.example.com
-
-Any other provider works with `--oidc-issuer https://your-idp/...`. The
-verified email from the ID token becomes the owner of everything the person
-requests. Engineers see and manage only their own accounts and requests.
-Emails in `--approvers` see the queue and can approve and deny. Emails in
-`--admins` see the fleet, can request on someone's behalf, edit pending
-requests, override the TTL and budget ceilings, and run the sync. With
-`--permission-set` set, the signed-in email must exist in Identity Center,
-which is what makes the access grant land on the right person.
-
-Sign-in turns on with `--oidc-issuer` or `--oidc-preset`. Without either, the
-UI has no sign-in and every visitor is an admin. That mode is for local
-development only and prints a warning. Any other sign-in flag without an
-issuer makes `serve` refuse to start, so a lost issuer setting cannot open the
-UI to everyone.
-
-The UI ships its own copy of htmx and serves every page with a
-Content-Security-Policy that allows scripts only from itself, so nothing is
-loaded from a third-party host. Inline event handlers are not allowed;
-page behaviour lives in `internal/web/static/app.js`.
-
-The server needs management-account credentials, because AWS only allows
-CreateAccount and CloseAccount from there. Run it in the management account
-under a role limited to Organizations, Budgets, Cost Explorer, the two
-Identity Center APIs, and, with `--history cloudwatch`, its log group.
-
-
-## History
-
-**Redesign in progress:** [Lifecycle history redesign](docs/design/lifecycle-history.md)
-tracks the implemented identity/pagination checkpoint and remaining work. Its
-[architecture decision](docs/adr/0001-dedicated-lifecycle-history.md) defines the
-future shared store, delivery guarantees, historical visibility, and retention.
-The no-database principle still describes the current runtime.
-
-Lifecycle operations attempt best-effort writes to a history sink: requested,
-edited, approved, denied, withdrawn, placed, access granted, extended, warned,
-expired, close requested, closed, adopted, failed, and budget/closure health
-changes. Successful writes record when, who, a channel when supplied, and a
-sentence saying what happened, with details such as a deny reason or an edit diff.
-New events have opaque IDs; request records carry a journey ID through approval
-into account tags. Web/TUI account timelines use that identity, never names.
-Legacy accounts without one use a provider-account-ID origin for new events;
-uncorrelated old events remain available only through trusted CLI searches.
-
-    playplace history dev-alex          # all journeys with this name, newest first
-    playplace history --journey ID --oldest-first
-    playplace history --owner alex@example.com --since 30 --actor lead@example.com
-    playplace history --limit 20 --json  # page plus next cursor and completeness
-
-`--history file` (default) appends JSON lines to `~/.playplace/history.jsonl`
-on the machine running the command, so nothing depends on AWS. `--history
-cloudwatch` writes to a CloudWatch Logs group (`--history-log-group`, default
-`/playplace/history`) so every operator, the web UI, and the worker can share one
-record. Creation of a new group attempts to set one-year retention; existing
-group retention is not reconciled. `--history none` turns it off. These modes
-remain until the DynamoDB replacement is implemented, then CloudWatch/disabled
-modes will be removed without a migration project.
-
-CLI searches support owner, actor, event, journey/account IDs, and date ranges.
-Web account pages support order reversal, expandable details, and next-page
-links. The TUI detail view scrolls through loaded history and fetches older pages;
-`r` reloads it after a failure or to pick up new events. Cursors bind their query
-and order, and backend errors/damaged records are distinct from empty history.
-The current file and CloudWatch readers scan available matching records; there
-is no silent 5,000-event cap, but shared-store performance is not yet established.
-The tool never reads history to decide account lifecycle state.
-
-
-## The mark
-
-The name comes from the indoor playgrounds fast-food restaurants used to
-have: a ball pit, tube slides, primary colours. The mark is that idea moved
-to the cloud: a soft white cloud whose lower half is a ball pit, with a red
-tube slide coming out from under the cloud's top edge and opening over the pit. It borrows the feel, not the trademark;
-there are no arches and it copies no existing logo.
-
-| file | use |
-|---|---|
-| `internal/web/static/logo.svg` | the mark alone; the web header uses it |
-| `internal/web/static/logo-wordmark.svg` | mark plus the word, for docs and slides |
-| `internal/web/static/favicon.svg` | the mark on a sky tile, simplified so it reads at 16 px: bigger balls, a heavier slide without seams |
-| `internal/web/static/favicon.ico`, `favicon-32.png`, `apple-touch-icon.png` | rasters of the favicon, generated with `rsvg-convert` and ImageMagick |
-| `docs/assets/banner.svg`, `banner.png` | the hero: mark, wordmark, and tagline on a sky panel, for the README and the docs home page |
-| `docs/assets/` | also copies of `logo.svg`, `logo-wordmark.svg`, and `favicon.svg` for the documentation site |
-
-Colours: cloud outline `#8FB8E8`, balls `#E63946` red, `#FFC531` yellow,
-`#2E86DE` blue, `#2DBE6C` green, and `#6C4DF2`, the TUI's primary purple.
-The wordmark colours "play" purple and "place" near-black.
-
-The TUI carries the same mark in block characters: a cloud of `█` with a
-row of `●` in the pit colours and the slide as a red diagonal of `█` ending
-in a `▓` mouth, in `internal/tui/banner.go`. It shows while
-the first load runs, when there are no accounts, and at the top of the `?`
-overlay, and the header starts with three balls. Glyphs alone carry the
-picture, so NO_COLOR terminals still get a cloud and dots.
-
-To regenerate the rasters after editing an SVG:
-
-    cd internal/web/static
-    rsvg-convert -w 32 -h 32 favicon.svg -o favicon-32.png
-    rsvg-convert -w 180 -h 180 favicon.svg -o apple-touch-icon.png
-    for s in 16 48; do rsvg-convert -w $s -h $s favicon.svg -o /tmp/f$s.png; done
-    magick /tmp/f16.png favicon-32.png /tmp/f48.png favicon.ico
-    cp logo.svg logo-wordmark.svg favicon.svg ../../../docs/assets/
-    rsvg-convert -w 2400 -h 800 ../../../docs/assets/banner.svg -o ../../../docs/assets/banner.png
-
-## TUI design notes
-
-What to know before changing `internal/tui`. See [the README](README.md#cli-and-terminal-dashboard)
-for usage and [Development](DEVELOPMENT.md#tui) for local testing. This section
-records the Charm v2 facts and design rules behind the code.
-Checked against bubbletea v2.0.9, lipgloss v2.0.6, bubbles v2.2.1 with `go doc`.
-
-### Charm v2 facts that shape the code
-
-- `View()` returns `tea.View`. Set `AltScreen`, `WindowTitle`, and `Cursor`
-  on it. There is no layers field on `tea.View`; compose overlays in Lip Gloss
-  and put the string in `Content`.
-- Overlays: `lipgloss.NewCompositor(lipgloss.NewLayer(page), lipgloss.NewLayer(box).X(x).Y(y).Z(1)).Render()`.
-  Layers draw opaque cells, so a dialog clears what is under it. See `overlay`
-  in `render.go`.
-- Light or dark: `Init` returns `tea.RequestBackgroundColor`; handle
-  `tea.BackgroundColorMsg` and call `IsDark()`. Colors come from
-  `lipgloss.LightDark(isDark)(light, dark)` in `theme.go`. Rebuild bubble
-  styles on receipt: `help.DefaultStyles(isDark)` and
-  `textinput.DefaultStyles(isDark)` take the flag.
-- Keys: match `tea.KeyPressMsg` with `key.Matches(msg, binding)`. One key map
-  in `keys.go` feeds both the hint bar (`ShortHelpView`) and the `?` overlay
-  (`FullHelpView`).
-- Text input cursor: `textinput.Model.Cursor()` is relative to the input.
-  Offset it by the input's position on screen and assign to `View.Cursor`, or
-  no cursor shows. See `View()` in `tui.go`.
-- The bubbles table renders its body through a viewport whose width defaults
-  to zero, so rows vanish while the header still draws. We render the table
-  by hand (`tableView` in `render.go`) for that reason and for per-cell color.
-- Width math uses `github.com/charmbracelet/x/ansi` (`StringWidth`,
-  `Truncate`), never `len()`.
-- Color output goes through `colorprofile`, which honors `NO_COLOR`. Status
-  glyphs carry meaning without color for that reason.
-
-### Toasts and notifications
-
-Everything the TUI has to say arrives the same way: action results, and
-the warnings and errors the service logs while it works (a budget AWS would
-not create, a grant that failed, a sync error). Lifecycle notices log at
-Warn, so they arrive there too. They are routine news, so the TUI shows
-them as info with their subject and body, not as warnings. Each message
-shows as a toast in the top right for six seconds, wrapped to a few lines,
-then ages out. `N` opens the notifications window with the full text of
-every message this session, newest first, scrollable; `c` there clears it.
-The header shows how many arrived since the window was last open.
-
-Nothing may write to the terminal while the TUI runs, because the
-alternate screen has no scrollback and stray output draws over the frame.
-`tui` therefore swaps the service logger, the log notifier, and the
-CloudWatch history logger for `tui.Feed`, a `slog.Handler` that shows
-records at Warn and above in the TUI and drops the rest.
-
-### History
-
-When a history sink is configured, the bottom pane's right column lists the
-selected account's most recent events instead of daily spend, and the full
-detail screen shows daily spend on the left and history on the right. Events
-are fetched through a `tea.Cmd` and cached by journey identity. Actions, sync,
-and manual reload clear the cache; timer inventory reloads do not. Full detail
-supports up/down and page keys to browse every event, fetching older pages as
-needed. Read failures are visible and retryable rather than left loading.
-
-### Layout
-
-Header, section tabs, table, and a detail pane under the table when the
-terminal is 22 rows or taller (about 40 percent of the main area, capped at
-11 rows). Below that, Enter opens the detail full screen. Columns drop as the
-terminal narrows: ACCOUNT first, then OWNER, then the spend bar.
-
-### Color and glyph semantics
-
-| State | Glyph | Color role |
+---
+name: playplace
+description: The web UI of playplace, the desk where engineers borrow AWS sandbox accounts and approvers stamp them out.
+colors:
+  shelf: "#2F5D50"
+  shelf-deep: "#264D42"
+  shelf-rule: "#A9BDB4"
+  card: "#EDE3CC"
+  card-hover: "#E8DEC4"
+  card-sel: "#E2D5B6"
+  card-rule: "#CDBF9E"
+  violet: "#5A3E9B"
+  violet-deep: "#4A3184"
+  red: "#C8323C"
+  red-ink: "#A8262F"
+  red-deep: "#8E1F27"
+  ink: "#22201C"
+  ink-2: "#55514A"
+  control-rule: "#8E8A80"
+  rule: "#D6D1C4"
+  rule-soft: "#E7E3D9"
+  ground: "#F2F1EC"
+  paper: "#FFFFFF"
+  paper-tint: "#F8F6F0"
+  paper-warm: "#FBF8F1"
+typography:
+  headline:
+    fontFamily: "Public Sans, system-ui, sans-serif"
+    fontSize: "19px"
+    fontWeight: 700
+    lineHeight: 1.3
+    letterSpacing: "-0.01em"
+  title:
+    fontFamily: "Public Sans, system-ui, sans-serif"
+    fontSize: "17px"
+    fontWeight: 700
+    lineHeight: 1.3
+    letterSpacing: "-0.01em"
+  fact:
+    fontFamily: "Public Sans, system-ui, sans-serif"
+    fontSize: "16px"
+    fontWeight: 700
+    lineHeight: 1.3
+    fontFeature: "'tnum' 1, 'lnum' 1"
+  body:
+    fontFamily: "Public Sans, system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.45
+    fontFeature: "'tnum' 1, 'lnum' 1"
+  body-medium:
+    fontFamily: "Public Sans, system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 500
+    lineHeight: 1.45
+  control:
+    fontFamily: "Public Sans, system-ui, sans-serif"
+    fontSize: "13.5px"
+    fontWeight: 600
+    lineHeight: 1
+  secondary:
+    fontFamily: "Public Sans, system-ui, sans-serif"
+    fontSize: "13.5px"
+    fontWeight: 400
+    lineHeight: 1.45
+  secondary-medium:
+    fontFamily: "Public Sans, system-ui, sans-serif"
+    fontSize: "13.5px"
+    fontWeight: 500
+    lineHeight: 1.45
+  label:
+    fontFamily: "Public Sans, system-ui, sans-serif"
+    fontSize: "12px"
+    fontWeight: 400
+    lineHeight: 1.35
+    fontFeature: "'tnum' 1, 'lnum' 1"
+  column-head:
+    fontFamily: "Public Sans, system-ui, sans-serif"
+    fontSize: "12px"
+    fontWeight: 600
+    lineHeight: 1.35
+  label-bold:
+    fontFamily: "Public Sans, system-ui, sans-serif"
+    fontSize: "12px"
+    fontWeight: 700
+    lineHeight: 1.5
+    fontFeature: "'tnum' 1, 'lnum' 1"
+  keycap:
+    fontFamily: "Public Sans, system-ui, sans-serif"
+    fontSize: "12px"
+    fontWeight: 600
+    lineHeight: 1
+  mono:
+    fontFamily: "Courier Prime, monospace"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.45
+  stamp-date:
+    fontFamily: "Courier Prime, monospace"
+    fontSize: "15px"
+    fontWeight: 700
+    lineHeight: 1
+    letterSpacing: "0.03em"
+  stamp-date-large:
+    fontFamily: "Courier Prime, monospace"
+    fontSize: "22px"
+    fontWeight: 700
+    lineHeight: 1
+    letterSpacing: "0.03em"
+  stamp-word:
+    fontFamily: "Public Sans, system-ui, sans-serif"
+    fontSize: "12px"
+    fontWeight: 700
+    lineHeight: 1
+    letterSpacing: "0.09em"
+rounded:
+  meter: "2px"
+  stamp: "3px"
+  control: "4px"
+  group: "5px"
+  note: "6px"
+  panel: "8px"
+  pill: "9px"
+spacing:
+  hair: "2px"
+  xs: "4px"
+  sm: "8px"
+  md: "12px"
+  lg: "16px"
+  xl: "24px"
+  xxl: "32px"
+components:
+  shell:
+    backgroundColor: "{colors.shelf}"
+    textColor: "{colors.card}"
+    padding: "10px 24px"
+  nav-link:
+    textColor: "{colors.card}"
+    typography: "{typography.body-medium}"
+    rounded: "{rounded.control}"
+    padding: "6px 11px"
+  nav-link-current:
+    backgroundColor: "{colors.shelf-deep}"
+    textColor: "{colors.paper}"
+  count-pill:
+    backgroundColor: "{colors.card}"
+    textColor: "{colors.ink}"
+    typography: "{typography.label-bold}"
+    rounded: "{rounded.pill}"
+    padding: "0 6px"
+    height: "18px"
+  search-on-shell:
+    backgroundColor: "{colors.paper-warm}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.control}"
+    padding: "0 44px 0 35px"
+    height: "34px"
+  button-approve:
+    backgroundColor: "{colors.violet}"
+    textColor: "{colors.paper}"
+    typography: "{typography.control}"
+    rounded: "{rounded.control}"
+    padding: "0 13px"
+    height: "34px"
+  button-approve-hover:
+    backgroundColor: "{colors.violet-deep}"
+    textColor: "{colors.paper}"
+  button-primary:
+    backgroundColor: "{colors.card}"
+    textColor: "{colors.ink}"
+    typography: "{typography.control}"
+    rounded: "{rounded.control}"
+    padding: "0 13px"
+    height: "34px"
+  button-primary-hover:
+    backgroundColor: "{colors.card-sel}"
+    textColor: "{colors.ink}"
+  button-plain:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.ink}"
+    typography: "{typography.control}"
+    rounded: "{rounded.control}"
+    padding: "0 13px"
+    height: "34px"
+  button-plain-hover:
+    backgroundColor: "{colors.paper-tint}"
+    textColor: "{colors.ink}"
+  button-ghost:
+    backgroundColor: "transparent"
+    textColor: "{colors.card}"
+    typography: "{typography.control}"
+    rounded: "{rounded.control}"
+    padding: "0 13px"
+    height: "34px"
+  button-ghost-hover:
+    backgroundColor: "{colors.shelf-deep}"
+    textColor: "{colors.paper}"
+  button-deny:
+    backgroundColor: "{colors.red-ink}"
+    textColor: "{colors.paper}"
+    typography: "{typography.control}"
+    rounded: "{rounded.control}"
+    padding: "0 13px"
+    height: "34px"
+  button-deny-hover:
+    backgroundColor: "{colors.red-deep}"
+    textColor: "{colors.paper}"
+  button-disabled:
+    backgroundColor: "{colors.rule-soft}"
+    textColor: "{colors.ink-2}"
+  button-small:
+    padding: "0 11px"
+    height: "30px"
+  button-touch:
+    height: "44px"
+  button-decide-phone:
+    typography: "{typography.fact}"
+    height: "52px"
+  input-text:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.control}"
+    padding: "0 10px"
+    height: "34px"
+  segmented:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.ink}"
+    typography: "{typography.secondary-medium}"
+    rounded: "{rounded.group}"
+    padding: "0 11px"
+    height: "30px"
+  segmented-current:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.paper}"
+  panel:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.panel}"
+  panel-desk:
+    backgroundColor: "{colors.card}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.panel}"
+  slip:
+    padding: "11px 16px"
+  slip-hover:
+    backgroundColor: "{colors.card-hover}"
+  slip-selected:
+    backgroundColor: "{colors.card-sel}"
+  table-head:
+    backgroundColor: "{colors.paper-tint}"
+    textColor: "{colors.ink-2}"
+    typography: "{typography.column-head}"
+    height: "34px"
+  table-cell:
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    padding: "9px 14px"
+  table-cell-compact:
+    padding: "4px 14px"
+  table-cell-due:
+    backgroundColor: "{colors.card}"
+  table-row-hover:
+    backgroundColor: "{colors.paper-tint}"
+  table-row-selected:
+    backgroundColor: "{colors.card}"
+  table-row-selected-due:
+    backgroundColor: "{colors.card-sel}"
+  stamp-date:
+    textColor: "{colors.violet}"
+    typography: "{typography.stamp-date}"
+    rounded: "{rounded.stamp}"
+    padding: "4px 7px 3px"
+  stamp-date-soon:
+    textColor: "{colors.red-ink}"
+  stamp-date-large:
+    textColor: "{colors.violet}"
+    typography: "{typography.stamp-date-large}"
+    rounded: "{rounded.stamp}"
+    padding: "7px 10px 5px"
+  stamp-approved:
+    textColor: "{colors.violet}"
+    typography: "{typography.stamp-word}"
+    rounded: "{rounded.stamp}"
+    padding: "5px 7px 4px"
+  stamp-denied:
+    textColor: "{colors.ink}"
+  stamp-withdrawn:
+    textColor: "{colors.ink-2}"
+  stamp-expired:
+    textColor: "{colors.ink-2}"
+  stamp-closed:
+    textColor: "{colors.shelf}"
+  stamp-overdue:
+    textColor: "{colors.red-ink}"
+  status-label:
+    textColor: "{colors.ink}"
+    typography: "{typography.body-medium}"
+  meter:
+    backgroundColor: "{colors.rule-soft}"
+    rounded: "{rounded.meter}"
+    width: "96px"
+    height: "4px"
+  meter-full:
+    backgroundColor: "{colors.rule-soft}"
+    rounded: "{rounded.stamp}"
+    width: "100%"
+    height: "6px"
+  meter-fill:
+    backgroundColor: "{colors.shelf}"
+  meter-fill-high:
+    backgroundColor: "{colors.ink}"
+  meter-fill-over:
+    backgroundColor: "{colors.red}"
+  note:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.note}"
+    padding: "10px 12px"
+  note-desk:
+    backgroundColor: "{colors.card}"
+  kbd:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.ink-2}"
+    typography: "{typography.keycap}"
+    rounded: "{rounded.control}"
+    padding: "2px 5px"
+  badge-role:
+    textColor: "{colors.card}"
+    typography: "{typography.stamp-word}"
+    rounded: "{rounded.stamp}"
+    padding: "2px 6px"
+  flag:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.card}"
+    typography: "{typography.column-head}"
+    rounded: "{rounded.stamp}"
+    padding: "2px 7px"
+  dialog:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.panel}"
+    width: "min(640px, calc(100% - 32px))"
+---
+
+# Design System: playplace
+
+This file is the visual system of the playplace web UI. The tokens in the
+frontmatter are normative. The approved mockups on the design canvas
+"playplace web UI overhaul" are the source of the values. Where two mockups
+disagree, this file decides. [docs/design/web-ui-overhaul.md](docs/design/web-ui-overhaul.md)
+keeps the research, the reasons and the list of resolved disagreements.
+[ARCHITECTURE.md](ARCHITECTURE.md) is the architecture document.
+
+The Go templates do not use these tokens yet. Phase 1 of the overhaul builds
+the stylesheet from this file. After phase 1, a new `impeccable document`
+scan of the real stylesheet updates this file.
+
+## Overview
+
+**Creative North Star: "The Date Due Card"**
+
+Every playground account is a loan from the playplace desk. It is stamped
+out, due back, renewed and returned. The interface is the date-due card from
+a library book: a shelf-green shell, card-stock desk surfaces, and violet
+date stamps that a person can read from across the room. A due date and a
+decision are stamped facts, not muted metadata.
+
+The system is dense and calm, because people use it daily across more than
+100 accounts. Most of the page is paper and ground with one-pixel rules.
+Card stock appears only where a person decides or reads a due date. The one
+expressive move is the stamp: a turned, inked mark that lands in two frames.
+Everything else is square, flat and quiet.
+
+The design rejects two things that the maintainer named: the generic grey cloud
+dashboard with summary tiles over a plain table, and the toy-like look of
+the old ball-pit colors. The tool controls real AWS spend.
+
+**Key Characteristics:**
+- A shelf-green shell, paper panels on a warm grey ground, and card stock for the desk and the date-due column.
+- Violet Courier Prime stamps for every due date, turned 1 to 2 degrees.
+- One sans-serif face at five fixed sizes, with tabular figures.
+- Flat surfaces with 1 px rules. No shadows anywhere.
+- One motion: the stamp lands in two frames over 90 ms.
+- Status is always a word and an icon, never color alone.
+
+## Colors
+
+The palette is the circulation desk: a green shelf, buff card stock, and a
+stamp pad with violet and red ink, set on paper and ground.
+
+### Primary
+- **Shelf Green** (#2F5D50): the shell bar and its navigation. Also the healthy state: the check icon, the spend meter below 75%, the CLOSED stamp and the live-update dot.
+- **Deep Shelf** (#264D42): hover and the current page in the shell, and the hover of the ghost button.
+- **Shelf Rule** (#A9BDB4): the border of the ghost button and the role badge on the shell.
+
+### Secondary
+- **Card Stock** (#EDE3CC): the approval desk, the date-due column, the loan card, and the primary button. The loan card is the card-stock block that shows one account's due date on the engineer home and the account page. On the shell, card stock is also the text color and the focus ring.
+- **Selected Card** (#E2D5B6): a selected slip (one request on the approval desk) or a selected row on card stock, the due cell of a selected row, and the primary button hover.
+- **Card Hover** (#E8DEC4): a slip under the pointer on the desk.
+- **Card Rule** (#CDBF9E): every rule on card stock. Slips are separated by dashed card rules.
+
+### Tertiary
+- **Stamp-Pad Violet** (#5A3E9B): due-date stamps, the APPROVED stamp, the Approve and Extend buttons, the focus ring, text selection, the caret, and settling icons (work in progress, not a failure).
+- **Pressed Violet** (#4A3184): the Approve button hover.
+- **Overdue Red** (#C8323C): fault icons and bars only. The over-budget meter, the failed and restricted icons.
+- **Red Ink** (#A8262F): every red word. The OVERDUE stamp, a due date in its last 3 days, error text, the invalid field border, the stale row frame, and the Deny button.
+- **Deep Red Ink** (#8E1F27): the Deny button hover.
+
+### Neutral
+- **Desk Ink** (#22201C): text, strong fills, the current segment, the flag chip, the DENIED stamp, and the spend meter from 75%.
+- **Pencil Grey** (#55514A): secondary text, column heads, hints, placeholders, disabled text, and the WITHDRAWN and EXPIRED stamps.
+- **Control Rule** (#8E8A80): the border of plain buttons, text fields, selects and segmented controls on paper and ground. On card stock these borders are pencil grey.
+- **Panel Rule** (#D6D1C4): panel borders, table head rules, and the keycap border.
+- **Soft Rule** (#E7E3D9): row lines, the meter track, and the disabled fill.
+- **Reading-Room Ground** (#F2F1EC): the page behind the panels.
+- **Paper** (#FFFFFF): panels, tables, text fields, and text on violet, shelf-deep and red-ink fills.
+- **Paper Tint** (#F8F6F0): table heads, day-group heads, row hover, plain button hover, unread notices, and the dialog footer.
+- **Warm Paper** (#FBF8F1): the search field on the shell and the incomplete-history banner.
+
+### Night desk
+
+The night desk is a proposal. The page follows the operating system
+setting, and a toggle stores the choice in a cookie. Each text pair must
+pass 4.5:1 before the night desk ships.
+
+| Token | Night | Check |
 |---|---|---|
-| pending (awaiting approval) | `◇` | warning |
-| active | `●` | success |
-| active, 7 days or less left | `●` plus `!` | warning |
-| active, 1 day or less left | `●` plus `!` | error |
-| expiring (*expiring* notice sent) | `●` plus `!` | warning or error by time left |
-| creating, closing | `◌` | busy |
-| creating with a placement note | `◌` plus `!` | warning |
-| closing with an overdue warning, unavailable | `!` | error |
-| failed | `×` | error |
-| closed | `○` | muted |
+| shelf | #16302A | ink on it 11.4:1 |
+| shelf-deep | #21443B | ink on it 8.7:1 |
+| card | #2C2A22 | ink on it 11.6:1 |
+| card-sel | #3A3729 | ink on it 9.7:1 |
+| card-rule | #4A4536 | rule, no text |
+| ground | #121614 | ink on it 14.8:1 |
+| paper | #1B201D | ink on it 13.4:1 |
+| rule | #353B37 | rule, no text |
+| rule-soft | #272D29 | rule, no text |
+| ink | #ECE7DA | on paper 13.4:1 |
+| ink-2 | #B3AD9F | on card-sel 5.3:1 |
+| violet | #A996E6 | on card-sel 4.7:1 |
+| red | #F07A80 | on card 5.3:1 |
+| red-ink | #F59BA0 | on card-sel 5.7:1 |
 
-Spend bar: success below 70 percent of budget, warning to 90, error above.
-Two border treatments only: rounded on dialogs and forms, `─` rule for the
-pane. Selection is a `▌` bar plus a subtle background on every cell.
+At night the text on the shell is ink, and the focus ring on the shell is
+ink too (11.4:1 on the night shelf), because night card stock on the night
+shelf is only 1.02:1. The text on the Approve button is the night ground
+(#121614, 7.1:1 on violet). Shelf green as a foreground (the check icon, the
+meter fill, the CLOSED stamp and the live dot) needs its own night value,
+because the night shelf is only 1.17:1 on the night paper. Phase 1 sets that
+value and the night values of the other tokens.
 
-### Rules
+### Named Rules
 
-- Keep all IO in `tea.Cmd`s, never in `Update`.
-- Dialogs default to the safe button and ignore keys for 150 milliseconds
-  after opening so a queued keystroke cannot confirm them.
-- Destructive dialogs say exactly what happens and to which account id.
-- `a`, `d`, and `w` act only on pending rows; `x` only on real accounts. `e`
-  edits the request on a pending row and extends on a real account. Each
-  refuses with a flash rather than opening a dialog on the wrong row type.
-- History is cached per journey and cleared after an action, a sync, or `r`,
-  not on the timer, so the timer never re-reads the history sink.
-- Empty, loading, and error states each have a line of text in the table body.
-- Never print outside the frame. Warnings go through the notice feed, and
-  action outcomes through `setFlash`, which is a notice too.
-- Cost Explorer bills per call. Costs come from the service's hourly cache;
-  only `S` (sync) and `r` (reload) force a pull.
+**The Shelf Owns the Shell Rule.** Shelf green fills the shell and nothing else. In the content area it appears only as a healthy icon, the meter fill, the CLOSED stamp and the live dot. No content button is green.
 
-### Checking a frame
+**The Card Stock Is the Desk Rule.** Card stock marks the places where someone decides or reads a due date: the approval desk, the date-due column and the loan card. A plain list or a form sits on paper.
 
-`playplace tui --snapshot 120x30 --keys "x"` prints one styled frame with
-live data after pressing the given keys (`enter`, `esc`, `tab`, or
-characters). Pipe it through `freeze --language ansi --font.family Menlo` for
-a PNG. Keys sent by the snapshot land inside the dialog grace window, so
-forms render empty; that is expected.
+**The Red Ink Rule.** Red text is always red ink (#A8262F). Overdue red (#C8323C) is only for icons and bars, because red on card stock is 4.1:1 and fails for text.
+
+## Typography
+
+**Display Font:** none. The system has no display face.
+**Body Font:** Public Sans (with system-ui, sans-serif)
+**Label/Mono Font:** Courier Prime (with monospace), for stamped dates, account IDs and request versions only
+
+**Character:** Public Sans is a plain, public-service grotesque that stays
+legible at 12 px in a dense table. Courier Prime is the typewriter of the
+date stamp. It appears only where a value is stamped or copied by hand.
+
+Both faces are under the SIL Open Font License. The server embeds them as
+`woff2` files, because the CSP allows no third-party host.
+
+### Hierarchy
+- **Headline** (700, 19px, 1.3, -0.01em): page headings and the brand word.
+- **Title** (700, 17px, 1.3, -0.01em): panel headings.
+- **Fact** (700, 16px, 1.3, tabular): the facts that decide an action, which are lifetime and budget. Also the decision buttons on a phone.
+- **Body** (400, 14px, 1.45, tabular): body text, table cells and item names (at 600 or 700). Nav links and status words use the medium weight (500).
+- **Control and Secondary** (600, 500 or 400, 13.5px): button and field labels at 600, segmented items at 500, secondary text at 400.
+- **Label** (400, 12px, 1.35): meta lines, captions, help text and key hints. Column heads and flags use 600. Keycaps use 600 at line height 1. Counts use 700.
+- **Stamps** (Courier Prime 700 at 15px or 22px, 0.03em, and Public Sans 700 capitals at 12px, 0.09em): date stamps and word stamps. Stamps are marks, not running text, so they are the one exception to the five sizes.
+
+### Named Rules
+
+**The Five Sizes Rule.** Text uses 19 or 17, 16, 14, 13.5 and 12 pixels, and nothing between. A mockup value of 11, 11.5, 12.5, 13, 15, 18, 20 or 26 pixels snaps to the step whose job it does. The phone uses the same steps.
+
+**The Stamp Face Rule.** Courier Prime sets stamped dates, account IDs and request versions, and nothing else. Monospace is never a "technical" costume for labels, numbers or headings.
+
+**The Tabular Rule.** The page root sets tabular lining figures, so every number lines up in columns, in every type role. Letter spacing never goes below -0.03em.
+
+## Layout
+
+The desktop page is a shell bar over a left-aligned grid of panels. The
+shell wraps when it runs out of room. It holds, in order, the brand, the
+navigation, the search field pushed to the right (at most 360 px), Sync with
+AWS, New request, the signed-in person, and Sign out. Shell controls are
+34 px tall, with 10 px top and bottom padding and a 24 px side gutter.
+
+The main area has 16 px top padding, 24 px side gutters, 32 px bottom
+padding, a 16 px gap between panels, and a maximum width of 1600 px. On the
+admin home, the "Needs attention" ledger (300 to 384 px) sits beside the
+approval desk, and the fleet table runs full width below them.
+
+Panels have a 48 px head with 10 px by 16 px padding, and a 16 px inset for
+rows. The fleet table has a minimum width of 1120 px inside a horizontal
+scroll container, because the fleet stays a desktop task. Cells use 9 px by
+14 px padding in the comfortable density and 4 px top and bottom in the
+compact density. Rows do not wrap, and cells center their content
+vertically.
+
+The spacing scale is 2, 4, 8, 12, 16, 24 and 32 px. Gaps inside a row use
+6 to 10 px.
+
+There are two breakpoints:
+- At 1000 px and below, the top row stacks into one column, the desk slips hide their fact columns, and the shell hides the email address.
+- At 640 px and below, the shell and the main area use 16 px side gutters, the same as the phone frames. The main area has 12 px top padding and 24 px bottom padding. The search field takes its own row, and the Sync button shows only its icon.
+
+The phone frames are 390 px wide. The phone serves two quick tasks: approving
+from the Slack link and checking one account. The shell is 56 px tall, with
+16 px on the left and 6 px on the right. Navigation, New request and Sign out
+move behind a 44 px menu button. An approver keeps the Queue link and its
+count in the bar. Content uses 16 px gutters and a 12 px gap between blocks.
+Every touch target is at least 44 px tall. Actions sit inline at the end of
+their card and are not pinned to the screen.
+
+### Named Rules
+
+**The Desktop Fleet Rule.** The full fleet table is a desktop surface and scrolls sideways before it collapses. A phone shows one request or one account, never the fleet.
+
+## Elevation & Depth
+
+The system is flat. Depth comes from three tonal layers: the ground, the
+paper panels on it, and the card stock desk inside the content. Each layer
+is closed by a 1 px rule. No surface has a shadow at rest or on hover. The
+sticky bulk bar (the bar for decisions on many requests at once) is
+separated by its card-rule top border, not a shadow.
+
+The dialog is the only raised surface. A 1 px ink border and an ink scrim at
+45 percent opacity (rgba(34,32,28,.45)) raise it. Stamps use
+`mix-blend-mode: multiply` by day, so the card stock shows through the ink.
+At night they use normal blending, because multiply on a dark card hides the
+stamp.
+
+### Named Rules
+
+**The Flat Desk Rule.** No `box-shadow` on any surface. If something needs to stand out, it gets a rule, card stock or a stamp.
+
+## Shapes
+
+Corners are small and square to the grid. The inline meter is 2 px and the
+full-width meter is 3 px. Stamps,
+badges and flags are 3 px. Buttons, fields, nav links and keycaps are 4 px.
+The segmented control group is 5 px, so its 4 px items nest inside it.
+Inline notes are 6 px. Panels, the loan card and the dialog are 8 px. The
+count pill is 9 px, which makes it a full pill at 18 px. The avatar and the
+live dot are circles.
+
+Borders are 1 px. Stamps use a 1.5 px border in their own ink, and the large
+stamp uses 2 px. Dashed lines carry meaning: separators on card stock, a
+disabled control, the WITHDRAWN stamp, the "Your request" chip, an unset due
+date, and a stale row.
+
+### Named Rules
+
+**The Turned Stamp Rule.** Only stamps rotate. A stamp turns between 1 and 2 degrees (-1.8, 1.3 or -1 degrees, varied from row to row). Nothing else on the page is rotated.
+
+## Components
+
+The controls are standard web controls in the desk's colors. Each control
+is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
+
+### Buttons
+- **Shape:** gently squared (4px), 34 px tall, 13 px side padding, an icon and a word with a 7 px gap.
+- **Approve:** violet with paper text. The only violet button. Extend uses it too, with the stamp icon.
+- **Primary:** card stock with ink text. Inside a panel it gets a card-rule border. New request, Send request and the AWS access portal link use it.
+- **Plain:** paper with ink text and a control-rule border. Deny on a row, Return, Cancel and pager buttons use it.
+- **Ghost:** transparent on the shell, with card text and a shelf-rule border. Only Sync with AWS uses it.
+- **Deny:** red ink with paper text. It appears only as the final button in a dialog that denies a request or returns an account. Red marks the step that cannot be undone, not the button that opens the dialog.
+- **Hover / Focus:** a hover changes the fill (pressed violet, selected card, paper tint, deep shelf or deep red ink). The plain button also turns its border to ink. Focus is a 2 px violet ring with a 2 px offset. On the shell the ring is card stock.
+- **Disabled and busy:** a disabled button has a soft-rule fill, pencil-grey text and a dashed control-rule border. A busy button keeps its size, sets `aria-busy`, and changes its word to a verb in progress: Approving, Sending, Denying, Syncing.
+- **Sizes:** 30 px with 11 px padding in toolbars and pagers. 44 px on the phone. The phone Approve and Deny buttons are 52 px with a 16 px label.
+
+### Chips
+- **Count pill:** card stock with ink text, 12 px bold, beside Queue and Notices in the shell. A visually hidden word says what the number counts.
+- **Role badge:** the word "admin" in card text with a shelf-rule border, set as a 12 px word stamp (0.09em tracking) but not turned.
+- **Flag:** ink with card text, 12 px semibold, for "limits overridden". A changed value in a stale request uses a red-ink flag.
+- **Your request:** a dashed control-rule chip in pencil grey that replaces the Approve and Deny buttons on a person's own request.
+
+### Cards / Containers
+- **Corner Style:** 8px for panels and the loan card, 6px for inline notes.
+- **Background:** paper for panels. Card stock for the approval desk and the loan card.
+- **Shadow Strategy:** none. See Elevation & Depth.
+- **Border:** 1 px panel rule on paper, 1 px card rule on card stock.
+- **Internal Padding:** 16 px side inset. The panel head is 48 px tall.
+
+### Inputs / Fields
+- **Style:** paper, a 1 px control-rule border, 4px corners, 34 px tall, 10 px side padding. The label sits above in 13.5 px semibold. Help text sits below in 12 px pencil grey. Placeholders are pencil grey.
+- **Focus:** a violet border and a 2 px violet ring with a 1 px offset. The caret is violet.
+- **Error / Disabled:** an invalid field gets a red-ink border and a 12 px semibold red-ink message with an alert icon below it, tied with `aria-describedby`. A disabled field gets the soft-rule fill and a dashed border.
+- **On card stock:** plain buttons, fields, selects and segmented controls use a pencil-grey border, because the control rule is only 2.7:1 on card stock.
+- **Checkboxes and radios:** native, 16 px, with a violet `accent-color`.
+- **Selects:** native, 30 px in toolbars and 34 px in forms.
+- **Segmented control:** a single choice in one 5 px group with a control-rule border and dividers. Items are 30 px tall (44 px on the phone) in 13.5 px. The current item is ink with paper text. A filter that changes the URL uses links with `aria-current`. A choice inside a form uses radio inputs in a `<fieldset>`.
+
+### Navigation
+- **Style:** the shell holds the brand (the mark and "playplace" at 19 px, "play" bold in card stock and "place" regular in paper), then nav links in 14 px medium card text with 6 px by 11 px padding.
+- **States:** hover and the current page get the deep shelf fill with paper text. The current page sets `aria-current="page"`. Focus is the card-stock ring.
+- **By role:** engineers see Home, History and Notices. Approvers also see Queue with its count. Admins see Queue, Accounts, History and Notices, and the brand is their link home. Admins also see Sync with AWS and the role badge.
+- **Mobile:** a 44 px menu button opens the navigation, New request and Sign out.
+
+### Date stamp
+
+The signature component. A due date is a violet rubber stamp in Courier
+Prime 700 capitals, with a 1.5 px border in its own ink, 3 px corners, and a
+turn of 1 to 2 degrees. The format is "OCT 27 2026": the month in capitals,
+the day with no leading zero, and the year.
+
+- **Sizes:** 15 px in tables, slips and lists. 22 px for the one due date at the top of an account page or a loan card.
+- **Last 3 days:** the stamp changes to red ink.
+- **Renewal:** after an extension, the old date stays above the new stamp as "extended from OCT 20", with the old date in Courier Prime at 13.5 px and struck through with a 1 px ink line.
+- **No date yet:** a pending request shows a dashed card-rule box that says "Stamped at approval". A pending account says "Set when it is ready".
+- **Motion:** when someone approves or extends, the stamp lands in two frames over 90 ms with no fade. Frame 1 (0 ms) shows it at 112 percent size and upright. Frame 2 (45 ms) shows it at full size, turned 1.8 degrees. Under `prefers-reduced-motion`, frame 1 is skipped.
+
+### Word stamps
+
+Decisions and outcomes are word stamps: Public Sans 700 capitals at 12 px
+with 0.09em tracking, the same border, corners and turn as a date stamp. The
+markup holds the word in lowercase and CSS sets the capitals, so a screen
+reader does not spell the word out.
+
+- **APPROVED:** violet, on the request and in lifecycle history.
+- **DENIED:** ink, with the required reason beside it.
+- **WITHDRAWN:** pencil grey with a dashed border. The owner withdrew a pending request.
+- **EXPIRED:** pencil grey with a solid border. No decision came in 7 days.
+- **CLOSED:** shelf green. AWS confirmed the closure, so the account is back on the shelf.
+- **OVERDUE:** red ink, followed by "by 2 hours" in 12 px semibold red ink. The closure is late.
+
+Notice kinds in the notice feed use the same word stamps and colors. Stamps
+for open and pending journeys in the History hub are not decided. Phase 5
+adds them here.
+
+### Status label
+
+A status is an icon and a word, never color alone. Icons are 16 px. A
+qualifier such as "getting ready" or "overdue" follows in 12 px pencil grey.
+
+- **Normal** (no one needs to act): pending (slip, ink), active (check, shelf), closed (shut door, pencil grey). Budget: ready (check, shelf), alerts-only (bell), alerts-disabled (bell off), retired (minus), and not checked (dashed circle), all pencil grey.
+- **Settling** (progress, not failure): creating (clock arc, violet), closing (box, ink), and active while getting ready (check, shelf). Budget: setup-pending (clock), restricting (lock), recovering (open lock) and retiring (minus), all violet, with the words "settling protection".
+- **Needs attention** (someone must act): failed (crossed circle, red), unavailable (ban, ink), closing and overdue (box, red), expiring (hourglass, violet). Budget: restricted (lock, red), error (alert, red), and settling for over 2 hours (clock, red).
+
+### Spend meter
+
+Spend sits above a thin bar. The inline meter is 96 by 4 px with 2 px
+corners on a soft-rule track. The account page, the loan card and the phone
+use a full-width 6 px meter.
+
+- **Below 75 percent:** shelf fill and no label.
+- **From 75 percent:** ink fill and an "NN% used" label in 12 px semibold ink.
+- **From 95 percent:** red fill, an alert icon and the "NN% used" label in red ink.
+- **Over budget:** a full red bar and the words "over budget" with an alert icon.
+- **Unknown:** a failed cost pull shows the word "unavailable" and no bar, never $0.00.
+
+The label sits 8 px to the right of the inline meter, so a table row stays
+one line. Under a full-width meter, the label sits below it. The server
+draws the bar as inline SVG and sets the fill with a `width` attribute,
+because the CSP does not allow inline `style` attributes.
+
+### Approval desk
+
+The desk is a card-stock panel. Each request is a slip, separated from the
+next by a dashed card rule. A slip shows a checkbox, the request name in 14 px
+bold with its purpose and requester, the lifetime and the budget as 16 px
+facts, the request version, and the actions. A slip under the pointer is
+card hover, a selected slip is selected card, and the focused slip gets a
+2 px violet frame. The focused slip opens in place with every deciding fact.
+
+The bulk bar is sticky at the top of the desk: 48 px, card stock with a
+card-rule top border, and selected card when anything is selected. Its result
+message is the page's one `aria-live="polite"` region.
+
+### Tables
+- **Head:** paper tint, 12 px semibold pencil-grey labels, 34 px tall, with panel rules above and below. A sortable head is a button. The sorted column turns ink and shows an arrow for its direction, and the `<th>` sets `aria-sort`.
+- **Rows:** a soft-rule line under each row. Hover is paper tint. A selected row is card stock with its due cell in selected card. A focused row has a 2 px violet frame. A stale or refused row has a 1 px dashed red-ink frame and shows the new values in place.
+- **Date due column:** always on card stock with a card-rule line under each cell, in every row state.
+- **Account links:** 14 px semibold ink, underlined in the panel rule color with a 3 px offset, violet on hover.
+- **Mono values:** account IDs and versions in Courier Prime at the size of the text around them.
+
+### Feedback
+- **Inline note:** paper with a panel-rule border, 6px corners, a 16 px icon, a bold first line and a 13.5 px body. A refusal uses a red-ink border and an alert icon and names the recovery. An empty desk uses card stock.
+- **Dialog:** a native `<dialog>` on paper with a 1 px ink border, 8px corners and a maximum width of 640 px. The head and the footer are separated by panel rules, and the footer is paper tint. Only three tasks use it: the deny reason, the bulk approval summary, and the consequences of Return.
+- **Live update:** an 8 px shelf dot and "Updated 12 seconds ago" in the footer. The dot hides for one 90 ms step when new data arrives, with no fade. Under `prefers-reduced-motion` it does not blink.
+- **Keycap:** 12 px semibold pencil grey on paper, with a panel-rule border that is 2 px at the bottom.
+
+### Icons
+
+Line icons on a 24 px grid, drawn at 16 px with a 1.75 stroke, round caps
+and joins, in `currentColor`. They are inline SVG from one sprite, and every
+icon next to a word is `aria-hidden`. Icons are 13 px inside 12 px text lines
+and 22 px in phone icon buttons. One icon name has one shape on every page.
+
+### Mark
+
+The current mark in [ARCHITECTURE.md](ARCHITECTURE.md#the-mark) stays in the
+shell at 28 px. The canvas proposes a redraw: the cloud inside a round date
+stamp lettered PLAYPLACE, which drops the lettering at 24 px. The maintainer has
+not decided on it.
+
+### Named Rules
+
+**The Word and Icon Rule.** Every status, health state and outcome shows a word. Color and icon only support the word.
+
+**The No Toast Rule.** Feedback appears beside the thing it is about and in the one live region. Nothing floats in from a corner.
+
+**The One Motion Rule.** The stamp is the only animation, and the live dot is the only other thing that changes on its own. State changes step in two frames and never fade.
+
+## Do's and Don'ts
+
+### Do:
+- **Do** put card stock (#EDE3CC) only under the approval desk, the date-due column and the loan card.
+- **Do** show lifetime and budget as exact 16 px bold facts beside Approve, for example "36 hours" and "$12.50", with the request version.
+- **Do** keep the old due date, struck through, above a renewed stamp.
+- **Do** use red ink (#A8262F) for every red word, and overdue red (#C8323C) only for icons and bars.
+- **Do** theme the browser surfaces: a violet selection with paper text, a violet caret and `accent-color`, and a 2 px violet focus ring that turns card stock on the shell.
+- **Do** keep every text pair at 4.5:1 or more, and the border of every field, select, checkbox and segmented control at 3:1 or more, in both palettes. A button is identified by its label.
+- **Do** name the row in every row action for screen readers, for example "Approve priya-glue-etl".
+- **Do** make every touch target on the phone at least 44 px.
+- **Do** show "unavailable" or "unknown" when a value failed to load.
+
+### Don't:
+- **Don't** add a shadow to any surface.
+- **Don't** fade anything, or animate anything except the stamp and the live dot.
+- **Don't** set anything in Courier Prime except stamped dates, account IDs and request versions.
+- **Don't** add a font size between the five steps.
+- **Don't** build summary tiles over a plain table, or any generic grey admin dashboard.
+- **Don't** bring back the ball-pit colors. The tool must not look toy-like.
+- **Don't** use a toast, or a modal for a task that needs no interruption.
+- **Don't** signal a status with color alone.
+- **Don't** round a deciding fact to "1 day" or "$12".
+- **Don't** put a colored stripe wider than 1 px on the side of a card, row or note, or a small label above a heading.
+- **Don't** ship inline `style` attributes or a font from a third-party host. The CSP allows neither.

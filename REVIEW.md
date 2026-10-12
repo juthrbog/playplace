@@ -166,10 +166,10 @@ second review of the fixes found more gaps, and the entries include them.
 ### Accepted or documented
 
 - [ ] **An admin can edit another person's pending request and then approve
-  it alone** (core-8). Accepted and recorded in DESIGN.md. Admins are trusted,
+  it alone** (core-8). Accepted and recorded in ARCHITECTURE.md. Admins are trusted,
   and history records the edit.
 - [ ] **Approval applies the approving process's configuration** (gap-3).
-  Documented in DESIGN.md and `docs/cli.md`: `--email-pattern`,
+  Documented in ARCHITECTURE.md and `docs/cli.md`: `--email-pattern`,
   `--permission-set`, `--max-ttl`, and `--max-budget` come from the process
   that approves.
 - [ ] **Slack messages are not updated after an edit** (web-9, cli-13).
@@ -285,9 +285,10 @@ provider, audit sinks, worker, CLI, TUI, and the deploy files.
 - [x] **Docs:** `costs` is cached hourly, not live; duration defaults read
   `14d` not `14`; `--no-worker` and the `0 = no limit` values are listed;
   intervals need a unit.
-- [x] **TUI approve dialog defaulted to Approve.** The [design rule](DESIGN.md#rules) is that
+- [x] **TUI approve dialog defaulted to Approve.** The [design rule](ARCHITECTURE.md#rules) is that
   dialogs default to the safe button, and approval creates an account that
-  cannot be closed for four days. It defaults to Cancel now (test).
+  counts toward the account limit until 90 days after it closes. It
+  defaults to Cancel now (test).
 - [x] **TUI went stale in silence.** After the first good load, a failed poll
   kept the old rows and said nothing. The header now shows a stale marker and
   a failed reload flashes the error; rows are kept (test).

@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>playplace Home</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Courier+Prime:wght@400;700&display=swap">
+<style>
+:root{--navy:#1B2A4A;--navy2:#2A3B60;--stock:#F7F5F0;--paper:#FFFDF9;--ink:#1A2133;--mu:#5E6679;--rule:#D3CCBC;--hair:#E6E0D2;--perf:#A39A86;--ctl:#8A8270;--red:#D3263A;--pur:#5B3C88;--sans:"Archivo",system-ui,sans-serif;--mono:"Courier Prime",ui-monospace,monospace;color-scheme:light;accent-color:var(--navy);caret-color:var(--pur)}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{background:var(--stock);color:var(--ink);font:400 13px/1.38 var(--sans);font-variant-numeric:tabular-nums lining-nums;-webkit-font-smoothing:antialiased}
+::selection{background:var(--pur);color:#fff}
+:focus-visible{outline:2px solid var(--pur);outline-offset:2px;border-radius:4px}
+.top :focus-visible{outline-color:#D9CCF2}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}
+h2,th,.cap,.fare dt,.stamp,.role,.legs li{text-transform:uppercase;font-weight:700;font-stretch:125%;letter-spacing:.1em}
+.fig,code{font-family:var(--mono);font-weight:700;color:var(--pur)}
+code{color:var(--ink);font-weight:400;font-size:13px}
+.nw{white-space:nowrap}.mu,.na{color:var(--mu)}.na::before{content:"\2014"}.al{color:var(--red)!important}
+/* shell */
+.top{height:56px;background:var(--navy);color:#fff;display:flex;align-items:center;gap:16px;padding:0 24px}
+.brand{display:flex;align-items:center;gap:9px;color:#fff;text-decoration:none;font-size:19px;font-weight:750;font-stretch:112%;letter-spacing:-.01em;margin-right:14px}
+.brand em{font-style:normal;color:#CDBDF0}.brand .i{width:28px;height:28px;color:var(--stock)}
+.nav{display:flex;gap:2px}
+.nav a{display:flex;align-items:center;gap:7px;padding:8px 11px;border-radius:6px;color:#D5DBE7;text-decoration:none;font-weight:550;font-size:14px}
+.nav a:hover{background:var(--navy2);color:#fff}
+.nav .n{font:700 12px/1 var(--mono);background:var(--stock);color:var(--navy);padding:3px 5px 2px;border-radius:3px}
+.search{margin-left:auto;position:relative;display:flex;align-items:center}
+.search .i{position:absolute;left:11px;color:#AEB7CA;pointer-events:none}
+.search input{width:310px;height:34px;padding:0 12px 0 35px;border-radius:6px;border:1px solid #7584A3;background:#22335A;color:#fff;font:inherit;font-size:13.5px}
+.search input::placeholder{color:#AEB7CA}
+.btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 13px;border-radius:6px;border:1px solid var(--navy);background:none;color:var(--navy);font:600 13px/1 var(--sans);text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn.pri{background:var(--navy);color:#fff}.btn:hover{background:#ECE7DB}.btn.pri:hover{background:var(--navy2)}
+.btn:disabled{border-color:var(--rule);color:var(--mu);background:none;cursor:not-allowed}
+.top .btn{height:34px;border-color:#7584A3;color:#fff}.top .btn:hover{background:var(--navy2)}
+.top .btn.pri{background:var(--stock);border-color:var(--stock);color:var(--navy)}.top .btn.pri:hover{background:#fff}
+.user{display:flex;align-items:center;gap:8px;margin-left:6px;padding:4px 6px;border:0;border-radius:6px;background:none;color:#fff;font:500 13.5px var(--sans);cursor:pointer}
+.user:hover{background:var(--navy2)}
+.av{width:28px;height:28px;border-radius:50%;background:#CDBDF0;color:var(--navy);display:grid;place-items:center;font-weight:700}
+.role{font-size:10px;line-height:1;border:1px solid #9AA5BF;border-radius:3px;padding:4px 5px 3px;color:#E6EAF2}
+/* page */
+main{padding:14px 24px 0}
+.hd{display:flex;align-items:baseline;gap:18px;margin-bottom:10px}
+h1{font-size:22px;font-weight:700;font-stretch:110%;letter-spacing:-.015em;color:var(--navy)}
+.sum{color:var(--mu);font-size:13.5px}.sum .fig{font-size:15px}
+.split{display:grid;grid-template-columns:372px 1fr;gap:24px;align-items:start;margin-bottom:14px}
+.sh{display:flex;align-items:center;gap:14px;height:32px;margin-bottom:7px}
+h2{font-size:13px;color:var(--navy)}.sh>p{color:var(--mu)}
+.tools{margin-left:auto;display:flex;align-items:center;gap:8px}
+.tools label{display:flex;align-items:center;gap:7px;color:var(--mu);font-weight:550;margin-right:4px}
+input[type=checkbox]{width:16px;height:16px;margin:0;flex:none}
+select{height:30px;border:1px solid var(--ctl);border-radius:6px;background:var(--paper);color:var(--ink);font:inherit;padding:0 6px}
+/* needs attention */
+.att{list-style:none;background:var(--paper);border:1px solid var(--rule);border-radius:12px;overflow:hidden}
+.att li+li{border-top:1px solid var(--hair)}
+.att a{display:grid;grid-template-columns:30px 1fr 16px;grid-template-areas:"n t c" "n d c";column-gap:12px;align-items:center;min-height:48px;padding:7px 14px;color:inherit;text-decoration:none}
+.att a:hover{background:#F3EFE5}
+.att .fig{grid-area:n;font-size:22px;line-height:1;text-align:right}
+.att b{grid-area:t;display:flex;align-items:center;gap:6px;font-weight:650}
+.att span:not(.fig){grid-area:d;color:var(--mu);font-size:12.5px}
+.att a>.i{grid-area:c;color:var(--mu)}
+.att .alarm .fig,.att .alarm b{color:var(--red)}
+/* signature: coupons */
+.coupons{list-style:none;display:grid;gap:9px}
+.cp{position:relative;display:grid;grid-template-columns:228px 1fr 214px;background:var(--paper);border:1px solid var(--rule);border-radius:10px}
+.cp::before,.cp::after{content:"";position:absolute;left:219px;width:16px;height:16px;border-radius:50%;background:var(--stock);border:1px solid var(--rule)}
+.cp::before{top:-9px;clip-path:inset(50% 0 0)}.cp::after{bottom:-9px;clip-path:inset(0 0 50%)}
+.stub{position:relative;display:grid;grid-template-columns:16px 1fr;column-gap:10px;align-content:center;padding:10px 18px 10px 14px}
+.stub::after{content:"";position:absolute;right:-2px;top:10px;bottom:10px;width:3px;background:radial-gradient(circle,var(--perf) 0 1.2px,transparent 1.6px) 0 0/3px 6px repeat-y}
+.stub input{margin-top:3px}.stub label{font-weight:700;font-size:15px;cursor:pointer}
+.stub p,.flag{grid-column:2;justify-self:start}.stub p{color:var(--mu);font-size:12.5px}
+.flag{white-space:nowrap;letter-spacing:.06em!important;display:inline-flex;align-items:center;gap:5px;margin-top:5px;padding:2px 6px 1px;border:1px solid currentColor;border-radius:3px;color:var(--red);font-size:10px}
+.flag .i{width:13px;height:13px}
+.fare{display:grid;grid-template-columns:minmax(0,1fr) 100px 128px 86px}
+.fare div{padding:7px 12px 6px;border-right:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+.fare dt{font-size:9.5px;letter-spacing:.09em;white-space:nowrap;color:var(--mu);margin-bottom:2px}
+.fare dd{font-size:13px;font-weight:550}.fare dd.fig{font-size:15px;font-weight:700;white-space:nowrap}.fare dd small{font:400 12px var(--sans);color:var(--mu);margin-left:5px}
+.fare .pu{grid-column:1/-1;display:flex;align-items:baseline;gap:12px;border-bottom:0}.fare .pu dd{font-weight:400}
+.act{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:0 14px}
+.mine{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;color:var(--pur);font-weight:650;margin-right:4px}
+/* signature: fleet stamps and journey strip */
+.tbl{background:var(--paper);border:1px solid var(--rule);border-radius:12px;overflow:hidden}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{height:34px;padding:0 12px;text-align:left;font-size:10px;font-stretch:112%;letter-spacing:.08em;white-space:nowrap;color:var(--mu);border-bottom:1px solid var(--rule)}
+th button{display:inline-flex;align-items:center;gap:4px;padding:4px 0;border:0;background:none;font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;cursor:pointer}
+th button:hover{color:var(--navy)}th .i{width:13px;height:13px}
+td{padding:7px 12px;border-bottom:1px solid var(--hair);vertical-align:middle;white-space:nowrap}
+td b{font-weight:600}.nm{font-weight:650;font-size:13.5px}
+td small{display:flex;align-items:center;gap:5px;margin-top:1px;font-size:12px;color:var(--mu)}td small .i{width:13px;height:13px}
+td.id{font-family:var(--mono);font-size:13.5px}td .fig{font-size:14px}
+.stamp{display:inline-block;margin-right:10px;padding:1px 6px 0;border:3px double currentColor;border-radius:3px;font-size:10.5px;letter-spacing:.14em;transform:rotate(-3deg)}
+.s-v{color:var(--navy)}.s-u{color:var(--pur)}.s-x{color:var(--red)}
+.legs{list-style:none;display:flex;width:max-content;border:1px solid var(--rule);border-radius:4px;overflow:hidden}
+.legs li{position:relative;display:flex;align-items:center;gap:3px;padding:5px 6px 4px;font-size:9.5px;font-stretch:100%;letter-spacing:.05em;font-weight:650;color:var(--mu)}
+.legs li+li::before{content:"";position:absolute;left:0;top:3px;bottom:3px;border-left:1px dashed var(--perf)}
+.legs .u{color:var(--pur);text-decoration:line-through}
+.legs [aria-current]{background:var(--navy);color:#fff}.legs .x{background:var(--red)}.legs .i{width:11px;height:11px;stroke-width:2.25}
+.bh{display:inline-flex;align-items:center;gap:5px;font-weight:550}.bh .i{width:14px;height:14px}
+.bar{display:block;width:104px;height:3px;margin-top:6px;background:var(--hair)}.bar i{display:block;height:100%;background:var(--pur)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="s" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+<symbol id="r" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 0 1 13-5.1l2 2.1M19.5 4.5V9H15M19.5 12a7.5 7.5 0 0 1-13 5.1l-2-2.1M4.5 19.5V15H9"/></symbol>
+<symbol id="p" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="c" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+<symbol id="x" viewBox="0 0 24 24"><path d="m6.5 6.5 11 11M17.5 6.5l-11 11"/></symbol>
+<symbol id="a" viewBox="0 0 24 24"><path d="M10.3 4.6 2.9 17.5a2 2 0 0 0 1.7 3h14.8a2 2 0 0 0 1.7-3L13.7 4.6a2 2 0 0 0-3.4 0zM12 9.5v4M12 17v.01"/></symbol>
+<symbol id="d" viewBox="0 0 24 24"><path d="m6.5 9.5 5.5 5.5 5.5-5.5"/></symbol>
+<symbol id="g" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
+<symbol id="u" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.8"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/></symbol>
+<symbol id="o" viewBox="0 0 24 24"><path d="m8 9.5 4-4 4 4M8 14.5l4 4 4-4"/></symbol>
+<symbol id="l" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></symbol>
+<symbol id="k" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+</svg>
+<header class="top">
+<a class="brand" href="/"><svg class="i" viewBox="0 0 28 28" aria-hidden="true"><path d="M5 6h18a2 2 0 0 1 2 2v3a3 3 0 0 0 0 6v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a3 3 0 0 0 0-6V8a2 2 0 0 1 2-2z"/><path d="M18 8.5v11" stroke-dasharray="1.2 2.6"/></svg><span><em>play</em>place</span></a>
+<nav class="nav" aria-label="Main"><a href="#pending">Queue <span class="n">3<span class="vh"> pending</span></span></a><a href="/accounts">Accounts</a><a href="/history">History</a><a href="/notices">Notices</a></nav>
+<form class="search" role="search" action="/accounts"><label class="vh" for="q">Search accounts, owners, IDs</label><svg class="i" aria-hidden="true"><use href="#s"/></svg><input id="q" name="q" type="search" placeholder="Search accounts, owners, IDs"></form>
+<button class="btn" type="button"><svg class="i" aria-hidden="true"><use href="#r"/></svg>Sync with AWS</button>
+<a class="btn pri" href="/requests/new"><svg class="i" aria-hidden="true"><use href="#p"/></svg>New request</a>
+<button class="user" type="button" aria-haspopup="menu"><span class="av" aria-hidden="true">M</span>maya@example.com<span class="role">Admin</span><svg class="i" aria-hidden="true"><use href="#d"/></svg></button>
+</header>
+<main>
+<div class="hd"><h1>Sunday, October 11</h1><p class="sum"><span class="fig">112</span> open accounts · <span class="fig">$4,812.40</span> fleet spend this month to date · spend data lags about a day</p></div>
+<div class="split">
+<section aria-labelledby="att-h"><div class="sh"><h2 id="att-h">Needs attention now</h2></div>
+<ul class="att">
+<li class="alarm"><a href="#a-stuck"><span class="fig">1</span><b><svg class="i" aria-hidden="true"><use href="#a"/></svg>Closure overdue by 2 hours</b><span>stuck-close-env, charges may continue</span><svg class="i" aria-hidden="true"><use href="#g"/></svg></a></li>
+<li class="alarm"><a href="#a-spike"><span class="fig">2</span><b><svg class="i" aria-hidden="true"><use href="#a"/></svg>Budget restricted</b><span>cost-spike-test over budget, and 1 more</span><svg class="i" aria-hidden="true"><use href="#g"/></svg></a></li>
+<li><a href="#a-dup"><span class="fig">1</span><b>Failed creation</b><span>dup-email-test: EMAIL_ALREADY_EXISTS</span><svg class="i" aria-hidden="true"><use href="#g"/></svg></a></li>
+<li><a href="#a-susp"><span class="fig">1</span><b>Unavailable</b><span>suspended-sbx: AWS reports SUSPENDED</span><svg class="i" aria-hidden="true"><use href="#g"/></svg></a></li>
+<li><a href="/accounts?status=expiring"><span class="fig">6</span><b>Expiring within 3 days</b><span>ml-gpu-bench first, in 2 days 4 hours</span><svg class="i" aria-hidden="true"><use href="#g"/></svg></a></li>
+<li><a href="#pending"><span class="fig">3</span><b>Pending requests</b><span>Oldest is perf-load-2026, from yesterday</span><svg class="i" aria-hidden="true"><use href="#g"/></svg></a></li>
+</ul></section>
+<section id="pending" aria-labelledby="q-h"><div class="sh"><h2 id="q-h">Approval queue</h2><p>3 requests · each decision applies to the version shown</p>
+<div class="tools"><label><input type="checkbox"> Select all</label><button class="btn" type="button" disabled>Approve selected</button><button class="btn" type="button" disabled>Deny selected</button></div></div>
+<ol class="coupons">
+<li class="cp"><div class="stub"><input type="checkbox" id="c1"><label for="c1"><span class="vh">Select </span>priya-glue-etl</label><p>Via web, 2 hours ago</p></div>
+<dl class="fare"><div><dt>Owner</dt><dd>priya@example.com</dd></div><div><dt>Lifetime</dt><dd class="fig">14 days</dd></div><div><dt>Budget</dt><dd class="fig">$75<small>a month</small></dd></div><div><dt>Version</dt><dd class="fig">7f3a91</dd></div><div class="pu"><dt>Purpose</dt><dd>Glue ETL spike for the Q4 data platform</dd></div></dl>
+<div class="act"><button class="btn pri" type="button" aria-label="Approve priya-glue-etl, version 7f3a91"><svg class="i" aria-hidden="true"><use href="#c"/></svg>Approve</button><button class="btn" type="button" aria-label="Deny priya-glue-etl, version 7f3a91"><svg class="i" aria-hidden="true"><use href="#x"/></svg>Deny</button></div></li>
+<li class="cp"><div class="stub"><input type="checkbox" id="c2"><label for="c2"><span class="vh">Select </span>alex-network-lab</label><p>Via Slack, 40 minutes ago</p></div>
+<dl class="fare"><div><dt>Owner</dt><dd>alex@example.com</dd></div><div><dt>Lifetime</dt><dd class="fig">36 hours</dd></div><div><dt>Budget</dt><dd class="fig">$12.50<small>a month</small></dd></div><div><dt>Version</dt><dd class="fig">c02e5d</dd></div><div class="pu"><dt>Purpose</dt><dd>Transit gateway routing test</dd></div></dl>
+<div class="act"><button class="btn pri" type="button" aria-label="Approve alex-network-lab, version c02e5d"><svg class="i" aria-hidden="true"><use href="#c"/></svg>Approve</button><button class="btn" type="button" aria-label="Deny alex-network-lab, version c02e5d"><svg class="i" aria-hidden="true"><use href="#x"/></svg>Deny</button></div></li>
+<li class="cp"><div class="stub"><input type="checkbox" id="c3"><label for="c3"><span class="vh">Select </span>perf-load-2026</label><p>By you via web, yesterday</p><span class="flag cap"><svg class="i" aria-hidden="true"><use href="#a"/></svg>Limits overridden</span></div>
+<dl class="fare"><div><dt>Owner</dt><dd>jordan.lee-whitfield@<wbr><span class="nw">platform-engineering.example.com</span></dd></div><div><dt>Lifetime</dt><dd class="fig">120 days</dd></div><div><dt>Budget</dt><dd class="fig">$900<small>a month</small></dd></div><div><dt>Version</dt><dd class="fig">9b1f44</dd></div><div class="pu"><dt>Purpose</dt><dd>Q4 load test at production scale</dd></div></dl>
+<div class="act"><span class="mine"><svg class="i" aria-hidden="true"><use href="#u"/></svg>Your request</span><button class="btn" type="button" aria-label="Deny perf-load-2026, version 9b1f44"><svg class="i" aria-hidden="true"><use href="#x"/></svg>Deny</button></div></li>
+</ol></section>
+</div>
+<section aria-labelledby="f-h"><div class="sh"><h2 id="f-h">Fleet</h2>
+<div class="tools"><label>Status <select><option>All statuses</option></select></label><label>Budget health <select><option>Any</option></select></label><label>Order <select><option>Attention first</option></select></label></div></div>
+<div class="tbl"><table>
+<colgroup><col style="width:186px"><col style="width:116px"><col style="width:208px"><col style="width:298px"><col style="width:140px"><col style="width:158px"><col></colgroup>
+<thead><tr><th scope="col"><button type="button">Account<svg class="i" aria-hidden="true"><use href="#o"/></svg></button></th><th scope="col"><button type="button">Account ID<svg class="i" aria-hidden="true"><use href="#o"/></svg></button></th><th scope="col"><button type="button">Status<svg class="i" aria-hidden="true"><use href="#o"/></svg></button></th><th scope="col">Journey</th><th scope="col"><button type="button">Budget health<svg class="i" aria-hidden="true"><use href="#o"/></svg></button></th><th scope="col"><button type="button">Spend this month<svg class="i" aria-hidden="true"><use href="#o"/></svg></button></th><th scope="col"><button type="button">Expiry<svg class="i" aria-hidden="true"><use href="#o"/></svg></button></th></tr></thead>
+<tbody>
+<tr id="a-stuck"><td><div class="nm">stuck-close-env</div><small>jordan@example.com</small></td><td class="id">100000000019</td><td><span class="stamp s-u">Used</span><b>closing</b><small class="al"><svg class="i" aria-hidden="true"><use href="#a"/></svg>Closure unconfirmed</small></td><td><ol class="legs" aria-label="Journey"><li class="u">Request</li><li class="u">Approval</li><li class="u">Account</li><li aria-current="step">Closure</li></ol></td><td><span class="bh"><svg class="i" aria-hidden="true"><use href="#k"/></svg>retiring</span></td><td><span class="fig">$3.10</span> <span class="mu">of $50</span><span class="bar"><i style="width:6%"></i></span></td><td><b>Closure requested Oct 10</b><small class="al"><svg class="i" aria-hidden="true"><use href="#a"/></svg>Overdue by 2 hours, charges may continue</small></td></tr>
+<tr id="a-spike"><td><div class="nm">cost-spike-test</div><small>alex@example.com</small></td><td class="id">100000000014</td><td><span class="stamp s-v">Valid</span><b>active</b></td><td><ol class="legs" aria-label="Journey"><li class="u">Request</li><li class="u">Approval</li><li aria-current="step">Account</li><li>Closure</li></ol></td><td><span class="bh al"><svg class="i" aria-hidden="true"><use href="#l"/></svg>restricted</span></td><td><span class="fig">$74.15</span> <span class="mu">of $50</span><small class="al"><svg class="i" aria-hidden="true"><use href="#a"/></svg>Over budget</small></td><td><b>Oct 30</b></td></tr>
+<tr id="a-dup"><td><div class="nm">dup-email-test</div><small>sam@example.com</small></td><td class="mu">None</td><td><span class="stamp s-x">Void</span><b>failed</b><small><code>EMAIL_ALREADY_EXISTS</code></small></td><td><ol class="legs" aria-label="Journey"><li class="u">Request</li><li class="u">Approval</li><li class="x" aria-current="step"><svg class="i" aria-hidden="true"><use href="#x"/></svg>Account</li><li>Closure</li></ol></td><td class="na"><span class="vh">none</span></td><td class="na"><span class="vh">none</span></td><td class="na"><span class="vh">none</span></td></tr>
+<tr id="a-susp"><td><div class="nm">suspended-sbx</div><small>jordan@example.com</small></td><td class="id">100000000008</td><td><span class="stamp s-x">Void</span><b>unavailable</b><small>AWS reports SUSPENDED</small></td><td><ol class="legs" aria-label="Journey"><li class="u">Request</li><li class="u">Approval</li><li class="x" aria-current="step"><svg class="i" aria-hidden="true"><use href="#x"/></svg>Account</li><li>Closure</li></ol></td><td class="na"><span class="vh">none</span></td><td class="na"><span class="vh">none</span></td><td class="na"><span class="vh">none</span></td></tr>
+<tr><td><div class="nm">ml-gpu-bench</div><small>sam@example.com</small></td><td class="id">100000000011</td><td><span class="stamp s-v">Valid</span><b>expiring</b></td><td><ol class="legs" aria-label="Journey"><li class="u">Request</li><li class="u">Approval</li><li aria-current="step">Account</li><li>Closure</li></ol></td><td><span class="bh"><svg class="i" aria-hidden="true"><use href="#c"/></svg>ready</span></td><td><span class="fig">$412.80</span> <span class="mu">of $500</span><span class="bar"><i style="width:83%"></i></span></td><td><b>Oct 13</b><small><svg class="i" aria-hidden="true"><use href="#k"/></svg>2 days 4 hours left</small></td></tr>
+<tr><td><div class="nm">k8s-upgrade-lab</div><small>jordan@example.com</small></td><td class="mu">Pending</td><td><span class="stamp s-v">Valid</span><b>creating</b><small>AWS is creating it · 3 minutes</small></td><td><ol class="legs" aria-label="Journey"><li class="u">Request</li><li class="u">Approval</li><li aria-current="step">Account</li><li>Closure</li></ol></td><td class="mu">not checked</td><td class="na"><span class="vh">none</span></td><td class="na"><span class="vh">none</span></td></tr>
+<tr><td><div class="nm">data-pipeline-poc</div><small>priya@example.com</small></td><td class="id">100000000021</td><td><span class="stamp s-v">Valid</span><b>active</b></td><td><ol class="legs" aria-label="Journey"><li class="u">Request</li><li class="u">Approval</li><li aria-current="step">Account</li><li>Closure</li></ol></td><td><span class="bh"><svg class="i" aria-hidden="true"><use href="#k"/></svg>setup-pending</span><small>Settling protection</small></td><td><span class="fig">$8.40</span> <span class="mu">of $75</span><span class="bar"><i style="width:11%"></i></span></td><td><b>Oct 25</b></td></tr>
+<tr><td><div class="nm">alex-sandbox</div><small>alex@example.com</small></td><td class="id">100000000002</td><td><span class="stamp s-v">Valid</span><b>active</b></td><td><ol class="legs" aria-label="Journey"><li class="u">Request</li><li class="u">Approval</li><li aria-current="step">Account</li><li>Closure</li></ol></td><td><span class="bh"><svg class="i" aria-hidden="true"><use href="#c"/></svg>ready</span></td><td><span class="fig">$79.02</span> <span class="mu">of $150</span><span class="bar"><i style="width:53%"></i></span></td><td><b>Oct 27</b><small>16 days left</small></td></tr>
+</tbody></table></div></section>
+</main>
+</body>
+</html>

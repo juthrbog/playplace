@@ -6,6 +6,10 @@ set -euo pipefail
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
 dist="${1:-dist}"
+if ! command -v ruby >/dev/null; then
+  echo 'The formula check needs Ruby. Install any recent Ruby with the system package manager.' >&2
+  exit 1
+fi
 case "$(uname -s)" in
   Darwin) os=darwin ;;
   Linux) os=linux ;;
@@ -37,7 +41,7 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE
 
 tar -xzf "$archive" -C "$tmpdir"
 [[ "$("$tmpdir/playplace" --version)" == "playplace version $version" ]]
-for file in LICENSE README.md DESIGN.md DEVELOPMENT.md \
+for file in LICENSE README.md docs/configuration.md \
   deploy/README.md deploy/aws/playground-safeguards-scp.json \
   completions/playplace.bash completions/_playplace completions/playplace.fish; do
   test -s "$tmpdir/$file"

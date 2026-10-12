@@ -23,6 +23,8 @@ whatever channel your organization connected, such as a Slack channel.
 
 You can hold one account or pending request at a time by default. If you
 already have one, close it or wait for it to expire before asking for another.
+An account counts until AWS confirms its closure. While the table shows it as
+*closing* or *unavailable*, it still counts.
 
 ## After approval
 

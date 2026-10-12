@@ -12,9 +12,10 @@ intend to release. Local snapshots and normal CI never publish or update the tap
 
 - `.goreleaser.yaml` builds CGO-disabled binaries for Linux, macOS, and Windows,
   on amd64 and arm64. Windows archives use ZIP; the others use tar.gz.
-- Archives contain the executable, Apache-2.0 license, documentation/deployment
-  material, and bash/zsh/fish completions. Web assets and generated views are
-  embedded in the executable; no Node or templ runtime is required.
+- Archives contain the executable, Apache-2.0 license, the user guides and
+  deployment files, and bash/zsh/fish completions. Contributor docs stay in the
+  repository. The AUR recipe installs the same docs. Web assets and generated
+  views are embedded in the executable; no Node or templ runtime is required.
 - Releases include a prefixed source archive and SHA-256 `checksums.txt`.
 - `tools/package-release` checks the actual bytes of all seven archives against
   the manifest before generating `playplace.rb`, `PKGBUILD`, `SRCINFO`, and
@@ -110,7 +111,11 @@ The generated recipe can instead be used locally with `makepkg -si`.
 
 Install the tools in `mise.toml` (`mise install`, with mise activated). GoReleaser
 is pinned to **2.18.2**, matching both workflows. The archive smoke test also
-requires bash, tar, and Ruby (`ruby -c` checks formula syntax, not installation).
+requires bash, tar, and Ruby. Any recent Ruby from the system package manager
+works, for example `pacman -S ruby` or `apt install ruby`, because the test
+only runs `ruby -c`. That checks the syntax of the formula, not the Homebrew
+rules or an installation. `mise.toml` does not pin Ruby, and CI uses the Ruby
+of its runner image.
 
 ```sh
 task release:check       # generated views, tests, vet, GoReleaser config

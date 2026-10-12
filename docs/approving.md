@@ -8,7 +8,9 @@ Sign in to the web UI. The *Pending approvals* card lists every request
 waiting: who asked, for whom, how long, how much, and why.
 
 - **Approve** creates the account, and AWS takes a few minutes. playplace
-  sends an *approved* [notice](#notices).
+  sends an *approved* [notice](#notices). You cannot undo an approval. The
+  new account counts toward the account limit of the organization until 90
+  days after it closes.
 - **Deny** asks you for a reason, which the *denied* notice and the history
   show.
 - **Edit** (admins only) changes the owner, days, budget, or purpose before

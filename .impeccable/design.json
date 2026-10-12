@@ -1,0 +1,625 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-11T23:21:39+00:00",
+  "title": "Design System: playplace",
+  "extensions": {
+    "colorMeta": {
+      "shelf": {
+        "role": "primary",
+        "displayName": "Shelf Green",
+        "canonical": "#2F5D50",
+        "tonalRamp": [
+          "#000F0A",
+          "#012D23",
+          "#1D4C3F",
+          "#3E6C5E",
+          "#5F8E7F",
+          "#81B1A2",
+          "#A5D6C6",
+          "#C9FBEB"
+        ],
+        "night": "#16302A",
+        "nightStatus": "proposal"
+      },
+      "shelf-deep": {
+        "role": "primary",
+        "displayName": "Deep Shelf",
+        "canonical": "#264D42",
+        "tonalRamp": [
+          "#000F0A",
+          "#022D23",
+          "#234A40",
+          "#436A5F",
+          "#648C80",
+          "#86AFA2",
+          "#AAD4C6",
+          "#CEFAEB"
+        ],
+        "night": "#21443B",
+        "nightStatus": "proposal"
+      },
+      "shelf-rule": {
+        "role": "primary",
+        "displayName": "Shelf Rule",
+        "canonical": "#A9BDB4",
+        "tonalRamp": [
+          "#020E09",
+          "#192922",
+          "#35463F",
+          "#54665E",
+          "#75877F",
+          "#97AAA2",
+          "#BACFC6",
+          "#DFF4EB"
+        ]
+      },
+      "card": {
+        "role": "secondary",
+        "displayName": "Card Stock",
+        "canonical": "#EDE3CC",
+        "tonalRamp": [
+          "#100A00",
+          "#2C2412",
+          "#49412E",
+          "#69604C",
+          "#8B826D",
+          "#AEA48E",
+          "#D2C8B2",
+          "#F8EED7"
+        ],
+        "night": "#2C2A22",
+        "nightStatus": "proposal"
+      },
+      "card-hover": {
+        "role": "secondary",
+        "displayName": "Card Hover",
+        "canonical": "#E8DEC4",
+        "tonalRamp": [
+          "#100A00",
+          "#2C240F",
+          "#4A412B",
+          "#69614A",
+          "#8B826A",
+          "#AEA48C",
+          "#D2C9AF",
+          "#F8EED4"
+        ]
+      },
+      "card-sel": {
+        "role": "secondary",
+        "displayName": "Selected Card",
+        "canonical": "#E2D5B6",
+        "tonalRamp": [
+          "#100A00",
+          "#2E2409",
+          "#4C4126",
+          "#6C6044",
+          "#8D8165",
+          "#B0A486",
+          "#D5C8A9",
+          "#FBEECE"
+        ],
+        "night": "#3A3729",
+        "nightStatus": "proposal"
+      },
+      "card-rule": {
+        "role": "secondary",
+        "displayName": "Card Rule",
+        "canonical": "#CDBF9E",
+        "tonalRamp": [
+          "#100A00",
+          "#2F2306",
+          "#4D4123",
+          "#6D6042",
+          "#8E8162",
+          "#B1A484",
+          "#D6C8A7",
+          "#FCEDCB"
+        ],
+        "night": "#4A4536",
+        "nightStatus": "proposal"
+      },
+      "violet": {
+        "role": "tertiary",
+        "displayName": "Stamp-Pad Violet",
+        "canonical": "#5A3E9B",
+        "tonalRamp": [
+          "#0F0029",
+          "#2D0162",
+          "#492A86",
+          "#674CAA",
+          "#886ED0",
+          "#AA92F7",
+          "#CBBFFD",
+          "#EFECFE"
+        ],
+        "night": "#A996E6",
+        "nightStatus": "proposal"
+      },
+      "violet-deep": {
+        "role": "tertiary",
+        "displayName": "Pressed Violet",
+        "canonical": "#4A3184",
+        "tonalRamp": [
+          "#0F0128",
+          "#2B095E",
+          "#472E81",
+          "#664FA5",
+          "#8671CA",
+          "#A994F0",
+          "#CBBFFE",
+          "#EFECFF"
+        ]
+      },
+      "red": {
+        "role": "tertiary",
+        "displayName": "Overdue Red",
+        "canonical": "#C8323C",
+        "tonalRamp": [
+          "#1F0002",
+          "#4C010A",
+          "#800218",
+          "#B3182B",
+          "#DB464C",
+          "#FD7473",
+          "#FDB3AF",
+          "#FEE9E7"
+        ],
+        "night": "#F07A80",
+        "nightStatus": "proposal"
+      },
+      "red-ink": {
+        "role": "tertiary",
+        "displayName": "Red Ink",
+        "canonical": "#A8262F",
+        "tonalRamp": [
+          "#1E0002",
+          "#4C010A",
+          "#7F0418",
+          "#AB2A32",
+          "#D35052",
+          "#FC7573",
+          "#FEB2AE",
+          "#FFE8E7"
+        ],
+        "night": "#F59BA0",
+        "nightStatus": "proposal"
+      },
+      "red-deep": {
+        "role": "tertiary",
+        "displayName": "Deep Red Ink",
+        "canonical": "#8E1F27",
+        "tonalRamp": [
+          "#1E0102",
+          "#4B030B",
+          "#7E091A",
+          "#A43539",
+          "#CB5959",
+          "#F37C7A",
+          "#FDB3AF",
+          "#FFE9E7"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Desk Ink",
+        "canonical": "#22201C",
+        "tonalRamp": [
+          "#0D0B08",
+          "#272521",
+          "#44423D",
+          "#63615C",
+          "#84827D",
+          "#A7A59F",
+          "#CBC9C3",
+          "#F1EEE9"
+        ],
+        "night": "#ECE7DA",
+        "nightStatus": "proposal"
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "Pencil Grey",
+        "canonical": "#55514A",
+        "tonalRamp": [
+          "#0E0B06",
+          "#28251E",
+          "#45413B",
+          "#656159",
+          "#86827A",
+          "#A9A49C",
+          "#CDC8C0",
+          "#F3EEE5"
+        ],
+        "night": "#B3AD9F",
+        "nightStatus": "proposal"
+      },
+      "control-rule": {
+        "role": "neutral",
+        "displayName": "Control Rule",
+        "canonical": "#8E8A80",
+        "tonalRamp": [
+          "#0E0B05",
+          "#28251D",
+          "#454239",
+          "#656157",
+          "#868278",
+          "#A9A59A",
+          "#CDC9BE",
+          "#F3EEE3"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Panel Rule",
+        "canonical": "#D6D1C4",
+        "tonalRamp": [
+          "#0E0B04",
+          "#29251B",
+          "#464237",
+          "#656156",
+          "#878276",
+          "#AAA598",
+          "#CEC9BC",
+          "#F3EEE1"
+        ],
+        "night": "#353B37",
+        "nightStatus": "proposal"
+      },
+      "rule-soft": {
+        "role": "neutral",
+        "displayName": "Soft Rule",
+        "canonical": "#E7E3D9",
+        "tonalRamp": [
+          "#0E0B05",
+          "#28251D",
+          "#45423A",
+          "#646158",
+          "#868279",
+          "#A8A59B",
+          "#CDC9BF",
+          "#F2EEE4"
+        ],
+        "night": "#272D29",
+        "nightStatus": "proposal"
+      },
+      "ground": {
+        "role": "neutral",
+        "displayName": "Reading-Room Ground",
+        "canonical": "#F2F1EC",
+        "tonalRamp": [
+          "#0C0B08",
+          "#262521",
+          "#43423E",
+          "#62615D",
+          "#83827E",
+          "#A6A5A0",
+          "#CAC9C4",
+          "#EFEEEA"
+        ],
+        "night": "#121614",
+        "nightStatus": "proposal"
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "#FFFFFF",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ],
+        "night": "#1B201D",
+        "nightStatus": "proposal"
+      },
+      "paper-tint": {
+        "role": "neutral",
+        "displayName": "Paper Tint",
+        "canonical": "#F8F6F0",
+        "tonalRamp": [
+          "#0C0B07",
+          "#262521",
+          "#43423D",
+          "#63615C",
+          "#84827D",
+          "#A7A59F",
+          "#CBC9C3",
+          "#F0EEE8"
+        ]
+      },
+      "paper-warm": {
+        "role": "neutral",
+        "displayName": "Warm Paper",
+        "canonical": "#FBF8F1",
+        "tonalRamp": [
+          "#0D0B07",
+          "#272520",
+          "#44423C",
+          "#63615B",
+          "#85827C",
+          "#A8A59E",
+          "#CCC9C2",
+          "#F1EEE7"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page headings and the brand word."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Panel headings."
+      },
+      "fact": {
+        "displayName": "Fact",
+        "purpose": "Lifetime and budget beside a decision. Phone decision buttons."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Body text, table cells, item names at 600 or 700, nav links at 500."
+      },
+      "body-medium": {
+        "displayName": "Body medium",
+        "purpose": "Nav links and status words."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "Button and field labels."
+      },
+      "secondary": {
+        "displayName": "Secondary",
+        "purpose": "Secondary text and segmented items."
+      },
+      "secondary-medium": {
+        "displayName": "Secondary medium",
+        "purpose": "Segmented control items."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Meta lines, captions, help text and key hints."
+      },
+      "label-bold": {
+        "displayName": "Label bold",
+        "purpose": "Counts in the shell."
+      },
+      "keycap": {
+        "displayName": "Keycap",
+        "purpose": "Key hints such as / and ?."
+      },
+      "column-head": {
+        "displayName": "Column head",
+        "purpose": "Table column heads and flags."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Account IDs and request versions only."
+      },
+      "stamp-date": {
+        "displayName": "Date stamp",
+        "purpose": "Due dates in tables, slips and lists."
+      },
+      "stamp-date-large": {
+        "displayName": "Large date stamp",
+        "purpose": "The one due date at the top of an account page or loan card."
+      },
+      "stamp-word": {
+        "displayName": "Word stamp",
+        "purpose": "APPROVED, DENIED, WITHDRAWN, EXPIRED, CLOSED, OVERDUE, and the role badge."
+      }
+    },
+    "shadows": [],
+    "scrim": {
+      "value": "rgba(34,32,28,.45)",
+      "purpose": "Behind the dialog. The only raised surface."
+    },
+    "motion": [
+      {
+        "name": "stamp-land",
+        "value": "90ms steps(2, jump-none); from scale(1.12) rotate(0deg) to scale(1) rotate(-1.8deg)",
+        "purpose": "Approve and Extend. Two frames, no fade. Skipped under prefers-reduced-motion."
+      },
+      {
+        "name": "live-dot-blink",
+        "value": "90ms step, hidden then shown",
+        "purpose": "The live-update dot, once for each update. Off under prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "stack",
+        "value": "1000px"
+      },
+      {
+        "name": "narrow",
+        "value": "640px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Approve button",
+      "kind": "button",
+      "refersTo": "button-approve",
+      "description": "The only violet button. Approve on the desk and Extend on an account.",
+      "html": "<button class=\"ds-btn ds-btn-approve\" type=\"button\"><svg class=\"ds-i\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"5.5\" r=\"2.3\"/><path d=\"M10.6 7.7V11M13.4 7.7V11\"/><rect x=\"4.5\" y=\"11\" width=\"15\" height=\"4.5\" rx=\"1\"/><path d=\"M5 19.5h14\"/></svg>Approve</button>",
+      "css": ".ds-i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}.ds-btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:4px;border:1px solid transparent;font:600 13.5px/1 \"Public Sans\",system-ui,sans-serif;text-decoration:none;cursor:pointer;white-space:nowrap}.ds-btn:focus-visible{outline:2px solid #5A3E9B;outline-offset:2px}.ds-btn:disabled{background:#E7E3D9;color:#55514A;border-color:#8E8A80;border-style:dashed;cursor:not-allowed}.ds-btn[aria-busy=\"true\"]{cursor:progress}.ds-btn-approve{background:#5A3E9B;color:#FFFFFF}.ds-btn-approve:hover{background:#4A3184}"
+    },
+    {
+      "name": "Primary button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Card stock with ink text. New request, Send request, and the AWS access portal link.",
+      "html": "<div class=\"ds-panel\"><button class=\"ds-btn ds-btn-primary\" type=\"button\"><svg class=\"ds-i\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 5v14M5 12h14\"/></svg>Send request</button></div>",
+      "css": ".ds-i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}.ds-btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:4px;border:1px solid transparent;font:600 13.5px/1 \"Public Sans\",system-ui,sans-serif;text-decoration:none;cursor:pointer;white-space:nowrap}.ds-btn:focus-visible{outline:2px solid #5A3E9B;outline-offset:2px}.ds-btn:disabled{background:#E7E3D9;color:#55514A;border-color:#8E8A80;border-style:dashed;cursor:not-allowed}.ds-btn[aria-busy=\"true\"]{cursor:progress}.ds-panel{background:#FFFFFF;border:1px solid #D6D1C4;border-radius:8px;padding:16px}.ds-btn-primary{background:#EDE3CC;color:#22201C}.ds-panel .ds-btn-primary{border-color:#CDBF9E}.ds-btn-primary:hover{background:#E2D5B6}"
+    },
+    {
+      "name": "Plain button",
+      "kind": "button",
+      "refersTo": "button-plain",
+      "description": "Paper with a control-rule border. Deny on a row, Return, Cancel and the pager.",
+      "html": "<button class=\"ds-btn ds-btn-plain\" type=\"button\">Deny<span class=\"ds-vh\"> priya-glue-etl</span></button>",
+      "css": ".ds-i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}.ds-btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:4px;border:1px solid transparent;font:600 13.5px/1 \"Public Sans\",system-ui,sans-serif;text-decoration:none;cursor:pointer;white-space:nowrap}.ds-btn:focus-visible{outline:2px solid #5A3E9B;outline-offset:2px}.ds-btn:disabled{background:#E7E3D9;color:#55514A;border-color:#8E8A80;border-style:dashed;cursor:not-allowed}.ds-btn[aria-busy=\"true\"]{cursor:progress}.ds-btn-plain{background:#FFFFFF;color:#22201C;border-color:#8E8A80}.ds-btn-plain:hover{background:#F8F6F0;border-color:#22201C}.ds-vh{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}"
+    },
+    {
+      "name": "Ghost button on the shell",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Transparent on shelf green. Only Sync with AWS uses it.",
+      "html": "<div class=\"ds-shelf\"><button class=\"ds-btn ds-btn-ghost\" type=\"button\"><svg class=\"ds-i\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M19.5 11a7.5 7.5 0 0 0-13.4-4.2L4.5 8.5M4.5 4v4.5H9M4.5 13a7.5 7.5 0 0 0 13.4 4.2l1.6-1.7M19.5 20v-4.5H15\"/></svg>Sync with AWS</button></div>",
+      "css": ".ds-i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}.ds-btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:4px;border:1px solid transparent;font:600 13.5px/1 \"Public Sans\",system-ui,sans-serif;text-decoration:none;cursor:pointer;white-space:nowrap}.ds-btn:focus-visible{outline:2px solid #5A3E9B;outline-offset:2px}.ds-btn:disabled{background:#E7E3D9;color:#55514A;border-color:#8E8A80;border-style:dashed;cursor:not-allowed}.ds-btn[aria-busy=\"true\"]{cursor:progress}.ds-shelf{background:#2F5D50;padding:10px 24px}.ds-btn-ghost{background:transparent;color:#EDE3CC;border-color:#A9BDB4}.ds-btn-ghost:hover{background:#264D42;color:#FFFFFF;border-color:#EDE3CC}.ds-btn-ghost:focus-visible{outline-color:#EDE3CC}"
+    },
+    {
+      "name": "Text field",
+      "kind": "input",
+      "refersTo": "input-text",
+      "description": "Label above, help or error below, violet focus ring.",
+      "html": "<div class=\"ds-fld\"><label for=\"ds-f1\">Budget a month</label><input class=\"ds-input\" id=\"ds-f1\" type=\"text\" value=\"12.505\" aria-invalid=\"true\" aria-describedby=\"ds-f1e\"><p class=\"ds-help ds-help-err\" id=\"ds-f1e\"><svg class=\"ds-i\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 4l9 16H3z\"/><path d=\"M12 10v4.2M12 17.2v.1\"/></svg>Use two decimals at most, like 12.50.</p></div>",
+      "css": ".ds-i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}.ds-fld{display:grid;gap:4px;font:400 14px/1.45 \"Public Sans\",system-ui,sans-serif;color:#22201C}.ds-fld label{font-size:13.5px;font-weight:600}.ds-input{height:34px;width:100%;border:1px solid #8E8A80;border-radius:4px;background:#FFFFFF;padding:0 10px;font:inherit;color:#22201C;caret-color:#5A3E9B}.ds-input::placeholder{color:#55514A}.ds-input:focus-visible{border-color:#5A3E9B;outline:2px solid #5A3E9B;outline-offset:1px}.ds-input[aria-invalid=\"true\"]{border-color:#A8262F}.ds-help{font-size:12px;line-height:1.35;color:#55514A}.ds-help-err{display:flex;gap:5px;color:#A8262F;font-weight:600}.ds-help-err .ds-i{width:13px;height:13px;margin-top:1px}"
+    },
+    {
+      "name": "Shell navigation",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "Card-colored links on shelf green, deep shelf for hover and the current page, count pills.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Main\"><a href=\"#\" aria-current=\"page\">Queue<span class=\"ds-count\">3<span class=\"ds-vh\"> pending requests</span></span></a><a href=\"#\">Accounts</a><a href=\"#\">History</a><a href=\"#\">Notices<span class=\"ds-count\">4<span class=\"ds-vh\"> unread</span></span></a></nav>",
+      "css": ".ds-nav{display:flex;flex-wrap:wrap;gap:2px;background:#2F5D50;padding:10px 24px;font:500 14px/1.45 \"Public Sans\",system-ui,sans-serif}.ds-nav a{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:4px;color:#EDE3CC;text-decoration:none}.ds-nav a:hover,.ds-nav a[aria-current]{background:#264D42;color:#FFFFFF}.ds-nav a:focus-visible{outline:2px solid #EDE3CC;outline-offset:2px}.ds-count{background:#EDE3CC;color:#22201C;font-size:12px;font-weight:700;border-radius:9px;padding:0 6px;line-height:18px}.ds-vh{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}"
+    },
+    {
+      "name": "Status label",
+      "kind": "chip",
+      "refersTo": "status-label",
+      "description": "An icon and a word, never color alone, with an optional pencil-grey qualifier.",
+      "html": "<span class=\"ds-status\"><svg class=\"ds-i ds-grn\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M8.6 12.3l2.4 2.4 4.5-5\"/></svg>active<small>getting ready</small></span><span class=\"ds-status\"><svg class=\"ds-i ds-vio\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"5\" y=\"11\" width=\"14\" height=\"9\" rx=\"1.5\"/><path d=\"M8 11V8a4 4 0 0 1 8 0v3\"/></svg>restricting<small>settling protection</small></span><span class=\"ds-status\"><svg class=\"ds-i ds-red\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M9.2 9.2l5.6 5.6M14.8 9.2l-5.6 5.6\"/></svg>failed</span>",
+      "css": ".ds-i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}.ds-red{color:#C8323C}.ds-vio{color:#5A3E9B}.ds-grn{color:#2F5D50}.ds-status{display:inline-flex;align-items:center;gap:6px;margin-right:14px;font:500 14px/21px \"Public Sans\",system-ui,sans-serif;color:#22201C}.ds-status small{font-size:12px;font-weight:400;color:#55514A}"
+    },
+    {
+      "name": "Stamps",
+      "kind": "custom",
+      "refersTo": "stamp-date",
+      "description": "The signature: violet Courier date stamps, the struck renewal, and Public Sans word stamps.",
+      "html": "<div class=\"ds-desk\"><span class=\"ds-was\">extended from <s>OCT 20</s></span><span class=\"ds-stamp ds-stamp-land\">OCT 27 2026</span><span class=\"ds-stamp ds-stamp-soon ds-stamp-r2\">OCT 13 2026</span><span class=\"ds-stamp ds-stamp-lg ds-stamp-r3\">NOV 2 2026</span></div><div class=\"ds-desk\"><span class=\"ds-stamp ds-stamp-word ds-stamp-r2\">approved</span><span class=\"ds-stamp ds-stamp-word ds-stamp-denied\">denied</span><span class=\"ds-stamp ds-stamp-word ds-stamp-withdrawn ds-stamp-r3\">withdrawn</span><span class=\"ds-stamp ds-stamp-word ds-stamp-expired ds-stamp-r2\">expired</span><span class=\"ds-stamp ds-stamp-word ds-stamp-closed\">closed</span><span class=\"ds-stamp ds-stamp-word ds-stamp-overdue ds-stamp-r3\">overdue</span></div>",
+      "css": ".ds-stamp{display:inline-block;font:700 15px/1 \"Courier Prime\",monospace;letter-spacing:.03em;color:#5A3E9B;border:1.5px solid currentColor;border-radius:3px;padding:4px 7px 3px;transform:rotate(-1.8deg);mix-blend-mode:multiply}.ds-stamp-r2{transform:rotate(1.3deg)}.ds-stamp-r3{transform:rotate(-1deg)}.ds-stamp-soon{color:#A8262F}.ds-stamp-lg{font-size:22px;border-width:2px;padding:7px 10px 5px}.ds-stamp-word{font:700 12px/1 \"Public Sans\",system-ui,sans-serif;letter-spacing:.09em;text-transform:uppercase;padding:5px 7px 4px}.ds-stamp-denied{color:#22201C}.ds-stamp-withdrawn{color:#55514A;border-style:dashed}.ds-stamp-expired{color:#55514A}.ds-stamp-closed{color:#2F5D50}.ds-stamp-overdue{color:#A8262F}.ds-stamp-land{animation:ds-stamp 90ms steps(2,jump-none) both}@keyframes ds-stamp{from{transform:scale(1.12) rotate(0deg)}to{transform:scale(1) rotate(-1.8deg)}}@media (prefers-reduced-motion:reduce){.ds-stamp-land{animation:none}}.ds-desk{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:12px 16px;background:#EDE3CC;border:1px solid #CDBF9E;border-radius:8px;margin-bottom:8px}.ds-was{font:400 12px/1.2 \"Public Sans\",system-ui,sans-serif;color:#55514A}.ds-was s{font:700 13.5px/1 \"Courier Prime\",monospace;letter-spacing:.03em;color:#5A3E9B;text-decoration:line-through 1px #22201C}"
+    },
+    {
+      "name": "Spend meter",
+      "kind": "custom",
+      "refersTo": "meter",
+      "description": "Shelf below 75 percent, ink with a label from 75, red with an alert from 95.",
+      "html": "<div class=\"ds-spend\"><span>$20.00 <span class=\"ds-mut\">of $50</span></span><span class=\"ds-bar\"><svg class=\"ds-meter\" viewBox=\"0 0 96 4\" width=\"96\" height=\"4\" aria-hidden=\"true\"><rect width=\"96\" height=\"4\" rx=\"2\" fill=\"#E7E3D9\"/><rect width=\"38\" height=\"4\" rx=\"2\" fill=\"#2F5D50\"/></svg></span></div><div class=\"ds-spend\"><span>$41.50 <span class=\"ds-mut\">of $50</span></span><span class=\"ds-bar\"><svg class=\"ds-meter\" viewBox=\"0 0 96 4\" width=\"96\" height=\"4\" aria-hidden=\"true\"><rect width=\"96\" height=\"4\" rx=\"2\" fill=\"#E7E3D9\"/><rect width=\"80\" height=\"4\" rx=\"2\" fill=\"#22201C\"/></svg><span class=\"ds-used\">83% used</span></span></div><div class=\"ds-spend\"><span>$74.15 <span class=\"ds-mut\">of $50</span></span><span class=\"ds-bar\"><svg class=\"ds-meter\" viewBox=\"0 0 96 4\" width=\"96\" height=\"4\" aria-hidden=\"true\"><rect width=\"96\" height=\"4\" rx=\"2\" fill=\"#C8323C\"/></svg><span class=\"ds-used ds-used-red\"><svg class=\"ds-i\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 4l9 16H3z\"/><path d=\"M12 10v4.2M12 17.2v.1\"/></svg>over budget</span></span></div>",
+      "css": ".ds-i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}.ds-spend{display:grid;gap:5px;margin-bottom:10px;font:400 13.5px/1.45 \"Public Sans\",system-ui,sans-serif;color:#22201C;font-variant-numeric:tabular-nums lining-nums}.ds-mut{color:#55514A}.ds-bar{display:flex;align-items:center;gap:8px}.ds-meter{display:block}.ds-used{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:#22201C}.ds-used .ds-i{width:13px;height:13px}.ds-used-red{color:#A8262F}"
+    },
+    {
+      "name": "Approval desk slip",
+      "kind": "card",
+      "refersTo": "panel-desk",
+      "description": "A request on card stock: name, requester, exact facts at 16 px, version, and the actions.",
+      "html": "<div class=\"ds-desk-panel\"><div class=\"ds-slip\"><input type=\"checkbox\" aria-label=\"Select priya-glue-etl\"><div><div class=\"ds-nm\">priya-glue-etl</div><div class=\"ds-by\">Glue job tests. Asked by priya@example.com</div></div><dl class=\"ds-fact\"><dt>Lifetime</dt><dd>36 hours</dd></dl><dl class=\"ds-fact\"><dt>Budget</dt><dd>$12.50 <small>a month</small></dd></dl><div class=\"ds-act\"><div><button class=\"ds-btn ds-btn-approve\" type=\"button\"><svg class=\"ds-i\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"5.5\" r=\"2.3\"/><path d=\"M10.6 7.7V11M13.4 7.7V11\"/><rect x=\"4.5\" y=\"11\" width=\"15\" height=\"4.5\" rx=\"1\"/><path d=\"M5 19.5h14\"/></svg>Approve<span class=\"ds-vh\"> priya-glue-etl</span></button><button class=\"ds-btn ds-btn-plain\" type=\"button\">Deny<span class=\"ds-vh\"> priya-glue-etl</span></button></div><span class=\"ds-ver\">version <span class=\"ds-mono\">7f3a91</span></span></div></div></div>",
+      "css": ".ds-i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}.ds-btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:4px;border:1px solid transparent;font:600 13.5px/1 \"Public Sans\",system-ui,sans-serif;text-decoration:none;cursor:pointer;white-space:nowrap}.ds-btn:focus-visible{outline:2px solid #5A3E9B;outline-offset:2px}.ds-btn:disabled{background:#E7E3D9;color:#55514A;border-color:#8E8A80;border-style:dashed;cursor:not-allowed}.ds-btn[aria-busy=\"true\"]{cursor:progress}.ds-desk-panel{background:#EDE3CC;border:1px solid #CDBF9E;border-radius:8px;font:400 14px/1.45 \"Public Sans\",system-ui,sans-serif;color:#22201C;font-variant-numeric:tabular-nums lining-nums}.ds-slip{display:grid;grid-template-columns:18px minmax(0,1fr) 84px 108px auto;gap:12px 18px;align-items:center;padding:11px 16px;border-top:1px dashed #CDBF9E}.ds-slip:first-child{border-top:0}.ds-slip:hover{background:#E8DEC4}.ds-slip input{width:16px;height:16px;margin:0;accent-color:#5A3E9B}.ds-nm{font-weight:700}.ds-by{font-size:12px;color:#55514A}.ds-fact{margin:0}.ds-fact dt{font-size:12px;color:#55514A}.ds-fact dd{margin:0;font-size:16px;font-weight:700;line-height:1.3}.ds-fact small{font-size:12px;font-weight:400;color:#55514A}.ds-act{display:grid;justify-items:end;gap:6px}.ds-act div{display:flex;gap:6px}.ds-ver{font-size:12px;color:#55514A}.ds-mono{font-family:\"Courier Prime\",monospace}.ds-btn-approve{background:#5A3E9B;color:#FFFFFF}.ds-btn-approve:hover{background:#4A3184}.ds-btn-plain{background:#FFFFFF;color:#22201C;border-color:#55514A}.ds-btn-plain:hover{background:#F8F6F0;border-color:#22201C}.ds-vh{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Date Due Card",
+    "overview": "Every playground account is a loan from the playplace desk. It is stamped\nout, due back, renewed and returned. The interface is the date-due card from\na library book: a shelf-green shell, card-stock desk surfaces, and violet\ndate stamps that a person can read from across the room. A due date and a\ndecision are stamped facts, not muted metadata.\n\nThe system is dense and calm, because people use it daily across more than\n100 accounts. Most of the page is paper and ground with one-pixel rules.\nCard stock appears only where a person decides or reads a due date. The one\nexpressive move is the stamp: a turned, inked mark that lands in two frames.\nEverything else is square, flat and quiet.\n\nThe design rejects two things that the maintainer named: the generic grey cloud\ndashboard with summary tiles over a plain table, and the toy-like look of\nthe old ball-pit colors. The tool controls real AWS spend.",
+    "keyCharacteristics": [
+      "A shelf-green shell, paper panels on a warm grey ground, and card stock for the desk and the date-due column.",
+      "Violet Courier Prime stamps for every due date, turned 1 to 2 degrees.",
+      "One sans-serif face at five fixed sizes, with tabular figures.",
+      "Flat surfaces with 1 px rules. No shadows anywhere.",
+      "One motion: the stamp lands in two frames over 90 ms.",
+      "Status is always a word and an icon, never color alone."
+    ],
+    "rules": [
+      {
+        "name": "The Shelf Owns the Shell Rule",
+        "body": "Shelf green fills the shell and nothing else. In the content area it appears only as a healthy icon, the meter fill, the CLOSED stamp and the live dot. No content button is green.",
+        "section": "Colors"
+      },
+      {
+        "name": "The Card Stock Is the Desk Rule",
+        "body": "Card stock marks the places where someone decides or reads a due date: the approval desk, the date-due column and the loan card. A plain list or a form sits on paper.",
+        "section": "Colors"
+      },
+      {
+        "name": "The Red Ink Rule",
+        "body": "Red text is always red ink (#A8262F). Overdue red (#C8323C) is only for icons and bars, because red on card stock is 4.1:1 and fails for text.",
+        "section": "Colors"
+      },
+      {
+        "name": "The Five Sizes Rule",
+        "body": "Text uses 19 or 17, 16, 14, 13.5 and 12 pixels, and nothing between. A mockup value of 11, 11.5, 12.5, 13, 15, 18, 20 or 26 pixels snaps to the step whose job it does. The phone uses the same steps.",
+        "section": "Typography"
+      },
+      {
+        "name": "The Stamp Face Rule",
+        "body": "Courier Prime sets stamped dates, account IDs and request versions, and nothing else. Monospace is never a \"technical\" costume for labels, numbers or headings.",
+        "section": "Typography"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "The page root sets tabular lining figures, so every number lines up in columns, in every type role. Letter spacing never goes below -0.03em.",
+        "section": "Typography"
+      },
+      {
+        "name": "The Desktop Fleet Rule",
+        "body": "The full fleet table is a desktop surface and scrolls sideways before it collapses. A phone shows one request or one account, never the fleet.",
+        "section": "Layout"
+      },
+      {
+        "name": "The Flat Desk Rule",
+        "body": "No `box-shadow` on any surface. If something needs to stand out, it gets a rule, card stock or a stamp.",
+        "section": "Elevation & Depth"
+      },
+      {
+        "name": "The Turned Stamp Rule",
+        "body": "Only stamps rotate. A stamp turns between 1 and 2 degrees (-1.8, 1.3 or -1 degrees, varied from row to row). Nothing else on the page is rotated.",
+        "section": "Shapes"
+      },
+      {
+        "name": "The Word and Icon Rule",
+        "body": "Every status, health state and outcome shows a word. Color and icon only support the word.",
+        "section": "Components"
+      },
+      {
+        "name": "The No Toast Rule",
+        "body": "Feedback appears beside the thing it is about and in the one live region. Nothing floats in from a corner.",
+        "section": "Components"
+      },
+      {
+        "name": "The One Motion Rule",
+        "body": "The stamp is the only animation, and the live dot is the only other thing that changes on its own. State changes step in two frames and never fade.",
+        "section": "Components"
+      }
+    ],
+    "dos": [
+      "Do put card stock (#EDE3CC) only under the approval desk, the date-due column and the loan card.",
+      "Do show lifetime and budget as exact 16 px bold facts beside Approve, for example \"36 hours\" and \"$12.50\", with the request version.",
+      "Do keep the old due date, struck through, above a renewed stamp.",
+      "Do use red ink (#A8262F) for every red word, and overdue red (#C8323C) only for icons and bars.",
+      "Do theme the browser surfaces: a violet selection with paper text, a violet caret and `accent-color`, and a 2 px violet focus ring that turns card stock on the shell.",
+      "Do keep every text pair at 4.5:1 or more, and the border of every field, select, checkbox and segmented control at 3:1 or more, in both palettes. A button is identified by its label.",
+      "Do name the row in every row action for screen readers, for example \"Approve priya-glue-etl\".",
+      "Do make every touch target on the phone at least 44 px.",
+      "Do show \"unavailable\" or \"unknown\" when a value failed to load."
+    ],
+    "donts": [
+      "Don't add a shadow to any surface.",
+      "Don't fade anything, or animate anything except the stamp and the live dot.",
+      "Don't set anything in Courier Prime except stamped dates, account IDs and request versions.",
+      "Don't add a font size between the five steps.",
+      "Don't build summary tiles over a plain table, or any generic grey admin dashboard.",
+      "Don't bring back the ball-pit colors. The tool must not look toy-like.",
+      "Don't use a toast, or a modal for a task that needs no interruption.",
+      "Don't signal a status with color alone.",
+      "Don't round a deciding fact to \"1 day\" or \"$12\".",
+      "Don't put a colored stripe wider than 1 px on the side of a card, row or note, or a small label above a heading.",
+      "Don't ship inline `style` attributes or a font from a third-party host. The CSP allows neither."
+    ]
+  }
+}

@@ -52,6 +52,26 @@ the OU in one of two ways:
 Set only one of them. Playplace refuses to start when you set both, because
 it would ignore `--ou-name`.
 
+Playplace treats every account in the Playground OU as its own. Every
+refresh, not only the first, adopts each active account in the OU that does
+not have the `playplace:managed=true` tag. This is true for `--ou-name` and
+for `--ou-id`, and also for an account that someone moves into the OU after
+setup. An adopted account keeps each valid playplace owner, expires and
+budget tag. It gets the defaults for the rest, and playplace closes it when
+its lifetime ends. Do not move an account into the OU unless playplace may
+close it. To bring in an account on purpose, set its `playplace:owner` tag
+to the email of the owner before you move it. After the next refresh, look
+at it with `playplace show ACCOUNT`. If the default lifetime or budget does
+not fit, use `playplace extend` or `playplace budget`.
+
+Pending requests are tags on the Playground OU itself, one
+`playplace:req:NAME` tag for each request. AWS allows 50 tags on a resource,
+so the queue holds at most 50 requests, less the other tags on the OU. The
+count includes approved requests whose account is not placed yet. Playplace
+refuses a new request when the queue is full. Do not let other tools manage
+the tags of the OU, for example infrastructure as code that sets the full
+tag list. Such a tool deletes the pending requests when it applies its list.
+
 To use an existing nested OU:
 
 1. Find the ID of the OU in the AWS Organizations console, or with
@@ -290,6 +310,16 @@ to reach operators). The clock starts when playplace first observes an externall
 initiated `PENDING_CLOSURE`. Alerts occur on refresh, not via an AWS TTL timer.
 The `--alert-email` setting is for **Budgets**, not closure notices.
 
+AWS limits closures. Within a rolling 30 days, an organization can close 250
+member accounts or 20% of them, whichever is higher, up to 1,000. Only three
+closures can run at the same time. When AWS refuses a close for one of these
+limits, playplace keeps the close intent and retries it on a later refresh.
+
+A closed account counts toward the account limit of the organization until
+AWS closes it permanently, 90 days after the closure. The default limit is
+10 accounts. You can ask for a higher limit in the Service Quotas console.
+See [Quotas for AWS Organizations](https://docs.aws.amazon.com/organizations/latest/userguide/orgs_reference_limits.html).
+
 Playplace retries refusals while the provider still reports `ACTIVE`, monitors
 pending requests without resubmitting them, and records `closed` only after
 observing `CLOSED`. Closure markers in account tags prevent repeated notices
@@ -298,7 +328,7 @@ delivery are best-effort, not an exactly-once alerting system. Alert on worker
 errors, missed schedules, and failed reconciliation independently. Do not silence
 them because a close API call previously returned success.
 
-Inspect account-age restrictions, closure quotas, IAM failures, Control Tower
+Inspect closure quotas, IAM failures, Control Tower
 requirements, and unexpected suspension when closure stalls. Restrict remaining
 access through your infrastructure incident procedure if required; playplace
 only revokes its configured Identity Center assignment, not every credential or

@@ -1,7 +1,8 @@
 # Development
 
 Build, test, and work on playplace locally. For service usage, see
-[the README](README.md); for implementation rationale, see [Design](DESIGN.md).
+[the README](README.md); for implementation rationale, see
+[Architecture](ARCHITECTURE.md).
 
 ## Build
 
@@ -25,7 +26,9 @@ Linux job builds and smoke-tests distribution snapshots. Shell completions and
     task release:check      # generated views, tests, vet, GoReleaser checks
     task release:snapshot   # local archives and package recipes; never publish
 
-Snapshot validation also needs bash, tar, and Ruby. GoReleaser's source archive
+Snapshot validation also needs bash, tar, and Ruby. Any recent Ruby from the
+system package manager works, because the check only runs `ruby -c` on the
+generated formula. GoReleaser's source archive
 uses committed files; use the intended commit or a disposable local copy for
 pre-commit source-package checks. Generated views are committed so source
 packages do not need templ at build time; `scripts/check-generated.sh` checks
@@ -44,7 +47,8 @@ repo's mise configuration. The site is built by [Zensical](https://zensical.org)
 pages under `docs/`: an overview, guides for requesters and approvers, the
 CLI and configuration references, and the deployment guide, which includes
 [deploy/README.md](deploy/README.md) as it is. Architecture and interface design
-notes live in [DESIGN.md](DESIGN.md).
+notes live in [ARCHITECTURE.md](ARCHITECTURE.md). The visual design system of
+the web UI lives in [DESIGN.md](DESIGN.md).
 
 ## Layout
 

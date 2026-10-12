@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<meta name="theme-color" content="#2F5D50">
+<title>playplace · Home</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Public+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{--shelf:#2F5D50;--shelf-deep:#264D42;--card:#EDE3CC;--card-sel:#E2D5B6;--card-rule:#CDBF9E;--ink:#22201C;--ink-2:#55514A;--ground:#F2F1EC;--paper:#FFFFFF;--rule:#D6D1C4;--rule-soft:#E7E3D9;--violet:#5A3E9B;--red:#C8323C;--red-ink:#A8262F;--edge:1px solid var(--rule);color-scheme:light}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--ground);scrollbar-color:var(--shelf) var(--ground)}
+body{font:14px/1.45 'Public Sans',system-ui,sans-serif;color:var(--ink);font-variant-numeric:tabular-nums lining-nums;accent-color:var(--violet);caret-color:var(--violet);-webkit-font-smoothing:antialiased}
+.app{width:1440px;height:900px;overflow:hidden;background:var(--ground)}
+::selection{background:var(--violet);color:#fff}
+:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+.shell :focus-visible{outline-color:var(--card)}
+.vh{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+h1,h2,p,ul,ol,dl,dd{margin:0;padding:0}ul,ol{list-style:none}a{color:inherit}button{font:inherit}
+.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}
+code,.mono{font-family:'Courier Prime',monospace;font-size:14px}
+.sprite{position:absolute}.push{margin-left:auto}
+.red{color:var(--red)}.vio{color:var(--violet)}.grn{color:var(--shelf)}.mut{color:var(--ink-2)}.ink{color:var(--ink);font-weight:700}.sm{font-size:13px}
+/* shell */
+.shell{height:56px;background:var(--shelf);color:var(--card);display:flex;align-items:center;gap:10px;padding:0 24px}
+.brand{display:flex;align-items:center;gap:9px;text-decoration:none;font-size:19px;letter-spacing:-.01em;margin-right:22px;color:#fff}
+.brand b{font-weight:700;color:var(--card)}.brand .mark{width:28px;height:28px;stroke-width:1.5;color:var(--card)}
+.shell nav{display:flex;gap:2px}
+.shell nav a{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:4px;text-decoration:none;font-weight:500}
+.shell nav a:hover{background:var(--shelf-deep);text-decoration:underline;text-underline-offset:4px}
+.count{background:var(--card);color:var(--ink);font-size:12px;font-weight:700;border-radius:9px;padding:0 6px;line-height:18px}
+.search{flex:1;max-width:340px;margin-left:auto;position:relative}
+.search .i{position:absolute;left:11px;top:9px;color:var(--ink-2)}
+.search input{width:100%;height:34px;border:0;border-radius:4px;background:#FBF8F1;padding:0 12px 0 35px;font:inherit;color:var(--ink)}
+.search input::placeholder{color:#5D594F}
+.btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:4px;border:1px solid transparent;font:600 13.5px/1 'Public Sans',sans-serif;text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn.ghost{background:transparent;color:var(--card);border-color:#A9BDB4}
+.btn.primary{background:var(--card);color:var(--ink)}
+.btn.approve{background:var(--violet);color:#fff}
+.btn.deny{background:transparent;color:var(--ink);border-color:#7A7262}
+.btn.sm{height:30px;padding:0 11px;font-size:13px}
+.who{display:flex;align-items:center;gap:8px;margin-left:14px;font-size:13px;font-weight:500;color:#fff}
+.avatar{width:28px;height:28px;border-radius:50%;background:var(--card);color:var(--shelf);display:grid;place-items:center;font-weight:700;font-size:13px}
+.badge{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;padding:2px 6px;border-radius:3px;border:1px solid #A9BDB4;color:var(--card)}
+.icon-btn{width:32px;height:32px;display:grid;place-items:center;background:transparent;border:0;border-radius:4px;color:var(--card);cursor:pointer}
+/* layout */
+main{padding:16px 24px 0;display:grid;gap:16px}
+.top{display:grid;grid-template-columns:384px minmax(0,1fr);gap:16px;align-items:stretch}
+.panel{background:var(--paper);border:var(--edge);border-radius:8px}
+.head{display:flex;align-items:center;gap:12px;padding:0 16px;height:48px}
+h1,h2{font-size:17px;font-weight:700;letter-spacing:-.01em}
+/* attention ledger */
+.ledger li{border-top:1px solid var(--rule-soft)}
+.ledger a{display:grid;grid-template-columns:18px minmax(0,1fr) 16px;gap:12px;align-items:center;padding:7px 16px;text-decoration:none}
+.ledger a:hover{background:#F8F6F0}
+.ledger .i{width:18px;height:18px}
+.ledger b{display:block;font-weight:600}
+.ledger small{display:block;font-size:12.5px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* approval queue: the returns desk */
+.queue{background:var(--card);border-color:var(--card-rule)}
+.bulk{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:13px}
+.bulk label{display:flex;align-items:center;gap:7px;font-weight:500}
+.slip{display:grid;grid-template-columns:18px minmax(0,1fr) 84px 108px 200px;gap:18px;align-items:center;padding:11px 16px;border-top:1px dashed var(--card-rule)}
+.slip.sel{background:var(--card-sel)}
+.pick{display:grid;place-items:center}.pick input,.bulk input{width:16px;height:16px;margin:0}
+.nm{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;line-height:1.3}.nm a{text-decoration:none}.nm a:hover{text-decoration:underline}
+.pp{font-size:13.5px}
+.by{font-size:12.5px;color:var(--ink-2);margin-top:2px;overflow-wrap:anywhere}
+.fact dt{font-size:12px;color:var(--ink-2)}.fact dd{font-size:16px;font-weight:700;line-height:1.3}.fact small{font-size:12px;font-weight:500;color:var(--ink-2)}
+.act{display:grid;justify-items:end;gap:6px}.act>div{display:flex;gap:6px}
+.ver{font-size:12px;color:var(--ink-2)}.ver code{font-size:13px;color:var(--ink)}
+.mine{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 10px;font-size:13px;font-weight:600;color:var(--ink-2);border:1px dashed #7A7262;border-radius:4px}
+.flag{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:2px 7px;border-radius:3px;background:var(--ink);color:var(--card);line-height:1.3}.flag .i{width:13px;height:13px}
+/* fleet table */
+.fleet{height:520px;overflow:hidden}
+.filters{margin-left:auto;display:flex;align-items:center;gap:14px;font-size:13px}
+.seg{display:flex;border:1px solid #8E8A80;border-radius:5px;overflow:hidden}
+.seg a{padding:5px 11px;text-decoration:none;font-weight:500}.seg a+a{border-left:1px solid #8E8A80}.seg a[aria-current]{background:var(--ink);color:#fff}
+.filters label{display:flex;align-items:center;gap:7px;font-weight:500}
+select{font:inherit;height:30px;border:1px solid #8E8A80;border-radius:4px;background:#fff;color:var(--ink);padding:0 6px}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+col:nth-child(1){width:186px}col:nth-child(2){width:196px}col:nth-child(3){width:146px}col:nth-child(4){width:316px}col:nth-child(5){width:168px}col:nth-child(6){width:186px}
+th{padding:0;text-align:left;font-size:12.5px;font-weight:600;color:var(--ink-2);background:#F7F6F2;border-block:var(--edge)}
+th button{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:6px;width:100%;height:34px;padding:0 14px;cursor:pointer}
+th[aria-sort] button{color:var(--ink)}th .i{width:14px;height:14px}
+td{height:54px;padding:0 14px;border-bottom:1px solid var(--rule-soft);vertical-align:middle;white-space:nowrap;overflow:hidden}
+th.due,td.due{background:var(--card)}td.due{border-bottom-color:var(--card-rule)}
+.acct{font-weight:600;text-decoration:underline;text-decoration-color:var(--rule);text-underline-offset:3px}
+.st{display:flex;align-items:flex-start;gap:8px}.st .i{margin-top:2px}
+td small{display:block;font-size:12px;color:var(--ink-2);line-height:1.35}
+.bar{display:flex;align-items:center;gap:8px;margin-top:5px}
+.meter{display:block;width:96px;height:4px;border-radius:2px;background:var(--rule-soft)}.meter i{display:block;height:100%;border-radius:2px;background:var(--shelf)}
+.meter.over i{background:var(--red)}.w6{width:6%}.w11{width:11%}.w53{width:53%}.w83{width:83%}.w100{width:100%}
+.bar small{display:inline-flex;align-items:center;gap:4px;font-weight:600;color:var(--red)}.bar small .i{width:13px;height:13px}
+/* signature: stamped date-due entries */
+.stamp{display:inline-block;font:700 15px/1 'Courier Prime',monospace;letter-spacing:.03em;color:var(--violet);border:1.5px solid currentColor;border-radius:3px;padding:4px 7px 3px;transform:rotate(-1.8deg);mix-blend-mode:multiply}
+tbody tr:nth-child(3n+2) .stamp{transform:rotate(1.3deg)}tbody tr:nth-child(3n) .stamp{transform:rotate(-1deg)}
+.stamp.over{color:var(--red-ink);font:700 12.5px/1 'Public Sans',sans-serif;letter-spacing:.09em;padding:5px 7px 4px}
+.was{display:flex;align-items:baseline;gap:7px;font-size:11.5px;color:var(--ink-2);line-height:1.2;margin:0 0 3px 2px}
+.was s{display:inline-block;font:700 13px/1 'Courier Prime',monospace;letter-spacing:.03em;color:var(--violet);text-decoration:line-through 1px var(--ink);transform:rotate(.8deg)}
+.after{font-size:12px;font-weight:600;color:var(--red-ink);margin-left:6px}
+</style>
+</head>
+<body>
+<svg class="sprite" width="0" height="0" aria-hidden="true"><defs>
+<symbol id="i-mark" viewBox="0 0 24 24"><path d="M7.4 18.6h9.9a3.9 3.9 0 0 0 .4-7.8 5.6 5.6 0 0 0-10.7-1.1 4.5 4.5 0 0 0 .4 8.9z"/><path d="M8.6 16.2c2.6 0 3.1-3.6 6.2-3.6"/><circle cx="16" cy="15.6" r="1.1"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.4-4.4"/></symbol>
+<symbol id="i-sync" viewBox="0 0 24 24"><path d="M19.5 11a7.5 7.5 0 0 0-13.4-4.2L4.5 8.5M4.5 4v4.5H9M4.5 13a7.5 7.5 0 0 0 13.4 4.2l1.6-1.7M19.5 20v-4.5H15"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-logout" viewBox="0 0 24 24"><path d="M9.5 4.5h-3a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h3M15 8l4 4-4 4M19 12H9.5"/></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4.2M12 17.2v.1"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+<symbol id="i-xc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9.2 9.2l5.6 5.6M14.8 9.2l-5.6 5.6"/></symbol>
+<symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/></symbol>
+<symbol id="i-hour" viewBox="0 0 24 24"><path d="M7 3.5h10M7 20.5h10M8 3.5v2.3a4 4 0 0 0 1.6 3.2L12 12l2.4-3a4 4 0 0 0 1.6-3.2V3.5M8 20.5v-2.3a4 4 0 0 1 1.6-3.2L12 12l2.4 3a4 4 0 0 1 1.6 3.2v2.3"/></symbol>
+<symbol id="i-ok" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8.6 12.3l2.4 2.4 4.5-5"/></symbol>
+<symbol id="i-spin" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 1-8.5 8.5"/><path d="M12 8v4l2.5 1.5"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+<symbol id="i-box" viewBox="0 0 24 24"><path d="M4 4.5h16v4H4zM5.5 8.5V19h13V8.5M12 11v5M9.5 13.5L12 16l2.5-2.5"/></symbol>
+<symbol id="i-minus" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8 12h8"/></symbol>
+<symbol id="i-none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" stroke-dasharray="2.4 3"/></symbol>
+<symbol id="i-stamp" viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="2.3"/><path d="M10.6 7.7V11M13.4 7.7V11"/><rect x="4.5" y="11" width="15" height="4.5" rx="1"/><path d="M5 19.5h14"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c1.2-3.6 3.8-5.5 7-5.5s5.8 1.9 7 5.5"/></symbol>
+<symbol id="i-over" viewBox="0 0 24 24"><path d="M3.5 13h17M12 20V4.5M8 8.5l4-4 4 4"/></symbol>
+<symbol id="i-sort" viewBox="0 0 24 24"><path d="M8 9.5l4-4 4 4M8 14.5l4 4 4-4"/></symbol>
+<symbol id="i-asc" viewBox="0 0 24 24"><path d="M12 18.5v-13M7 10.5l5-5 5 5"/></symbol>
+</defs></svg>
+<div class="app">
+<header class="shell">
+<a class="brand" href="/" aria-current="page"><svg class="i mark" aria-hidden="true"><use href="#i-mark"/></svg><span><b>play</b>place</span></a>
+<nav aria-label="Main"><a href="/#pending">Queue<span class="count">3<span class="vh"> pending requests</span></span></a><a href="/accounts">Accounts</a><a href="/history">History</a><a href="/notices">Notices</a></nav>
+<form class="search" role="search" action="/search"><label class="vh" for="q">Search accounts, owners, IDs</label><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><input id="q" name="q" type="search" placeholder="Search accounts, owners, IDs"></form>
+<button class="btn ghost" type="button"><svg class="i" aria-hidden="true"><use href="#i-sync"/></svg>Sync with AWS</button>
+<a class="btn primary" href="/requests/new"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>New request</a>
+<div class="who"><span class="avatar" aria-hidden="true">M</span>maya@example.com<span class="badge">admin</span></div>
+<button class="icon-btn" type="button" aria-label="Sign out"><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg></button>
+</header>
+<main>
+<div class="top">
+<section class="panel attn" aria-labelledby="attn-h">
+<div class="head"><h1 id="attn-h">Needs attention</h1><time class="mut sm push" datetime="2026-10-11">Sunday, October 11</time></div>
+<ul class="ledger">
+<li><a href="/accounts?attention=closure-overdue"><svg class="i red" aria-hidden="true"><use href="#i-alert"/></svg><span><b>1 closure overdue</b><small>stuck-close-env · charges may continue</small></span><svg class="i mut" aria-hidden="true"><use href="#i-chev"/></svg></a></li>
+<li><a href="/accounts?budget=restricted"><svg class="i red" aria-hidden="true"><use href="#i-lock"/></svg><span><b>2 budgets restricted</b><small>cost-spike-test over budget, $74.15 of $50</small></span><svg class="i mut" aria-hidden="true"><use href="#i-chev"/></svg></a></li>
+<li><a href="/accounts?status=failed"><svg class="i red" aria-hidden="true"><use href="#i-xc"/></svg><span><b>1 failed creation</b><small>dup-email-test · EMAIL_ALREADY_EXISTS</small></span><svg class="i mut" aria-hidden="true"><use href="#i-chev"/></svg></a></li>
+<li><a href="/accounts?status=unavailable"><svg class="i" aria-hidden="true"><use href="#i-ban"/></svg><span><b>1 unavailable</b><small>suspended-sbx · AWS reports SUSPENDED</small></span><svg class="i mut" aria-hidden="true"><use href="#i-chev"/></svg></a></li>
+<li><a href="/accounts?status=expiring"><svg class="i vio" aria-hidden="true"><use href="#i-hour"/></svg><span><b>6 expiring within 3 days</b><small>First to expire: ml-gpu-bench, Oct 13</small></span><svg class="i mut" aria-hidden="true"><use href="#i-chev"/></svg></a></li>
+</ul>
+</section>
+<section class="panel queue" id="pending" aria-labelledby="q-h">
+<div class="head"><h2 id="q-h">Approval queue</h2><span class="mut sm">3 requests waiting for a decision</span>
+<div class="bulk"><label><input type="checkbox" id="all">Select all</label><span class="mut">1 of 3 selected</span><button class="btn approve sm" type="button"><svg class="i" aria-hidden="true"><use href="#i-stamp"/></svg>Approve selected</button><button class="btn deny sm" type="button">Deny selected</button></div></div>
+<ol class="slips">
+<li class="slip"><label class="pick"><input type="checkbox"><span class="vh">Select priya-glue-etl</span></label>
+<div class="req"><p class="nm"><a href="/requests/priya-glue-etl">priya-glue-etl</a></p><p class="pp">Glue ETL spike for the Q4 data platform</p><p class="by">Owner and requester priya@example.com · via web · 2 hours ago</p></div>
+<dl class="fact"><dt>Lifetime</dt><dd>14 days</dd></dl><dl class="fact"><dt>Budget</dt><dd>$75<small> / month</small></dd></dl>
+<div class="act"><div><button class="btn approve" type="button"><svg class="i" aria-hidden="true"><use href="#i-stamp"/></svg>Approve<span class="vh"> priya-glue-etl</span></button><button class="btn deny" type="button">Deny<span class="vh"> priya-glue-etl</span></button></div><span class="ver">version <code>7f3a91</code></span></div></li>
+<li class="slip sel"><label class="pick"><input type="checkbox" checked><span class="vh">Select alex-network-lab</span></label>
+<div class="req"><p class="nm"><a href="/requests/alex-network-lab">alex-network-lab</a></p><p class="pp">Transit gateway routing test</p><p class="by">Owner alex@example.com · requested via Slack · 40 minutes ago</p></div>
+<dl class="fact"><dt>Lifetime</dt><dd>36 hours</dd></dl><dl class="fact"><dt>Budget</dt><dd>$12.50<small> / month</small></dd></dl>
+<div class="act"><div><button class="btn approve" type="button"><svg class="i" aria-hidden="true"><use href="#i-stamp"/></svg>Approve<span class="vh"> alex-network-lab</span></button><button class="btn deny" type="button">Deny<span class="vh"> alex-network-lab</span></button></div><span class="ver">version <code>c02e5d</code></span></div></li>
+<li class="slip"><label class="pick"><input type="checkbox"><span class="vh">Select perf-load-2026</span></label>
+<div class="req"><p class="nm"><a href="/requests/perf-load-2026">perf-load-2026</a><span class="flag"><svg class="i" aria-hidden="true"><use href="#i-over"/></svg>limits overridden</span></p><p class="pp">Q4 load test at production scale</p><p class="by">Owner jordan.lee-whitfield@platform-engineering.example.com · requested by maya@example.com (you) via web · yesterday</p></div>
+<dl class="fact"><dt>Lifetime</dt><dd>120 days</dd></dl><dl class="fact"><dt>Budget</dt><dd>$900<small> / month</small></dd></dl>
+<div class="act"><div><span class="mine"><svg class="i" aria-hidden="true"><use href="#i-user"/></svg>Your request</span><button class="btn deny" type="button">Deny<span class="vh"> perf-load-2026</span></button></div><span class="ver">version <code>9b1f44</code></span></div></li>
+</ol>
+</section>
+</div>
+<section class="panel fleet" aria-labelledby="f-h">
+<div class="head"><h2 id="f-h">Accounts</h2><span class="mut sm"><span class="ink">112</span> open · spend this month <span class="ink">$4,812.40</span> · cost data lags about a day</span>
+<div class="filters"><nav class="seg" aria-label="Account filters"><a href="/accounts" aria-current="page">All</a><a href="/accounts?owner=me">Mine</a><a href="/accounts?attention=any">Needs attention</a></nav>
+<label>Status<select><option>Any status</option></select></label><label>Budget health<select><option>Any</option></select></label></div></div>
+<table>
+<caption class="vh">Accounts sorted by name, A to Z. Showing 8 of 112 open accounts.</caption>
+<colgroup><col><col><col><col><col><col><col></colgroup>
+<thead><tr><th scope="col" aria-sort="ascending"><button type="button">Account<svg class="i" aria-hidden="true"><use href="#i-asc"/></svg></button></th><th scope="col"><button type="button">Owner<svg class="i" aria-hidden="true"><use href="#i-sort"/></svg></button></th><th scope="col"><button type="button">Account ID<svg class="i" aria-hidden="true"><use href="#i-sort"/></svg></button></th><th scope="col"><button type="button">Status<svg class="i" aria-hidden="true"><use href="#i-sort"/></svg></button></th><th scope="col"><button type="button">Budget health<svg class="i" aria-hidden="true"><use href="#i-sort"/></svg></button></th><th scope="col"><button type="button">Spend this month<svg class="i" aria-hidden="true"><use href="#i-sort"/></svg></button></th><th scope="col" class="due"><button type="button">Expires<svg class="i" aria-hidden="true"><use href="#i-sort"/></svg></button></th></tr></thead>
+<tbody>
+<tr><td><a class="acct" href="/accounts/alex-sandbox">alex-sandbox</a></td><td>alex@example.com</td><td class="mono">100000000002</td><td><span class="st"><svg class="i grn" aria-hidden="true"><use href="#i-ok"/></svg><span>active<small>16 days left</small></span></span></td><td><span class="st"><svg class="i grn" aria-hidden="true"><use href="#i-ok"/></svg>ready</span></td><td>$79.02 <span class="mut">of $150</span><span class="bar"><span class="meter"><i class="w53"></i></span></span></td><td class="due"><span class="was"><span class="vh">Earlier expiry </span><s><time datetime="2026-10-20">OCT 20 2026</time></s>extended</span><span class="vh">New expiry </span><span class="stamp"><time datetime="2026-10-27">OCT 27 2026</time></span></td></tr>
+<tr><td><a class="acct" href="/accounts/cost-spike-test">cost-spike-test</a></td><td>alex@example.com</td><td class="mono">100000000014</td><td><span class="st"><svg class="i grn" aria-hidden="true"><use href="#i-ok"/></svg>active</span></td><td><span class="st"><svg class="i red" aria-hidden="true"><use href="#i-lock"/></svg>restricted</span></td><td>$74.15 <span class="mut">of $50</span><span class="bar"><span class="meter over"><i class="w100"></i></span><small><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg>over budget</small></span></td><td class="due"><span class="stamp"><time datetime="2026-10-30">OCT 30 2026</time></span></td></tr>
+<tr><td><a class="acct" href="/accounts/data-pipeline-poc">data-pipeline-poc</a></td><td>priya@example.com</td><td class="mono">100000000021</td><td><span class="st"><svg class="i grn" aria-hidden="true"><use href="#i-ok"/></svg>active</span></td><td><span class="st"><svg class="i vio" aria-hidden="true"><use href="#i-clock"/></svg><span>setup-pending<small>settling protection</small></span></span></td><td>$8.40 <span class="mut">of $75</span><span class="bar"><span class="meter"><i class="w11"></i></span></span></td><td class="due"><span class="stamp"><time datetime="2026-10-25">OCT 25 2026</time></span></td></tr>
+<tr><td><a class="acct" href="/accounts/dup-email-test">dup-email-test</a></td><td>sam@example.com</td><td class="mut">none</td><td><span class="st"><svg class="i red" aria-hidden="true"><use href="#i-xc"/></svg><span>failed<small>EMAIL_ALREADY_EXISTS</small></span></span></td><td class="mut">none</td><td class="mut">none</td><td class="due mut">Not created</td></tr>
+<tr><td><a class="acct" href="/accounts/k8s-upgrade-lab">k8s-upgrade-lab</a></td><td>jordan@example.com</td><td class="mut">ID pending</td><td><span class="st"><svg class="i vio" aria-hidden="true"><use href="#i-spin"/></svg><span>creating<small>AWS is creating it · 3 minutes</small></span></span></td><td><span class="st mut"><svg class="i" aria-hidden="true"><use href="#i-none"/></svg>not checked</span></td><td class="mut">No cost data yet</td><td class="due mut">Not set yet</td></tr>
+<tr><td><a class="acct" href="/accounts/ml-gpu-bench">ml-gpu-bench</a></td><td>sam@example.com</td><td class="mono">100000000011</td><td><span class="st"><svg class="i vio" aria-hidden="true"><use href="#i-hour"/></svg><span>expiring<small>2 days 4 hours left</small></span></span></td><td><span class="st"><svg class="i grn" aria-hidden="true"><use href="#i-ok"/></svg>ready</span></td><td>$412.80 <span class="mut">of $500</span><span class="bar"><span class="meter"><i class="w83"></i></span></span></td><td class="due"><span class="stamp"><time datetime="2026-10-13">OCT 13 2026</time></span></td></tr>
+<tr><td><a class="acct" href="/accounts/stuck-close-env">stuck-close-env</a></td><td>jordan@example.com</td><td class="mono">100000000019</td><td><span class="st red"><svg class="i" aria-hidden="true"><use href="#i-box"/></svg><span><span class="ink">closing</span><small class="red">Closure unconfirmed, charges may continue</small></span></span></td><td><span class="st"><svg class="i mut" aria-hidden="true"><use href="#i-minus"/></svg>retiring</span></td><td>$3.10 <span class="mut">of $50</span><span class="bar"><span class="meter"><i class="w6"></i></span></span></td><td class="due"><span class="was"><span>Closure requested <time datetime="2026-10-10">Oct 10</time></span></span><span class="stamp over">OVERDUE</span><span class="after">by 2 hours</span></td></tr>
+<tr><td><a class="acct" href="/accounts/suspended-sbx">suspended-sbx</a></td><td>jordan@example.com</td><td class="mono">100000000008</td><td><span class="st"><svg class="i" aria-hidden="true"><use href="#i-ban"/></svg><span>unavailable<small>AWS reports SUSPENDED</small></span></span></td><td><span class="st mut"><svg class="i" aria-hidden="true"><use href="#i-none"/></svg>not checked</span></td><td class="mut">unknown</td><td class="due mut">unknown</td></tr>
+</tbody>
+</table>
+</section>
+</main>
+</div>
+</body>
+</html>

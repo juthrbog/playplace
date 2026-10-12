@@ -121,7 +121,7 @@ notices, go to the channel of `--slack-webhook`. playplace does not send them
 to people.
 
 See [deployment instructions](deploy/README.md) and the
-[Slack setup notes](DESIGN.md#slack-approvals-optional).
+[Slack setup](docs/configuration.md#slack).
 
 ## Running your own instance
 
@@ -187,7 +187,7 @@ For a local walkthrough using LocalStack and Dex instead of real AWS, see
 ## Important boundaries
 
 - **Budgets and TTLs are not hard spending caps.** Billing data is delayed, and
-  AWS closure is asynchronous and subject to account-age and quota restrictions.
+  AWS closure is asynchronous and subject to quota restrictions.
 - **A close request is not confirmed closure.** Playplace keeps accounts visible
   while closing and flags unconfirmed closures after `--close-alert-after`
   (default `24h`). Suspension alone is not treated as closure.
@@ -209,7 +209,15 @@ before using playplace with real accounts.
 | [Approving requests](docs/approving.md) | Approver and admin workflow |
 | [CLI](docs/cli.md) · [Configuration](docs/configuration.md) | Commands, flags, and environment variables |
 | [Deployment](deploy/README.md) | IAM, hosting, and billing safeguards |
-| [Design](DESIGN.md) | Architecture, lifecycle rules, and interface decisions |
+
+These guides are for contributors. They are in the
+[source repository](https://github.com/juthrbog/playplace), not in the release
+packages.
+
+| Guide | Covers |
+|---|---|
+| [Architecture](ARCHITECTURE.md) | Architecture, lifecycle rules, and interface decisions |
+| [Design system](DESIGN.md) | Colors, type, layout, and components of the web UI |
 | [Development](DEVELOPMENT.md) | Build setup, local testing, and contributor workflows |
 | [Releasing](docs/releasing.md) | CI, release snapshots, Homebrew, and AUR packaging |
 
