@@ -6,6 +6,9 @@
 /site/
 /.agents/
 
+# Session state of the impeccable design skill
+/.impeccable/questions/
+
 # Release snapshots, generated completions, and temporary tap checkout
 /dist/
 /.generated/
