@@ -26,28 +26,41 @@ var cssColorNames = []string{
 
 type cssDecl struct{ prop, value string }
 
-// declarations returns every declaration in css: the text between a `{` and
-// the next `}` when no other brace comes between them, split at `;`.
+// declarations returns every declaration in css. It reads each piece of text
+// between two of the marks `{`, `}` and `;`. A piece that ends at `{` is a
+// selector or an at-rule prelude. Any other piece with a `:` is a
+// declaration. So a rule that holds a nested rule (CSS nesting) keeps its own
+// declarations in view.
 func declarations(css string) []cssDecl {
 	var out []cssDecl
-	open := -1
+	from := 0
 	for i := 0; i < len(css); i++ {
 		switch css[i] {
 		case '{':
-			open = i
-		case '}':
-			if open < 0 {
-				continue
+			from = i + 1
+		case '}', ';':
+			if prop, value, ok := strings.Cut(css[from:i], ":"); ok {
+				out = append(out, cssDecl{strings.ToLower(strings.TrimSpace(prop)), strings.TrimSpace(value)})
 			}
-			for _, d := range strings.Split(css[open+1:i], ";") {
-				if prop, value, ok := strings.Cut(d, ":"); ok {
-					out = append(out, cssDecl{strings.ToLower(strings.TrimSpace(prop)), strings.TrimSpace(value)})
-				}
-			}
-			open = -1
+			from = i + 1
 		}
 	}
 	return out
+}
+
+// TestDeclarationsReadNestedRules keeps the lint able to read CSS nesting,
+// which every browser of the 2024 floor supports.
+func TestDeclarationsReadNestedRules(t *testing.T) {
+	got := declarations(`@media (max-width: 640px) { .x { color: #fff; font: 12px serif; &:hover { color: var(--ink) } --ink: red } }`)
+	want := []cssDecl{{"color", "#fff"}, {"font", "12px serif"}, {"color", "var(--ink)"}, {"--ink", "red"}}
+	if len(got) != len(want) {
+		t.Fatalf("declarations = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("declaration %d = %q, want %q", i, got[i], want[i])
+		}
+	}
 }
 
 // TestColorsOnlyInTokenLayer keeps every color value in the tokens layer of

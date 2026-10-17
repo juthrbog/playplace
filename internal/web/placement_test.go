@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 	"net/http"
@@ -45,5 +46,33 @@ func TestUnplacedCreationPageShowsAPlacementNote(t *testing.T) {
 	res, body = do(t, ts, "GET", "/", "admin@example.com", true, nil, false)
 	if res.StatusCode != http.StatusOK || !strings.Contains(body, "status-creating") || !regexp.MustCompile(`class="qualifier">(?:<svg.*?</svg>)?<span>AWS created this account`).MatchString(body) {
 		t.Fatalf("list row: status %d, body: %s", res.StatusCode, body)
+	}
+}
+
+// An account that AWS has not created has no id and no root email. The facts
+// say so in words, and an unchecked budget has no empty parenthesis.
+func TestAccountFactsNameWhatIsMissing(t *testing.T) {
+	for _, tc := range []struct {
+		status core.Status
+		word   string
+	}{
+		{core.StatusCreating, "not created yet"},
+		{core.StatusFailed, "not created"},
+	} {
+		var buf bytes.Buffer
+		a := &core.Account{ID: "x", Name: "x", Status: tc.status, CreatedAt: t0}
+		if err := accountPage(page{}, a, nil, 0, historyView{}).Render(context.Background(), &buf); err != nil {
+			t.Fatal(err)
+		}
+		out := buf.String()
+		for _, fact := range []string{"account id", "root email"} {
+			want := `<dt>` + fact + `</dt><dd><span class="muted">` + tc.word + `</span></dd>`
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: missing %s", tc.status, want)
+			}
+		}
+		if strings.Contains(out, "<code></code>") || strings.Contains(out, "last state observation") {
+			t.Errorf("%s: a missing value shows as a blank:\n%s", tc.status, out)
+		}
 	}
 }

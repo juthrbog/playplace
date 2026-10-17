@@ -670,16 +670,27 @@
   .fleet {
     min-width: 1120px;
   }
+  /* A long owner email ends in an ellipsis, so the row actions stay in
+     view at 1440 px. The title and the account page hold the whole
+     address. A block span clips in every browser, and a cell does not. */
+  .fleet .owner {
+    display: block;
+    max-width: 14rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   td a {
     font-weight: 600;
   }
   .pending td:first-child {
     font-weight: 600;
   }
+  /* 9rem still holds "example.com" after the break at the @, and it
+     keeps the queue inside its panel at 1440 px. */
   .pending td.wrap {
     white-space: normal;
     overflow-wrap: anywhere;
-    min-width: 10rem;
+    min-width: 9rem;
   }
   .pending td[colspan] {
     white-space: normal;
@@ -786,7 +797,7 @@
   }
   td .qualifier,
   td .error {
-    min-width: 16rem;
+    min-width: 12rem;
     max-width: 32rem;
     white-space: normal;
   }
@@ -878,6 +889,11 @@
   }
   .refusal:empty {
     display: none;
+  }
+  /* In a panel with no body, such as the pending card, the refusal sits
+     under the head at the row inset. */
+  .panel > .refusal {
+    margin: 0 var(--space-lg) var(--space-md);
   }
   .banner-incomplete {
     display: flex;

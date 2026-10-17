@@ -45,6 +45,16 @@ func budgetAmount(amount float64) string {
 	return fmt.Sprintf("$%.2f", amount)
 }
 
+// notCreated is the word for a fact that AWS gives only when it creates the
+// account, such as the account id. A failed creation never gets one, so it
+// does not say "yet".
+func notCreated(a *core.Account) string {
+	if a.Status == core.StatusFailed {
+		return "not created"
+	}
+	return "not created yet"
+}
+
 // meterWidth is the width in pixels of the inline spend meter.
 const meterWidth = 96
 
@@ -62,6 +72,8 @@ type meter struct {
 // number for an SVG width attribute. Over budget means spend above the
 // budget, and the bar is then full. The percent is cut down, so 99.6
 // percent reads "99% used" and never claims the whole budget too early.
+// Floating point puts 8.70 of 10 at 86.99999999999999 percent, so the cut
+// adds a tiny margin first. Without it, that spend reads "86% used".
 func spendMeter(spend, budget float64, width int) meter {
 	if budget <= 0 {
 		return meter{Level: "ok"}
@@ -70,17 +82,18 @@ func spendMeter(spend, budget float64, width int) meter {
 		return meter{Fill: width, Level: "over", Label: "over budget"}
 	}
 	pct := spend / budget * 100
+	whole := math.Floor(pct + 1e-9)
 	m := meter{Fill: int(math.Round(math.Min(pct, 100) / 100 * float64(width)))}
 	switch {
-	case pct >= 95:
+	case whole >= 95:
 		m.Level = "near"
-	case pct >= 75:
+	case whole >= 75:
 		m.Level = "high"
 	default:
 		m.Level = "ok"
 		return m
 	}
-	m.Label = fmt.Sprintf("%d%% used", int(math.Floor(pct)))
+	m.Label = fmt.Sprintf("%d%% used", int(whole))
 	return m
 }
 

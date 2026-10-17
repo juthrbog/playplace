@@ -225,6 +225,9 @@ templ pendingCard(pg page) {
 				<span class="muted">({ fmt.Sprint(len(pg.Pending)) })</span>
 			</h2>
 		</div>
+		// A refused decision on a row shows here, beside the rows, and not in
+		// the New request form.
+		<div id="pending-error" class="refusal"></div>
 		if len(pg.Pending) == 0 {
 			<p class="empty">Nothing waiting.</p>
 		} else {
@@ -372,7 +375,7 @@ templ accountsTable(pg page, rows []accountRow) {
 templ accountTR(r accountRow) {
 	<tr>
 		<td><a href={ templ.SafeURL("/accounts/" + r.Account.ID) }>{ r.Account.Name }</a></td>
-		<td>{ r.Account.Owner }</td>
+		<td><span class="owner" title={ r.Account.Owner }>{ r.Account.Owner }</span></td>
 		<td>
 			@statusLabel(r.Account)
 			if r.Account.LastError != "" && r.Account.Status == core.StatusCreating {
@@ -470,15 +473,35 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 			<div class="panel-body">
 				<dl class="facts">
 					<dt>owner</dt><dd>{ a.Owner }</dd>
-					<dt>account id</dt><dd><code>{ a.ProviderID }</code></dd>
+					<dt>account id</dt>
+					<dd>
+						if a.ProviderID == "" {
+							<span class="muted">{ notCreated(a) }</span>
+						} else {
+							<code>{ a.ProviderID }</code>
+						}
+					</dd>
 					if a.RequestID != "" {
 						// Courier Prime is only for account IDs and request versions,
 						// so the creation request id is plain text.
 						<dt>request id</dt><dd>{ a.RequestID }</dd>
 					}
-					<dt>root email</dt><dd>{ a.Email }</dd>
+					<dt>root email</dt>
+					<dd>
+						if a.Email == "" {
+							<span class="muted">{ notCreated(a) }</span>
+						} else {
+							{ a.Email }
+						}
+					</dd>
 					<dt>budget</dt><dd>{ budgetAmount(a.BudgetUSD) } / month</dd>
-					<dt>budget protection</dt><dd>@budgetLabel(a.BudgetHealth, a.BudgetError)<span class="muted">(last state observation: { a.BudgetChecked })</span></dd>
+					<dt>budget protection</dt>
+					<dd>
+						@budgetLabel(a.BudgetHealth, a.BudgetError)
+						if a.BudgetChecked != "" {
+							<span class="muted">(last state observation: { a.BudgetChecked })</span>
+						}
+					</dd>
 					if a.BudgetError != "" {
 						<dt>budget error</dt><dd class="error">@icon("alert")<span>{ a.BudgetError }</span></dd>
 					}
@@ -607,8 +630,9 @@ templ noticeFragment(msg string) {
 	<p id="notice" class="notice" hx-swap-oob="true">@icon("sync")<span>{ msg }</span></p>
 }
 
-// errorFragment is a refusal of the form above it. It names what went wrong
-// beside the form, with an alert icon.
-templ errorFragment(msg string) {
-	<div id="form-error" class="refusal" hx-swap-oob="true">@icon("alert")<span>{ msg }</span></div>
+// errorFragment fills the refusal slot with this id: form-error under a form,
+// or pending-error in the pending card. It names what went wrong beside the
+// thing it is about, with an alert icon.
+templ errorFragment(id, msg string) {
+	<div id={ id } class="refusal" hx-swap-oob="true">@icon("alert")<span>{ msg }</span></div>
 }

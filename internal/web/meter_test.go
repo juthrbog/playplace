@@ -22,6 +22,12 @@ func TestSpendMeter(t *testing.T) {
 		{47.5, 50, 91, "near", "95% used"},
 		{50, 50, 96, "near", "100% used"},   // at the budget, not over it
 		{99.6, 100, 96, "near", "99% used"}, // cut down, never rounded up
+		// Floating point lands these just under the whole percent.
+		{8.7, 10, 84, "high", "87% used"},
+		{23.4, 30, 75, "high", "78% used"},
+		{68.6, 70, 94, "near", "98% used"},
+		{7.5, 10, 72, "high", "75% used"},
+		{28.5, 30, 91, "near", "95% used"},
 		{24, 10, 96, "over", "over budget"},
 		{5, 0, 0, "ok", ""}, // no budget, no bar
 	} {

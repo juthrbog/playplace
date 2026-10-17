@@ -100,10 +100,37 @@ func rule(t *testing.T, layer, selector string) map[string]string {
 	return decls
 }
 
-// tokenRules returns the declarations of :root and of the night rule.
+// topSelectors returns the prelude of each top-level rule in a block body,
+// such as a selector or an @media condition.
+func topSelectors(body string) []string {
+	var out []string
+	depth, from := 0, 0
+	for i := 0; i < len(body); i++ {
+		switch body[i] {
+		case '{':
+			if depth == 0 {
+				out = append(out, strings.TrimSpace(body[from:i]))
+			}
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				from = i + 1
+			}
+		}
+	}
+	return out
+}
+
+// tokenRules returns the declarations of :root and of the night rule. The
+// layer holds only these two rules, because any other selector, @media or
+// @supports block in it can set a token that the pair test never reads.
 func tokenRules(t *testing.T) (day, night map[string]string) {
 	t.Helper()
 	layer, _, _ := tokensLayer(t, appCSS(t))
+	if got := topSelectors(layer); strings.Join(got, "|") != `:root|:root[data-theme="night"]` {
+		t.Fatalf("the tokens layer has the rules %q, want only :root and the night rule", got)
+	}
 	return rule(t, layer, ":root"), rule(t, layer, `:root[data-theme="night"]`)
 }
 
