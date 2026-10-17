@@ -66,12 +66,13 @@ func staticHandler() http.Handler {
 	}))
 }
 
-// csp is the policy every page is served with. Styles stay inline in the
-// layout, so style-src allows that; scripts and requests come only from this
-// origin and nothing may frame the UI.
-const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+// csp is the policy every page is served with. Scripts, styles, fonts and
+// requests come only from this origin. The policy allows no inline style or
+// script, so every style lives in static/app.css. No other site can frame
+// the UI.
+const csp = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
 
-// assetVersion is a short hash of the embedded static files, so icon, logo,
+// assetVersion is a short hash of the embedded static files, so icon,
 // script and stylesheet URLs change whenever the files do and browsers drop
 // cached copies.
 var assetVersion = func() string {

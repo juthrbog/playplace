@@ -9,6 +9,9 @@ import (
 	"playplace/internal/core"
 )
 
+// layout is the frame of every page. The htmx config turns off eval and the
+// indicator style element that htmx adds to the head, because the CSP blocks
+// both.
 templ layout(pg page, title string) {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -20,7 +23,7 @@ templ layout(pg page, title string) {
 			<link rel="icon" href={ asset("favicon.ico") } sizes="32x32"/>
 			<link rel="apple-touch-icon" href={ asset("apple-touch-icon.png") }/>
 			<link rel="stylesheet" href={ asset("app.css") }/>
-			<meta name="htmx-config" content='{"allowEval":false,"selfRequestsOnly":true}'/>
+			<meta name="htmx-config" content='{"allowEval":false,"selfRequestsOnly":true,"includeIndicatorStyles":false}'/>
 			<script src={ asset("htmx.min.js") }></script>
 			<script src={ asset("app.js") }></script>
 		</head>

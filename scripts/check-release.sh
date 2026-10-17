@@ -43,7 +43,8 @@ tar -xzf "$archive" -C "$tmpdir"
 [[ "$("$tmpdir/playplace" --version)" == "playplace version $version" ]]
 for file in LICENSE README.md docs/configuration.md \
   deploy/README.md deploy/aws/playground-safeguards-scp.json \
-  completions/playplace.bash completions/_playplace completions/playplace.fish; do
+  completions/playplace.bash completions/_playplace completions/playplace.fish \
+  licenses/OFL-PublicSans.txt licenses/OFL-CourierPrime.txt; do
   test -s "$tmpdir/$file"
 done
 "$tmpdir/playplace" --help > "$tmpdir/help"
@@ -61,7 +62,8 @@ test ! -e "$PLAYPLACE_HISTORY_FILE"
 mkdir "$tmpdir/source"
 tar -xzf "$dist/playplace_${version}_source.tar.gz" -C "$tmpdir/source"
 for file in LICENSE go.mod cmd/playplace/main.go internal/cli/version.go \
-  internal/web/views_templ.go; do
+  internal/web/views_templ.go internal/web/static/fonts/OFL-PublicSans.txt \
+  internal/web/static/fonts/OFL-CourierPrime.txt; do
   test -s "$tmpdir/source/playplace-$version/$file"
 done
 ruby -c "$dist/packages/playplace.rb"

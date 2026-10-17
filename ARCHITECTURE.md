@@ -528,9 +528,12 @@ issuer makes `serve` refuse to start, so a lost issuer setting cannot open the
 UI to everyone.
 
 The UI ships its own copy of htmx and serves every page with a
-Content-Security-Policy that allows scripts only from itself, so nothing is
-loaded from a third-party host. Inline event handlers are not allowed;
-page behaviour lives in `internal/web/static/app.js`.
+Content-Security-Policy that allows scripts, styles and fonts only from
+itself, so nothing is loaded from a third-party host. The policy allows no
+inline style, inline script or inline event handler. Page behaviour lives in
+`internal/web/static/app.js`, and every style lives in
+`internal/web/static/app.css`. The fonts are self-hosted woff2 files under
+`internal/web/static/fonts`.
 
 The server needs management-account credentials, because AWS only allows
 CreateAccount and CloseAccount from there. Run it in the management account
@@ -590,7 +593,7 @@ there are no arches and it copies no existing logo.
 
 | file | use |
 |---|---|
-| `internal/web/static/logo.svg` | the mark alone; the web header uses it |
+| `internal/web/static/logo.svg` | the first mark, kept until the separate mark change. The web header now draws the line mark from the icon sprite in `internal/web/views.templ` |
 | `internal/web/static/logo-wordmark.svg` | mark plus the word, for docs and slides |
 | `internal/web/static/favicon.svg` | the mark on a sky tile, simplified so it reads at 16 px: bigger balls, a heavier slide without seams |
 | `internal/web/static/favicon.ico`, `favicon-32.png`, `apple-touch-icon.png` | rasters of the favicon, generated with `rsvg-convert` and ImageMagick |

@@ -110,7 +110,49 @@ var (
 	templColorAttr = regexp.MustCompile(`(?:^|\s)(fill|stroke|stop-color|flood-color|lighting-color|color)\??\s*=\s*("[^"]*"|'[^']*'|\{)`)
 	svgElement     = regexp.MustCompile(`(?s)<svg\b.*?</svg>`)
 	templSpread    = regexp.MustCompile(`\{\s*[\w.]+\s*\.\.\.\s*\}`)
+	templStyleAttr = regexp.MustCompile(`(?i)(?:^|\s)style\??\s*=`)
+	templStyleTag  = regexp.MustCompile(`(?i)<style\b`)
 )
+
+// templates returns the name and source of every template in the package,
+// with CRLF line ends turned into LF.
+func templates(t *testing.T) map[string]string {
+	t.Helper()
+	files, err := filepath.Glob("*.templ")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no templates found: %v", err)
+	}
+	out := map[string]string{}
+	for _, name := range files {
+		b, err := os.ReadFile(filepath.Clean(name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[name] = strings.ReplaceAll(string(b), "\r\n", "\n")
+	}
+	return out
+}
+
+// TestTemplHasNoInlineStyle keeps every style in app.css. The CSP has no
+// 'unsafe-inline' for styles, so the browser drops a style attribute or a
+// <style> element. A hex color in markup is a color that the palette test
+// never sees. Ids such as #accounts and #i-mark do not match, because a word
+// character follows the hex letters.
+func TestTemplHasNoInlineStyle(t *testing.T) {
+	for name, src := range templates(t) {
+		for _, line := range strings.Split(src, "\n") {
+			if templStyleAttr.MatchString(line) {
+				t.Errorf("%s: style attribute: %s", name, strings.TrimSpace(line))
+			}
+			if templStyleTag.MatchString(line) {
+				t.Errorf("%s: <style> element: %s", name, strings.TrimSpace(line))
+			}
+			if m := hexLiteral.FindString(line); m != "" {
+				t.Errorf("%s: hex color %s: %s", name, m, strings.TrimSpace(line))
+			}
+		}
+	}
+}
 
 // TestStylesheetHasNoInterimLayer keeps the old page style from coming back.
 // Each panel has its own component rules now, so the interim layer that held
@@ -134,16 +176,7 @@ func TestStylesheetHasNoInterimLayer(t *testing.T) {
 // the stylesheet decides every color. A dynamic value or an attribute spread
 // inside an <svg> can carry any color, so it fails too.
 func TestNoColorAttributesInTempl(t *testing.T) {
-	files, err := filepath.Glob("*.templ")
-	if err != nil || len(files) == 0 {
-		t.Fatalf("no templates found: %v", err)
-	}
-	for _, name := range files {
-		b, err := os.ReadFile(filepath.Clean(name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		src := strings.ReplaceAll(string(b), "\r\n", "\n")
+	for name, src := range templates(t) {
 		for _, m := range templColorAttr.FindAllStringSubmatch(src, -1) {
 			if v := m[2]; v != `"none"` && v != `'none'` && v != `"currentColor"` && v != `'currentColor'` {
 				t.Errorf("%s: %s=%s, markup allows only none or currentColor", name, m[1], v)

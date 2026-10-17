@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
@@ -169,8 +170,21 @@ func TestPagesShipTheirOwnScriptsUnderACSP(t *testing.T) {
 	if !strings.Contains(body, `src="/static/app.js?v=`) || !strings.Contains(body, `<link rel="stylesheet" href="/static/app.css?v=`) {
 		t.Fatalf("the page script and the stylesheet should be versioned:\n%s", body)
 	}
-	if got := res.Header.Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self'") || strings.Contains(got, "unsafe-eval") {
+	if got := res.Header.Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self'") || !strings.Contains(got, "style-src 'self'") || !strings.Contains(got, "font-src 'self'") || strings.Contains(got, "unsafe-eval") || strings.Contains(got, "unsafe-inline") {
 		t.Fatalf("csp = %q", got)
+	}
+	// htmx adds an indicator <style> to the head unless the config turns it
+	// off, and the CSP would block it.
+	if !strings.Contains(html.UnescapeString(body), `"includeIndicatorStyles":false`) {
+		t.Fatalf("the htmx config should turn off the indicator styles:\n%s", body)
+	}
+	// The CSP blocks inline styles, so a page with one loses that style.
+	// The admin pages render the most markup.
+	for _, path := range []string{"/", "/accounts/111111111111"} {
+		res, page := do(t, ts, "GET", path, "admin@example.com", true, nil, false)
+		if res.StatusCode != http.StatusOK || strings.Contains(page, "style=") || strings.Contains(page, "<style") {
+			t.Fatalf("GET %s = %d, want 200 with no inline style:\n%s", path, res.StatusCode, page)
+		}
 	}
 	// Icon links carry a version so browsers drop cached copies when the
 	// files change, and the versioned URL still resolves.

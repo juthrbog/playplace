@@ -35,7 +35,7 @@ again.
 
 Requests are capped at 90 days and $500 a month unless an admin ticks
 **override limits** when requesting or editing. An overridden request carries
-a *limits overridden* badge so you know before you approve it. Each person
+a *limits overridden* flag so you know before you approve it. Each person
 may hold one open account or pending request at a time. The 90 day cap also
 bounds extensions: an account's expiry cannot be pushed past 90 days from
 its creation unless an admin does it.
