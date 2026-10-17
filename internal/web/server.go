@@ -137,12 +137,13 @@ type page struct {
 	ShowAll bool
 	Pending []core.Request // requests the viewer may see: their own, or all for approvers
 	Limits  core.Config    // ceilings and defaults shown in the form
+	Path    string         // the request path, so the shell can mark the current page
 }
 
 func (s *Server) pageFor(r *http.Request) page {
 	// "all" arrives as a query parameter on GET and, thanks to hx-include on
 	// the switch, in the body of every action, so the view survives actions.
-	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), ShowAll: r.FormValue("all") == "1", Limits: s.svc.Config()}
+	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), ShowAll: r.FormValue("all") == "1", Limits: s.svc.Config(), Path: r.URL.Path}
 	if all, err := s.svc.PendingRequests(r.Context()); err == nil {
 		for _, q := range all {
 			if canSeeRequest(pg.Viewer, q) {
@@ -214,7 +215,8 @@ func (s *Server) rows(ctx context.Context, v Viewer, showAll bool, force bool) (
 	return rows, nil
 }
 
-// pendingCard re-renders the pending section for htmx responses.
+// pendingAndTable re-renders the table and the pending section for htmx
+// responses.
 func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request) {
 	pg := s.pageFor(r)
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
@@ -224,7 +226,7 @@ func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	accountsTable(pg, rows).Render(r.Context(), w)
-	pendingCard(pg).Render(r.Context(), w)
+	pendingUpdate(pg).Render(r.Context(), w)
 }
 
 // submit puts a request in the queue. Engineers request for themselves;
@@ -294,7 +296,7 @@ func (s *Server) failRequest(w http.ResponseWriter, r *http.Request, err error) 
 	w.Header().Set("HX-Reswap", "none")
 	w.Header().Set("X-Form-Error", "1")
 	s.render(w, r, errorFragment(err.Error()))
-	s.render(w, r, pendingCard(s.pageFor(r)))
+	s.render(w, r, pendingUpdate(s.pageFor(r)))
 }
 
 func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
@@ -505,7 +507,7 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	accountsTable(pg, rows).Render(r.Context(), w)
-	pendingCard(pg).Render(r.Context(), w)
+	pendingUpdate(pg).Render(r.Context(), w)
 	noticeFragment(msg).Render(r.Context(), w)
 }
 

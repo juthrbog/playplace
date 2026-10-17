@@ -1,6 +1,9 @@
 /* playplace web UI. Values come from DESIGN.md. Colors live only in the tokens layer. */
 
-@layer tokens, base, layout, components, utilities;
+/* A later layer wins over an earlier one, whatever the selector. The interim
+   layer holds the class rules of the old page style until the panels get
+   their own rules, so every new rule beats it. */
+@layer tokens, interim, base, layout, components, utilities;
 
 /* Public Sans is one variable file per subset. The browser fetches a subset
    only when the page uses a character in its unicode-range. */
@@ -121,5 +124,705 @@
     color-scheme: dark;
     --stamp-blend: normal;
     --scrim: rgba(0, 0, 0, 0.55);
+  }
+}
+
+/* The class rules of the old inline page style, with tokens in place of
+   the old colors. They keep the panels readable until each panel gets its
+   own rules. Element rules did not move: the base layer replaces them. */
+@layer interim {
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-lg);
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-panel);
+  }
+  .card > a {
+    align-self: flex-start;
+  }
+  .card > .error:empty {
+    display: none;
+  }
+  .card h3,
+  .toolbar h3 {
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 10rem 1fr;
+    gap: 6px var(--space-lg);
+    margin: 0;
+  }
+  .grid dt {
+    color: var(--ink-2);
+  }
+  .grid dd {
+    margin: 0;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md) 10px;
+    align-items: flex-end;
+  }
+  .row label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .note {
+    color: var(--violet);
+  }
+  /* A neutral frame keeps the status word apart from the account name in
+     the heading. It has no state colors: the status label replaces it. */
+  .pill {
+    display: inline-block;
+    padding: var(--space-hair) 7px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-stamp);
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: 0;
+    vertical-align: middle;
+  }
+  .card h2 .pill {
+    margin-left: var(--space-sm);
+  }
+  .bar {
+    height: 6px;
+    min-width: 6rem;
+    overflow: hidden;
+    background: var(--rule-soft);
+    border-radius: var(--r-stamp);
+  }
+  .bar span {
+    display: block;
+    height: 100%;
+    background: var(--shelf-ink);
+  }
+  .bar.over span {
+    background: var(--red);
+  }
+  .toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0 0 var(--space-sm);
+  }
+  .switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    cursor: pointer;
+    color: var(--ink-2);
+    font-size: 13.5px;
+    user-select: none;
+  }
+  .switch input {
+    position: absolute;
+    opacity: 0;
+  }
+  /* The track is a control, so its off state uses the control rule (3:1 on
+     the ground), not the panel rule. */
+  .switch .track {
+    position: relative;
+    width: 2.2rem;
+    height: 1.2rem;
+    border-radius: var(--r-pill);
+    background: var(--control-rule);
+  }
+  .switch .track::after {
+    content: "";
+    position: absolute;
+    top: 0.15rem;
+    left: 0.15rem;
+    width: 0.9rem;
+    height: 0.9rem;
+    border-radius: 50%;
+    background: var(--paper);
+  }
+  .switch input:checked + .track {
+    background: var(--shelf-ink);
+  }
+  .switch input:checked + .track::after {
+    left: 1.15rem;
+  }
+  .switch input:focus-visible + .track {
+    outline: 2px solid var(--violet);
+    outline-offset: 2px;
+  }
+  .pending td.actions {
+    text-align: right;
+  }
+  .pending td.actions form,
+  .pending td.actions > button {
+    margin: var(--space-hair) 0 var(--space-hair) var(--space-xs);
+  }
+
+  @media (max-width: 640px) {
+    .switch,
+    .row label:has(input[type=checkbox]) {
+      min-height: var(--touch);
+    }
+  }
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+  :root {
+    accent-color: var(--violet);
+    caret-color: var(--violet);
+    scrollbar-color: var(--control-rule) var(--rule-soft);
+  }
+  /* The root of the type: Public Sans 14 with tabular lining figures, so
+     every number lines up. Elements below set longhands only, because the
+     font shorthand would reset the figures. */
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.45;
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+  h1,
+  h2,
+  h3,
+  p {
+    margin: 0;
+  }
+  h1 {
+    font-size: 19px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+  h2 {
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+  p {
+    max-width: 75ch;
+  }
+  a {
+    color: var(--ink);
+    text-decoration-line: underline;
+    text-decoration-color: var(--rule);
+    text-underline-offset: 3px;
+  }
+  a:hover {
+    color: var(--violet);
+    text-decoration-color: currentColor;
+  }
+  ::selection {
+    background: var(--violet);
+    color: var(--paper);
+  }
+  :focus-visible {
+    outline: 2px solid var(--violet);
+    outline-offset: 2px;
+  }
+  code {
+    font-family: var(--font-stamp);
+    font-size: inherit;
+  }
+  /* History details are data, not a stamp, so they use the system
+     monospace (DESIGN.md: Courier Prime is only for stamps and IDs). */
+  pre {
+    margin: var(--space-xs) 0 0;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    line-height: 1.35;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  button,
+  input,
+  select {
+    font: inherit;
+  }
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: var(--control-h);
+    padding: 0 13px;
+    border: 1px solid var(--control-rule);
+    border-radius: var(--r-control);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 13.5px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  button:hover {
+    background: var(--paper-tint);
+    border-color: var(--ink);
+  }
+  input:not([type=checkbox]):not([type=radio]):not([type=hidden]) {
+    height: var(--control-h);
+    padding: 0 10px;
+    border: 1px solid var(--control-rule);
+    border-radius: var(--r-control);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 14px;
+  }
+  /* As specific as the field rule above, so the focus border wins. */
+  input:focus-visible:not([type=checkbox]):not([type=radio]) {
+    border-color: var(--violet);
+    outline: 2px solid var(--violet);
+    outline-offset: 1px;
+  }
+  ::placeholder {
+    color: var(--ink-2);
+    opacity: 1;
+  }
+  input[type=checkbox] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--paper);
+  }
+  th {
+    height: var(--control-h);
+    padding: 0 14px;
+    text-align: left;
+    white-space: nowrap;
+    background: var(--paper-tint);
+    color: var(--ink-2);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+  td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--rule-soft);
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  tbody tr:hover td {
+    background: var(--paper-tint);
+  }
+  /* Icons draw in the color of their text. The symbols carry no paint, so
+     these rules set it through <use>. */
+  .i {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  /* The sprite only holds symbols. With display: none, some browsers do not
+     draw the <use> copies, so the sprite has no size instead. */
+  .sprite {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+}
+
+@layer layout {
+  .shell {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    min-height: 54px;
+    padding: 10px var(--space-xl);
+    background: var(--shelf);
+    color: var(--on-shell);
+  }
+  .shell-menu {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+  main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+    max-width: 1600px;
+    padding: var(--space-lg) var(--space-xl) var(--space-xxl);
+  }
+
+  @media (max-width: 640px) {
+    .shell {
+      min-height: 56px;
+      padding: 6px 6px 6px var(--space-lg);
+    }
+    main {
+      gap: var(--space-md);
+      padding: var(--space-md) var(--space-lg) var(--space-xl);
+    }
+  }
+}
+
+@layer components {
+  /* On the shelf the focus ring takes the shell text color: card stock by
+     day and ink at night. */
+  .shell :focus-visible {
+    outline-color: var(--on-shell);
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-right: var(--space-lg);
+    color: var(--on-shell);
+    font-size: 19px;
+    font-weight: 400;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+  }
+  .brand b {
+    font-weight: 700;
+  }
+  .brand .place {
+    color: var(--on-shell-hi);
+  }
+  /* The mark is the shell color in both palettes. It never turns and is
+     never violet. */
+  .mark {
+    width: 28px;
+    height: 28px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    color: var(--on-shell);
+  }
+  .nav ul {
+    display: flex;
+    gap: var(--space-xs);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: auto;
+    padding: 6px 11px;
+    border: 0;
+    border-radius: var(--r-control);
+    background: transparent;
+    color: var(--on-shell);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.45;
+    text-decoration: none;
+  }
+  .nav-link:hover,
+  .nav-link[aria-current=page] {
+    background: var(--shelf-deep);
+    color: var(--on-shell-hi);
+  }
+  #queue-count:empty {
+    display: none;
+  }
+  .count-pill {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: var(--r-pill);
+    background: var(--shell-chip);
+    color: var(--on-shell-chip);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.5;
+  }
+  /* Sync, or New request when there is no Sync, starts the right side. */
+  .sync,
+  .nav + .btn-chip {
+    margin-left: auto;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: var(--control-h);
+    padding: 0 13px;
+    border: 1px solid transparent;
+    border-radius: var(--r-control);
+    font-size: 13.5px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  .btn-ghost {
+    background: transparent;
+    border-color: var(--shelf-rule);
+    color: var(--on-shell);
+  }
+  .btn-ghost:hover {
+    background: var(--shelf-deep);
+    border-color: var(--shelf-rule);
+    color: var(--on-shell-hi);
+  }
+  .btn-chip {
+    background: var(--shell-chip);
+    color: var(--on-shell-chip);
+  }
+  .btn-chip:hover {
+    background: var(--shell-chip-hover);
+    color: var(--on-shell-chip);
+  }
+  .person {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--on-shell);
+  }
+  .badge {
+    padding: 2px 6px;
+    border: 1px solid var(--shelf-rule);
+    border-radius: var(--r-stamp);
+    color: var(--on-shell);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+  .menu-toggle {
+    display: none;
+  }
+  .noauth {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-xl);
+    background: var(--paper-warm);
+    border-bottom: 1px solid var(--rule);
+    color: var(--ink);
+    font-size: 13.5px;
+  }
+  .noauth .i {
+    color: var(--red);
+  }
+  .notice {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 10px var(--space-md);
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-note);
+    font-size: 13.5px;
+  }
+  .notice .i {
+    color: var(--ink-2);
+  }
+  .notice:empty {
+    display: none;
+  }
+  .scroll {
+    overflow-x: auto;
+  }
+  /* Pending rows carry long emails and free text. Those cells wrap, and
+     the buttons stay together. */
+  .pending td.wrap {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    min-width: 7rem;
+  }
+  .pending td.actions {
+    white-space: normal;
+    min-width: 12rem;
+  }
+  .pending .via {
+    display: block;
+    color: var(--ink-2);
+    font-size: 12px;
+  }
+  form.inline {
+    display: inline-flex;
+  }
+  .muted {
+    color: var(--ink-2);
+  }
+  .error {
+    color: var(--red-ink);
+  }
+
+  @media (max-width: 1000px) {
+    .person-email {
+      display: none;
+    }
+  }
+
+  /* The phone bar keeps the brand, Queue, Sync and the menu toggle. The
+     other items become rows below it. The wrappers step aside, so every
+     item is a row or a bar item of the shell itself. Without script the
+     toggle stays hidden and the rows always show. */
+  @media (max-width: 640px) {
+    .brand {
+      margin-right: auto;
+    }
+    .shell-menu,
+    .nav,
+    .nav ul {
+      display: contents;
+    }
+    .nav li,
+    .sync {
+      order: 1;
+    }
+    .sync,
+    .nav + .btn-chip {
+      margin-left: 0;
+    }
+    .sync button {
+      justify-content: center;
+      width: var(--touch);
+      padding: 0;
+    }
+    .sync .btn-word {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border: 0;
+    }
+    .sync .i,
+    .menu-toggle .i {
+      width: 22px;
+      height: 22px;
+    }
+    .shell .in-menu {
+      order: 3;
+      flex-basis: 100%;
+    }
+    .in-menu > .nav-link {
+      width: 100%;
+    }
+    .shell-menu > .in-menu:last-child {
+      margin-bottom: var(--space-sm);
+    }
+    /* The open menu has room, so it names the person beside Sign out. */
+    .person-email {
+      display: inline;
+    }
+    .person {
+      min-height: var(--touch);
+      padding: 0 11px;
+    }
+    html.js .menu-toggle {
+      display: inline-flex;
+      order: 2;
+      justify-content: center;
+      width: var(--touch);
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--on-shell);
+    }
+    html.js .menu-toggle:hover,
+    html.js .menu-toggle[aria-expanded=true] {
+      background: var(--shelf-deep);
+      color: var(--on-shell-hi);
+    }
+    html.js .shell:not(.menu-open) .in-menu {
+      display: none;
+    }
+    .noauth {
+      padding: var(--space-sm) var(--space-lg);
+    }
+  }
+}
+
+@layer utilities {
+  /* Visually hidden, still read by screen readers. */
+  .vh {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+  /* The last layer, so a disabled control looks disabled whatever its
+     variant. */
+  :is(button, .btn):disabled,
+  :is(button, .btn)[aria-disabled=true] {
+    background: var(--rule-soft);
+    border: 1px dashed var(--control-rule);
+    color: var(--ink-2);
+    cursor: not-allowed;
+  }
+  input:disabled {
+    background: var(--rule-soft);
+    border-style: dashed;
+    color: var(--ink-2);
+  }
+
+  /* Every touch target on a phone is at least 44 px tall. */
+  @media (max-width: 640px) {
+    button,
+    select,
+    .btn,
+    input:not([type=checkbox]):not([type=radio]):not([type=hidden]) {
+      height: var(--touch);
+    }
+    .nav-link,
+    .check,
+    a.link {
+      min-height: var(--touch);
+    }
+    a.link {
+      display: inline-flex;
+      align-items: center;
+    }
+    summary {
+      min-height: var(--touch);
+      padding-block: 12px;
+    }
   }
 }

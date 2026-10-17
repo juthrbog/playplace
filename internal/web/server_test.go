@@ -172,10 +172,14 @@ func TestPagesShipTheirOwnScriptsUnderACSP(t *testing.T) {
 	if got := res.Header.Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self'") || strings.Contains(got, "unsafe-eval") {
 		t.Fatalf("csp = %q", got)
 	}
-	// Icon and logo links carry a version so browsers drop cached copies
-	// when the files change, and the versioned URL still resolves.
-	if !strings.Contains(body, `href="/static/favicon.svg?v=`) || !strings.Contains(body, `src="/static/logo.svg?v=`) {
-		t.Fatalf("icon and logo links should be versioned:\n%s", body)
+	// Icon links carry a version so browsers drop cached copies when the
+	// files change, and the versioned URL still resolves.
+	if !strings.Contains(body, `href="/static/favicon.svg?v=`) {
+		t.Fatalf("icon links should be versioned:\n%s", body)
+	}
+	// The shell draws the line mark from the icon sprite in the page.
+	if !strings.Contains(body, `<svg class="mark"`) || !strings.Contains(body, `<use href="#i-mark">`) || !strings.Contains(body, `<symbol id="i-mark"`) {
+		t.Fatalf("the shell should draw the mark from the sprite:\n%s", body)
 	}
 	if res, _ := do(t, ts, "GET", asset("favicon.svg"), "", false, nil, false); res.StatusCode != http.StatusOK {
 		t.Fatalf("versioned favicon = %d", res.StatusCode)

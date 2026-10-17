@@ -22,84 +22,137 @@ templ layout(pg page, title string) {
 			<meta name="htmx-config" content='{"allowEval":false,"selfRequestsOnly":true}'/>
 			<script src={ asset("htmx.min.js") }></script>
 			<script src={ asset("app.js") }></script>
-			<style>
-				:root { --fg:#1c1c1c; --muted:#6b6b6b; --line:#e3e3e3; --bg:#fafafa; --ok:#1f7a3a; --warn:#b26a00; --bad:#b3261e; }
-				body { font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--fg); background:var(--bg); margin:0; }
-				header { display:flex; align-items:baseline; gap:1rem; padding:1rem 1.5rem; border-bottom:1px solid var(--line); background:#fff; }
-				header h1 { margin:0; font-size:1.1rem; display:flex; align-items:center; gap:.5rem; }
-				header h1 img { width:28px; height:28px; }
-				header a { color:var(--muted); text-decoration:none; }
-				main { padding:1.5rem; max-width:1100px; }
-				table { border-collapse:collapse; width:100%; background:#fff; }
-				th, td { text-align:left; padding:.5rem .75rem; border-bottom:1px solid var(--line); white-space:nowrap; vertical-align:top; }
-				.scroll { overflow-x:auto; }
-				/* Pending rows carry long emails and free text; let those wrap and keep the buttons together. */
-				.pending td.wrap { white-space:normal; overflow-wrap:anywhere; min-width:7rem; }
-				/* Buttons wrap onto a second row before the table is forced to scroll. */
-				.pending td.actions { white-space:normal; text-align:right; min-width:12rem; }
-				.pending td.actions form, .pending td.actions > button { display:inline-block; margin:.1rem 0 .1rem .25rem; }
-				.pending .via { display:block; font-size:.8rem; }
-				th { font-weight:600; color:var(--muted); font-size:.8rem; text-transform:uppercase; letter-spacing:.04em; }
-				tr:hover td { background:#f3f3f3; }
-				code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
-				.pill { display:inline-block; padding:.1rem .5rem; border-radius:999px; font-size:.8rem; border:1px solid var(--line); }
-				.pill.active { color:var(--ok); border-color:var(--ok); }
-				.pill.creating, .pill.pending, .pill.closing { color:var(--warn); border-color:var(--warn); }
-				.pill.expiring, .pill.failed, .pill.unavailable { color:var(--bad); border-color:var(--bad); }
-				.pill.closed { color:var(--muted); }
-				form.inline { display:inline; }
-				button { font:inherit; padding:.3rem .7rem; border:1px solid var(--line); background:#fff; border-radius:6px; cursor:pointer; }
-				button:hover { background:#f0f0f0; }
-				button.danger { color:var(--bad); }
-				input { font:inherit; padding:.4rem .5rem; border:1px solid var(--line); border-radius:6px; }
-				.card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:1rem 1.25rem; margin-bottom:1.25rem; }
-				.grid { display:grid; grid-template-columns: 10rem 1fr; gap:.35rem 1rem; }
-				.grid dt { color:var(--muted); }
-				.grid dd { margin:0; }
-				.row { display:flex; gap:.75rem; flex-wrap:wrap; align-items:end; }
-				.row label { display:flex; flex-direction:column; font-size:.8rem; color:var(--muted); gap:.2rem; }
-				.muted { color:var(--muted); }
-				.error { color:var(--bad); }
-				.note { color:var(--warn); }
-				.bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; min-width:6rem; }
-				.bar span { display:block; height:100%; background:var(--ok); }
-				.bar.over span { background:var(--bad); }
-				.toolbar { display:flex; justify-content:space-between; align-items:center; margin:0 0 .5rem; }
-				.toolbar h3 { margin:0; font-size:1rem; }
-				.switch { display:inline-flex; align-items:center; gap:.5rem; cursor:pointer; color:var(--muted); font-size:.9rem; user-select:none; }
-				.switch input { position:absolute; opacity:0; width:0; height:0; }
-				.switch .track { width:2.2rem; height:1.2rem; border-radius:999px; background:var(--line); position:relative; transition:background .15s; }
-				.switch .track::after { content:""; position:absolute; top:.15rem; left:.15rem; width:.9rem; height:.9rem; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.2); transition:left .15s; }
-				.switch input:checked + .track { background:var(--ok); }
-				.switch input:checked + .track::after { left:1.15rem; }
-				.switch input:focus-visible + .track { outline:2px solid var(--ok); outline-offset:2px; }
-			</style>
 		</head>
 		<body>
-			<header>
-				<h1><img src={ asset("logo.svg") } alt=""/><a href="/">playplace</a></h1>
-				if pg.Viewer.Admin {
-					<form class="inline" hx-post="/refresh" hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" style="margin-left:auto">
-						<button type="submit" title="poll creations, sweep expiry, retry closes">Sync with AWS</button>
-					</form>
-				} else {
-					<span style="margin-left:auto"></span>
-				}
-				<span id="notice" class="muted"></span>
-				if pg.SignIn {
-					<span class="muted">{ pg.Viewer.Email }
-						if pg.Viewer.Admin {
-							<span class="pill">admin</span>
-						}
-					</span>
-					<form class="inline" method="post" action="/auth/logout"><button type="submit">Sign out</button></form>
-				}
-			</header>
+			@iconSprite()
+			@shell(pg)
+			if !pg.SignIn {
+				<div class="noauth" role="note">@icon("alert")<span>Sign-in is off. Every visitor is an admin.</span></div>
+			}
 			<main>
+				<p id="notice" class="notice"></p>
 				{ children... }
 			</main>
 		</body>
 	</html>
+}
+
+// shell is the bar on every page. The links depend on the role: engineers
+// get Home, approvers also get Queue with its count, and admins get Queue
+// and Accounts, because the brand is their link home. The menu toggle comes
+// right after the brand, so the next Tab after it enters the menu. On a phone
+// the in-menu items hide behind it, and Queue and Sync stay in the bar.
+templ shell(pg page) {
+	<header class="shell">
+		<a class="brand" href="/"><svg class="mark" aria-hidden="true" focusable="false"><use href="#i-mark"></use></svg><span class="brand-word"><b>play</b><span class="place">place</span></span></a>
+		<button type="button" class="menu-toggle" aria-expanded="false" aria-controls="shell-menu">@icon("menu")<span class="vh">Menu</span></button>
+		<div id="shell-menu" class="shell-menu">
+			<nav class="nav" aria-label="Main">
+				<ul>
+					if !pg.Viewer.Admin {
+						<li class="in-menu">
+							<a
+								class="nav-link"
+								href="/"
+								if pg.Path == "/" {
+									aria-current="page"
+								}
+							>Home</a>
+						</li>
+					}
+					if pg.Viewer.Approver {
+						<li>
+							<a class="nav-link" href="/#pending">
+								Queue
+								@queueCount(pg, false)
+							</a>
+						</li>
+					}
+					if pg.Viewer.Admin {
+						<li class="in-menu"><a class="nav-link" href="/#accounts">Accounts</a></li>
+					}
+				</ul>
+			</nav>
+			if pg.Viewer.Admin {
+				<form class="sync" hx-post="/refresh" hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
+					<button type="submit" class="btn-ghost" title="poll creations, sweep expiry, retry closes">@icon("sync")<span class="btn-word">Sync with AWS</span></button>
+				</form>
+			}
+			<a class="btn btn-chip in-menu" href="/#request">
+				@icon("plus")
+				New request
+			</a>
+			if pg.SignIn {
+				<span class="person in-menu">
+					<span class="person-email">{ pg.Viewer.Email }</span>
+					if pg.Viewer.Admin {
+						<span class="badge">admin</span>
+					}
+				</span>
+				<form class="signout in-menu" method="post" action="/auth/logout"><button type="submit" class="nav-link">Sign out</button></form>
+			}
+		</div>
+	</header>
+}
+
+// queueCount is the number of pending requests beside Queue. It is empty at
+// zero. The vh word tells a screen reader what the number counts.
+templ queueCount(pg page, oob bool) {
+	<span
+		id="queue-count"
+		if oob {
+			hx-swap-oob="true"
+		}
+	>
+		if len(pg.Pending) > 0 {
+			<span class="count-pill">{ fmt.Sprint(len(pg.Pending)) }<span class="vh">{ " pending requests" }</span></span>
+		}
+	</span>
+}
+
+// pendingUpdate is the pending card for an htmx answer. Approvers also get
+// the shell count, so the two never disagree. Other viewers have no Queue
+// link. A count with no target makes htmx log an error.
+templ pendingUpdate(pg page) {
+	@pendingCard(pg)
+	if pg.Viewer.Approver {
+		@queueCount(pg, true)
+	}
+}
+
+// icon draws one symbol of the sprite. It sits next to a word, so screen
+// readers skip it.
+templ icon(name string) {
+	<svg class="i" aria-hidden="true" focusable="false"><use href={ "#i-" + name }></use></svg>
+}
+
+// iconSprite holds every icon and the mark as symbols on a 24 px grid. The
+// symbols carry no fill or stroke: the .i and .mark rules in app.css set
+// them, and <use> passes currentColor down.
+templ iconSprite() {
+	<svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+		<symbol id="i-mark" viewBox="0 0 24 24"><path d="M7.4 18.6h9.9a3.9 3.9 0 0 0 .4-7.8 5.6 5.6 0 0 0-10.7-1.1 4.5 4.5 0 0 0 .4 8.9z"></path><path d="M8.6 16.2c2.6 0 3.1-3.6 6.2-3.6"></path><circle cx="16" cy="15.6" r="1.1"></circle></symbol>
+		<symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"></circle><path d="M8.6 12.3l2.4 2.4 4.5-5"></path></symbol>
+		<symbol id="i-clock-arc" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 1-8.5 8.5"></path><path d="M12 8v4l2.5 1.5"></path></symbol>
+		<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path></symbol>
+		<symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M7 3.5h10M7 20.5h10M8 3.5v2.3a4 4 0 0 0 1.6 3.2L12 12l2.4-3a4 4 0 0 0 1.6-3.2V3.5M8 20.5v-2.3a4 4 0 0 1 1.6-3.2L12 12l2.4 3a4 4 0 0 1 1.6 3.2v2.3"></path></symbol>
+		<symbol id="i-box" viewBox="0 0 24 24"><path d="M4 4.5h16v4H4zM5.5 8.5V19h13V8.5M12 11v5M9.5 13.5L12 16l2.5-2.5"></path></symbol>
+		<symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"></circle><path d="M6 6l12 12"></path></symbol>
+		<symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"></circle><path d="M9.2 9.2l5.6 5.6M14.8 9.2l-5.6 5.6"></path></symbol>
+		<symbol id="i-minus" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"></circle><path d="M8 12h8"></path></symbol>
+		<symbol id="i-dashed-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" stroke-dasharray="2.4 3"></circle></symbol>
+		<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="1.5"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></symbol>
+		<symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"></path><path d="M12 10v4.2M12 17.2v.1"></path></symbol>
+		<symbol id="i-sync" viewBox="0 0 24 24"><path d="M19.5 11a7.5 7.5 0 0 0-13.4-4.2L4.5 8.5M4.5 4v4.5H9M4.5 13a7.5 7.5 0 0 0 13.4 4.2l1.6-1.7M19.5 20v-4.5H15"></path></symbol>
+		<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol>
+		<symbol id="i-stamp" viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="2.3"></circle><path d="M10.6 7.7V11M13.4 7.7V11"></path><rect x="4.5" y="11" width="15" height="4.5" rx="1"></rect><path d="M5 19.5h14"></path></symbol>
+		<symbol id="i-unlock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="1.5"></rect><path d="M8 11V8a4 4 0 0 1 7.6-1.7"></path></symbol>
+		<symbol id="i-slip" viewBox="0 0 24 24"><rect x="5.5" y="3.5" width="13" height="17" rx="1.5"></rect><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4"></path></symbol>
+		<symbol id="i-door" viewBox="0 0 24 24"><path d="M3.5 20.5h17M6.5 20.5v-16a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16"></path><path d="M14.5 12.5v.01"></path></symbol>
+		<symbol id="i-bell" viewBox="0 0 24 24"><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2h-14z"></path><path d="M10 21h4"></path></symbol>
+		<symbol id="i-bell-off" viewBox="0 0 24 24"><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2h-14z"></path><path d="M10 21h4"></path><path d="M4 4l16 16"></path></symbol>
+		<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"></path></symbol>
+	</svg>
 }
 
 type accountRow struct {
@@ -109,7 +162,7 @@ type accountRow struct {
 
 templ indexPage(pg page, rows []accountRow, errMsg string) {
 	@layout(pg, "Accounts") {
-		<div class="card">
+		<div class="card" id="request">
 			<form hx-post="/requests" hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" data-reset-on-success>
 				<div class="row">
 					<label>name<input name="name" required pattern="[a-z0-9][a-z0-9\-]{1,48}[a-z0-9]" placeholder="dev-alex"/></label>
@@ -481,7 +534,7 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 }
 
 templ noticeFragment(msg string) {
-	<span id="notice" class="muted" hx-swap-oob="true">{ msg }</span>
+	<p id="notice" class="notice" hx-swap-oob="true">@icon("sync")<span>{ msg }</span></p>
 }
 
 templ errorFragment(msg string) {
