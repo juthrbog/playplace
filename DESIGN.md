@@ -774,7 +774,7 @@ message is the page's one `aria-live="polite"` region.
 - **Mono values:** account IDs and versions in Courier Prime at the size of the text around them.
 
 ### Feedback
-- **Inline note:** paper with a panel-rule border, 6px corners, a 16 px icon, a bold first line and a 13.5 px body. A refusal uses a red-ink border and an alert icon and names the recovery. An empty desk uses card stock.
+- **Inline note:** paper with a panel-rule border, 6px corners, a 16 px icon, a semibold first line and a 13.5 px body. A refusal uses a red-ink border and an alert icon and names the recovery. An empty desk uses card stock.
 - **Dialog:** a native `<dialog>` on paper with a 1 px ink border, 8px corners and a maximum width of 640 px. The head and the footer are separated by panel rules, and the footer is paper tint. Only three tasks use it: the deny reason, the bulk approval summary, and the consequences of Return.
 - **Live update:** an 8 px shelf ink dot and "Updated 12 seconds ago" in the footer. `app.js` resets the Updated time after each successful poll, also when nothing changed. The dot hides for one 90 ms step only when new data arrives, with no fade. Under `prefers-reduced-motion` it does not blink.
 - **Keycap:** 12 px semibold pencil grey on paper, with a panel-rule border that is 2 px at the bottom.

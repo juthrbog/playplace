@@ -125,6 +125,17 @@ var (
 	templSpread    = regexp.MustCompile(`\{\s*[\w.]+\s*\.\.\.\s*\}`)
 	templStyleAttr = regexp.MustCompile(`(?i)(?:^|\s)style\??\s*=`)
 	templStyleTag  = regexp.MustCompile(`(?i)<style\b`)
+	// templCSS is a templ css component. It renders a <style> element.
+	templCSS = regexp.MustCompile(`^\s*css\s+\w+\(`)
+	// templStyleKey is a "style" key in an attribute map such as
+	// templ.Attributes. It renders a style attribute. The key can be in
+	// double quotes, single quotes or backticks.
+	templStyleKey = regexp.MustCompile("(?i)[\"'`]style[\"'`]\\s*:")
+	// templAnySpread is a templ spread, { x... }. An attribute spread can
+	// carry a style attribute that a .go helper builds, out of view of this
+	// lint. templChildren is the one spread that is not an attribute.
+	templAnySpread = regexp.MustCompile(`\.\.\.\s*\}`)
+	templChildren  = regexp.MustCompile(`\{\s*children\s*\.\.\.\s*\}`)
 )
 
 // templates returns the name and source of every template in the package,
@@ -146,23 +157,77 @@ func templates(t *testing.T) map[string]string {
 	return out
 }
 
+// inlineStyleProblems names each way that one template line can put a style
+// or a color into the markup.
+func inlineStyleProblems(line string) []string {
+	var out []string
+	if templStyleAttr.MatchString(line) {
+		out = append(out, "style attribute")
+	}
+	if templStyleTag.MatchString(line) {
+		out = append(out, "<style> element")
+	}
+	if templCSS.MatchString(line) {
+		out = append(out, "templ css component")
+	}
+	if templStyleKey.MatchString(line) {
+		out = append(out, "style key in an attribute map")
+	}
+	if templAnySpread.MatchString(templChildren.ReplaceAllString(line, "")) {
+		out = append(out, "attribute spread")
+	}
+	if m := hexLiteral.FindString(line); m != "" {
+		out = append(out, "hex color "+m)
+	}
+	return out
+}
+
 // TestTemplHasNoInlineStyle keeps every style in app.css. The CSP has no
 // 'unsafe-inline' for styles, so the browser drops a style attribute or a
-// <style> element. A hex color in markup is a color that the palette test
-// never sees. Ids such as #accounts and #i-mark do not match, because a word
-// character follows the hex letters.
+// <style> element. A templ css component, a "style" key in an attribute map
+// and an attribute spread can make the same markup, so they fail too. A hex
+// color in markup is a color that the palette test never sees. Ids such as
+// #accounts and #i-mark do not match, because a word character follows the
+// hex letters.
 func TestTemplHasNoInlineStyle(t *testing.T) {
 	for name, src := range templates(t) {
 		for _, line := range strings.Split(src, "\n") {
-			if templStyleAttr.MatchString(line) {
-				t.Errorf("%s: style attribute: %s", name, strings.TrimSpace(line))
+			for _, problem := range inlineStyleProblems(line) {
+				t.Errorf("%s: %s: %s", name, problem, strings.TrimSpace(line))
 			}
-			if templStyleTag.MatchString(line) {
-				t.Errorf("%s: <style> element: %s", name, strings.TrimSpace(line))
-			}
-			if m := hexLiteral.FindString(line); m != "" {
-				t.Errorf("%s: hex color %s: %s", name, m, strings.TrimSpace(line))
-			}
+		}
+	}
+}
+
+// TestInlineStyleLintCatchesEachForm keeps the lint able to see each way a
+// template can add a style. It also keeps the lint quiet on markup that the
+// page uses.
+func TestInlineStyleLintCatchesEachForm(t *testing.T) {
+	for _, line := range []string{
+		`<div style="color: red"></div>`,
+		`<div style?={ on }></div>`,
+		`<style>p { color: red }</style>`,
+		`css bad() {`,
+		`{{ attrs := templ.Attributes{"style": "color: red"} }}`,
+		`{{ attrs := templ.Attributes{'style': "color: red"} }}`,
+		"{{ attrs := templ.Attributes{`style`: \"color: red\"} }}",
+		`<div { attrs... }></div>`,
+		`<div { styleAttrs()... }></div>`,
+		`<div { templ.Attributes{"x": "y"}... }></div>`,
+		`<p class="x">#ff0000</p>`,
+	} {
+		if len(inlineStyleProblems(line)) == 0 {
+			t.Errorf("the lint misses %s", line)
+		}
+	}
+	for _, line := range []string{
+		`{ children... }`,
+		`<section id="accounts" class="panel">`,
+		`<use href="#i-mark"></use>`,
+		`<span class="status">{ "Loading..." }</span>`,
+	} {
+		if got := inlineStyleProblems(line); len(got) > 0 {
+			t.Errorf("the lint flags %s: %v", line, got)
 		}
 	}
 }

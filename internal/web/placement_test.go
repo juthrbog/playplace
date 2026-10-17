@@ -71,7 +71,7 @@ func TestAccountFactsNameWhatIsMissing(t *testing.T) {
 				t.Errorf("%s: missing %s", tc.status, want)
 			}
 		}
-		if strings.Contains(out, "<code></code>") || strings.Contains(out, "last state observation") {
+		if strings.Contains(out, "<code></code>") || strings.Contains(out, "in this state since") {
 			t.Errorf("%s: a missing value shows as a blank:\n%s", tc.status, out)
 		}
 	}

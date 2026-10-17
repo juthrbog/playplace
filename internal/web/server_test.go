@@ -138,6 +138,93 @@ func TestEngineerSeesOnlyOwnAccounts(t *testing.T) {
 	}
 }
 
+// With no rows the accounts panel shows one plain line and no table, as the
+// pending card does. The section still polls its own view, and Show closed
+// stays in the head with its state, so the viewer can still ask for closed
+// accounts.
+func TestEmptyAccountsPanelHasNoTable(t *testing.T) {
+	ts, _ := newServer(t)
+	checked := regexp.MustCompile(`<input id="show-closed"[^>]*\schecked[\s>/]`)
+	for _, tc := range []struct {
+		path, line, poll string
+		all              bool
+	}{
+		{"/", `<p class="empty">No open accounts.</p>`, `hx-get="/accounts"`, false},
+		{"/accounts", `<p class="empty">No open accounts.</p>`, `hx-get="/accounts"`, false},
+		{"/accounts?all=1", `<p class="empty">No accounts.</p>`, `hx-get="/accounts?all=1"`, true},
+	} {
+		_, body := do(t, ts, "GET", tc.path, "nobody@example.com", false, nil, tc.path != "/")
+		_, section, ok := strings.Cut(body, `<section id="accounts"`)
+		if !ok {
+			t.Fatalf("%s: no accounts section:\n%s", tc.path, body)
+		}
+		section, _, _ = strings.Cut(section, "</section>")
+		if !strings.Contains(section, tc.line) {
+			t.Errorf("%s: missing %s:\n%s", tc.path, tc.line, section)
+		}
+		if strings.Contains(section, "<table") || strings.Contains(section, "<th") {
+			t.Errorf("%s: an empty panel has a table:\n%s", tc.path, section)
+		}
+		// The Show closed box has its own hx-get, so the poll check reads
+		// the section tag alone.
+		tag, _, _ := strings.Cut(section, ">")
+		for _, want := range []string{tc.poll, `hx-trigger="every 15s"`} {
+			if !strings.Contains(tag, want) {
+				t.Errorf("%s: the section tag lacks %s: <section id=\"accounts\"%s>", tc.path, want, tag)
+			}
+		}
+		if !strings.Contains(section, `id="show-closed"`) {
+			t.Errorf("%s: the head lacks Show closed:\n%s", tc.path, section)
+		}
+		if got := checked.MatchString(section); got != tc.all {
+			t.Errorf("%s: Show closed checked = %v, want %v:\n%s", tc.path, got, tc.all, section)
+		}
+	}
+}
+
+// A failed load is not an empty fleet. The page error names the problem. The
+// panel shows no count and says that the list is unavailable. The section
+// still polls, so the next good poll fills it.
+func TestFailedAccountLoadIsNotAnEmptyFleet(t *testing.T) {
+	pg := page{Viewer: Viewer{Email: "nobody@example.com"}, SignIn: true, Limits: core.DefaultConfig()}
+	render := func(errMsg string) (string, string) {
+		t.Helper()
+		var out strings.Builder
+		if err := indexPage(pg, nil, errMsg).Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		_, section, ok := strings.Cut(out.String(), `<section id="accounts"`)
+		if !ok {
+			t.Fatalf("no accounts section:\n%s", out.String())
+		}
+		section, _, _ = strings.Cut(section, "</section>")
+		return out.String(), section
+	}
+
+	body, section := render("list accounts: AccessDenied")
+	if !strings.Contains(body, "list accounts: AccessDenied") {
+		t.Errorf("the page error is missing:\n%s", body)
+	}
+	if !strings.Contains(section, `<p class="empty">The account list is unavailable. The page tries again every 15 seconds.</p>`) {
+		t.Errorf("the panel does not say that the list is unavailable:\n%s", section)
+	}
+	for _, bad := range []string{"(0)", "No open accounts.", "No accounts.", "<table"} {
+		if strings.Contains(section, bad) {
+			t.Errorf("a failed load shows %q, which reads as an empty fleet:\n%s", bad, section)
+		}
+	}
+	tag, _, _ := strings.Cut(section, ">")
+	if !strings.Contains(tag, `hx-get="/accounts"`) || !strings.Contains(tag, `hx-trigger="every 15s"`) {
+		t.Errorf("the section stops polling after a failed load: <section id=\"accounts\"%s>", tag)
+	}
+
+	// A good load with no accounts keeps the count and the empty line.
+	_, section = render("")
+	if !strings.Contains(section, `<span class="muted">(0)</span>`) || !strings.Contains(section, "No open accounts.") || strings.Contains(section, "unavailable") {
+		t.Errorf("an empty fleet lost its count or its line:\n%s", section)
+	}
+}
+
 func TestExtendIsCappedForEngineersNotAdmins(t *testing.T) {
 	ts, prov := newServer(t)
 	// annas-box joined at t0 and expires in 3 days; 100 days pushes its

@@ -203,7 +203,8 @@ templ indexPage(pg page, rows []accountRow, errMsg string) {
 			<p class="error page-error">@icon("alert")<span>{ errMsg }</span></p>
 		}
 		@pendingCard(pg)
-		@accountsTable(pg, rows)
+		// errMsg comes only from a failed account load.
+		@accountsPanel(pg, rows, errMsg != "")
 		<p class="help">
 			if pg.SignIn && !pg.Viewer.Admin {
 				You see the accounts you own.
@@ -260,7 +261,7 @@ templ pendingRow(pg page, q core.Request) {
 				<span class="flag" title="an admin allowed values above the ceilings">limits overridden</span>
 			}
 		</td>
-		<td title={ q.RequestedAt.Format(time.RFC3339) }>{ q.RequestedAt.Format("Jan 2 15:04") }</td>
+		<td title={ q.RequestedAt.UTC().Format(time.RFC3339) }>{ q.RequestedAt.UTC().Format("Jan 2 15:04 MST") }</td>
 		<td class="actions">
 			<div class="row-actions">
 				if canApprove(pg, q) {
@@ -333,7 +334,16 @@ templ pendingEditRow(pg page, q core.Request) {
 	</tr>
 }
 
+// accountsTable is the accounts panel after a good load.
 templ accountsTable(pg page, rows []accountRow) {
+	@accountsPanel(pg, rows, false)
+}
+
+// accountsPanel is the accounts panel. When the list did not load, the head
+// shows no count and the panel says the list is unavailable. An empty list
+// would look like a fleet with no accounts. The section keeps polling, so
+// the next good poll fills it.
+templ accountsPanel(pg page, rows []accountRow, failed bool) {
 	<section id="accounts" class="panel" hx-get={ tableURL(pg.ShowAll) } hx-trigger="every 15s" hx-swap="outerHTML" aria-labelledby="accounts-title">
 		<div class="panel-head">
 			<h2 id="accounts-title">
@@ -342,31 +352,39 @@ templ accountsTable(pg page, rows []accountRow) {
 				} else {
 					Accounts
 				}
-				<span class="muted">({ fmt.Sprint(len(rows)) })</span>
+				if !failed {
+					<span class="muted">({ fmt.Sprint(len(rows)) })</span>
+				}
 			</h2>
 			<label class="check" title="include accounts AWS explicitly reports CLOSED"><input id="show-closed" type="checkbox" name="all" value="1" checked?={ pg.ShowAll } hx-get="/accounts" hx-target="#accounts" hx-swap="outerHTML" hx-trigger="change"/>Show closed</label>
 		</div>
-		<div class="scroll">
-			<table class="fleet">
-				<thead>
-					<tr><th scope="col">Name</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Account</th><th scope="col">Expires</th><th scope="col">Spend / Budget</th><th scope="col"><span class="vh">Actions</span></th></tr>
-				</thead>
-				<tbody>
-					if len(rows) == 0 {
-						<tr><td colspan="7" class="muted">
-							if pg.ShowAll {
-								No accounts.
-							} else {
-								No open accounts.
-							}
-						</td></tr>
-					}
-					for _, r := range rows {
-						@accountTR(r)
-					}
-				</tbody>
-			</table>
-		</div>
+		// A failed load and an empty list each show one plain line, as the
+		// pending card does, and no column heads. The head keeps Show
+		// closed, and the section keeps polling.
+		if failed {
+			<p class="empty">The account list is unavailable. The page tries again every 15 seconds.</p>
+		} else if len(rows) == 0 {
+			<p class="empty">
+				if pg.ShowAll {
+					No accounts.
+				} else {
+					No open accounts.
+				}
+			</p>
+		} else {
+			<div class="scroll">
+				<table class="fleet">
+					<thead>
+						<tr><th scope="col">Name</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Account</th><th scope="col">Expires</th><th scope="col">Spend / Budget</th><th scope="col"><span class="vh">Actions</span></th></tr>
+					</thead>
+					<tbody>
+						for _, r := range rows {
+							@accountTR(r)
+						}
+					</tbody>
+				</table>
+			</div>
+		}
 	</section>
 }
 
@@ -426,9 +444,14 @@ templ accountTR(r accountRow) {
 }
 
 // statusLabel is the icon and the word of an account status. A closing
-// account with an error is an overdue closure, so its box turns red.
+// account with an error is an overdue closure. Its box turns red, and the
+// qualifier "overdue" follows the word, because color alone never names a
+// state.
 templ statusLabel(a *core.Account) {
 	<span class={ "status", "status-" + string(a.Status), templ.KV("status-overdue", a.Status == core.StatusClosing && a.LastError != "") }>@icon(statusIcon(a.Status))<span>{ string(a.Status) }</span></span>
+	if a.Status == core.StatusClosing && a.LastError != "" {
+		<span class="qualifier">overdue</span>
+	}
 }
 
 // budgetLabel is the icon and the word of a budget protection state. The
@@ -468,7 +491,9 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 		<section class="panel" aria-labelledby="account-title">
 			<div class="panel-head">
 				<h1 id="account-title">{ a.Name }</h1>
-				@statusLabel(a)
+				// One wrapper keeps the label and its qualifier together, so
+				// they wrap as one unit beside or below the name.
+				<span class="head-status">@statusLabel(a)</span>
 			</div>
 			<div class="panel-body">
 				<dl class="facts">
@@ -499,14 +524,16 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 					<dd>
 						@budgetLabel(a.BudgetHealth, a.BudgetError)
 						if a.BudgetChecked != "" {
-							<span class="muted">(last state observation: { a.BudgetChecked })</span>
+							<span class="muted">(in this state since { observedAt(a.BudgetChecked) })</span>
 						}
 					</dd>
 					if a.BudgetError != "" {
 						<dt>budget error</dt><dd class="error">@icon("alert")<span>{ a.BudgetError }</span></dd>
 					}
 					<dt>spend, 30 days</dt><dd>{ fmt.Sprintf("$%.2f", total) }</dd>
-					<dt>created</dt><dd>{ a.CreatedAt.Format("2006-01-02 15:04 MST") }</dd>
+					// Every time on this page is in UTC, the same as the history
+					// table. A stored time keeps the zone it was read in.
+					<dt>created</dt><dd>{ a.CreatedAt.UTC().Format("2006-01-02 15:04 MST") }</dd>
 					if a.ProviderID != "" {
 						<dt>expires</dt><dd>{ expiryDate(a.ExpiresAt, "2006-01-02 15:04 MST") }
 							if !a.ExpiresAt.IsZero() {
@@ -515,10 +542,10 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 						</dd>
 					}
 					if a.WarnedAt != nil {
-						<dt>expiring notice sent</dt><dd>{ a.WarnedAt.Format("2006-01-02 15:04 MST") }</dd>
+						<dt>expiring notice sent</dt><dd>{ a.WarnedAt.UTC().Format("2006-01-02 15:04 MST") }</dd>
 					}
 					if a.CloseRequestedAt != nil {
-						<dt>close requested</dt><dd>{ a.CloseRequestedAt.Format("2006-01-02 15:04 MST") }</dd>
+						<dt>close requested</dt><dd>{ a.CloseRequestedAt.UTC().Format("2006-01-02 15:04 MST") }</dd>
 					}
 					if a.LastError != "" && a.Status == core.StatusCreating {
 						// A creation that waits in the root for placement: a qualifier, not a failure.
@@ -580,7 +607,7 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 							<tbody>
 								for _, e := range history.Page.Events {
 									<tr>
-										<td title={ e.At.Format(time.RFC3339Nano) }>{ e.At.UTC().Format("2006-01-02 15:04:05 MST") }</td>
+										<td title={ e.At.UTC().Format(time.RFC3339Nano) }>{ e.At.UTC().Format("2006-01-02 15:04:05 MST") }</td>
 										<td><span class="event">{ e.Event }</span></td>
 										<td>{ e.Actor }
 											if e.Via != "" {

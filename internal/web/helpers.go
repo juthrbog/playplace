@@ -31,11 +31,26 @@ func expiresIn(t time.Time) string {
 	}
 }
 
+// expiryDate writes an expiry time in UTC, so it matches the other times on
+// the account page and the history table.
 func expiryDate(t time.Time, layout string) string {
 	if t.IsZero() {
 		return "unknown"
 	}
-	return t.Format(layout)
+	return t.UTC().Format(layout)
+}
+
+// observedAt writes the stored time when the budget state or its error last
+// changed. Core stores it as an RFC 3339 value and does not change it on a
+// check that finds the same state. The page writes it in UTC like every other
+// time on the account page, such as "2026-10-16 17:44 UTC". A value that does
+// not parse shows as it is.
+func observedAt(s string) string {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return s
+	}
+	return t.UTC().Format("2006-01-02 15:04 MST")
 }
 
 func budgetAmount(amount float64) string {

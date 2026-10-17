@@ -245,6 +245,13 @@
     outline: 2px solid var(--violet);
     outline-offset: 1px;
   }
+  /* An invalid field gets a red-ink border. :user-invalid starts only after
+     the user edits the field, so an empty form stays calm. It comes after
+     the focus rule, so a field keeps its red-ink border inside the violet
+     ring while the user fixes it. */
+  input:user-invalid:not([type=checkbox]):not([type=radio]) {
+    border-color: var(--red-ink);
+  }
   ::placeholder {
     color: var(--ink-2);
     opacity: 1;
@@ -530,6 +537,24 @@
     font-size: 13.5px;
     font-weight: 400;
     letter-spacing: 0;
+  }
+  /* An account name can have 50 letters and no hyphen. The name breaks
+     anywhere, so a phone page never scrolls sideways. */
+  .panel-head > h1 {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  /* The account head keeps the status label and its qualifier together.
+     They wrap as one unit with the 8 px gap of the facts list, so the
+     qualifier never lands alone under the name. */
+  .head-status {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+  .head-status > .qualifier {
+    margin-top: 0;
   }
   .panel-body {
     padding: 0 var(--space-lg) var(--space-lg);
@@ -880,8 +905,11 @@
     color: var(--ink);
     font-size: 13.5px;
   }
+  /* The message is the first line of the note, so it is semibold. Core
+     writes most refusals as one sentence. */
   .refusal > span {
     max-width: 75ch;
+    font-weight: 600;
   }
   .refusal .i {
     margin-top: 2px;
@@ -993,9 +1021,12 @@
       width: 22px;
       height: 22px;
     }
+    /* The bar keeps 6 px on the right for the toggle. The rows add 10 px,
+       so they end 16 px from the edge, like the content gutters. */
     .shell .in-menu {
       order: 3;
       flex-basis: 100%;
+      margin-right: 10px;
     }
     .in-menu > .nav-link {
       width: 100%;
@@ -1045,6 +1076,10 @@
     }
     .facts dd {
       margin-bottom: var(--space-sm);
+    }
+    /* On a phone the ledger fills the row, like every other panel. */
+    .panel-fit {
+      align-self: stretch;
     }
   }
 }
