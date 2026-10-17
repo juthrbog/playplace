@@ -1,10 +1,12 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -37,12 +39,40 @@ func TestUnplacedCreationPageShowsAPlacementNote(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(body, "<dt>placement</dt>") || !strings.Contains(body, "waits outside the Playground OU") {
 		t.Fatalf("status %d, body: %s", res.StatusCode, body)
 	}
-	if strings.Contains(body, "<dt>failure</dt>") || !strings.Contains(body, `<dd class="note">`) {
+	if strings.Contains(body, "<dt>failure</dt>") || !strings.Contains(body, `<dd class="qualifier">`) {
 		t.Fatalf("the placement note is shown as a failure: %s", body)
 	}
-	// The list row uses the same warning color as the creating pill.
+	// The list row shows the same qualifier under the creating label.
 	res, body = do(t, ts, "GET", "/", "admin@example.com", true, nil, false)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, `<div class="note">AWS created this account`) {
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "status-creating") || !regexp.MustCompile(`class="qualifier">(?:<svg.*?</svg>)?<span>AWS created this account`).MatchString(body) {
 		t.Fatalf("list row: status %d, body: %s", res.StatusCode, body)
+	}
+}
+
+// An account that AWS has not created has no id and no root email. The facts
+// say so in words, and an unchecked budget has no empty parenthesis.
+func TestAccountFactsNameWhatIsMissing(t *testing.T) {
+	for _, tc := range []struct {
+		status core.Status
+		word   string
+	}{
+		{core.StatusCreating, "not created yet"},
+		{core.StatusFailed, "not created"},
+	} {
+		var buf bytes.Buffer
+		a := &core.Account{ID: "x", Name: "x", Status: tc.status, CreatedAt: t0}
+		if err := accountPage(page{}, a, nil, 0, historyView{}).Render(context.Background(), &buf); err != nil {
+			t.Fatal(err)
+		}
+		out := buf.String()
+		for _, fact := range []string{"account id", "root email"} {
+			want := `<dt>` + fact + `</dt><dd><span class="muted">` + tc.word + `</span></dd>`
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: missing %s", tc.status, want)
+			}
+		}
+		if strings.Contains(out, "<code></code>") || strings.Contains(out, "in this state since") {
+			t.Errorf("%s: a missing value shows as a blank:\n%s", tc.status, out)
+		}
 	}
 }

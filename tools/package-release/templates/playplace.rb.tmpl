@@ -3,7 +3,7 @@ class Playplace < Formula
   desc "Short-lived AWS playground accounts with guardrails"
   homepage "https://github.com/juthrbog/playplace"
   version "{{ .Version }}"
-  license "Apache-2.0"
+  license all_of: ["Apache-2.0", "OFL-1.1"]
 
   on_macos do
     on_arm do
@@ -32,7 +32,7 @@ class Playplace < Formula
     bash_completion.install "completions/playplace.bash" => "playplace"
     zsh_completion.install "completions/_playplace"
     fish_completion.install "completions/playplace.fish"
-    doc.install "README.md", "docs", "deploy"
+    doc.install "README.md", "docs", "deploy", "licenses"
   end
 
   def caveats

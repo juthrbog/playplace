@@ -23,10 +23,10 @@ func TestPlayplaceRecipes(t *testing.T) {
 	}
 	formula := read("playplace.rb")
 	for _, want := range []string{
-		"class Playplace < Formula", `license "Apache-2.0"`,
+		"class Playplace < Formula", `license all_of: ["Apache-2.0", "OFL-1.1"]`,
 		`bin.install "playplace"`, `bash_completion.install`,
 		`zsh_completion.install`, `fish_completion.install`,
-		`doc.install`, `playplace --version`, `playplace serve --help`,
+		`doc.install "README.md", "docs", "deploy", "licenses"`, `playplace --version`, `playplace serve --help`,
 	} {
 		if !strings.Contains(formula, want) {
 			t.Errorf("formula missing %q", want)
@@ -40,11 +40,18 @@ func TestPlayplaceRecipes(t *testing.T) {
 	pkgbuild := read("PKGBUILD")
 	for _, want := range []string{
 		"./cmd/playplace", "-X playplace/internal/cli.version=", "-mod=readonly",
-		"go test ./...", `install -Dm755 playplace`, "Apache-2.0",
+		"go test ./...", `install -Dm755 playplace`, `license=('Apache-2.0' 'OFL-1.1')`,
+		// The PKGBUILD builds from the source tarball, which has the OFL
+		// texts only in the font folder, not in licenses/.
+		"internal/web/static/fonts/OFL-PublicSans.txt internal/web/static/fonts/OFL-CourierPrime.txt",
 	} {
 		if !strings.Contains(pkgbuild, want) {
 			t.Errorf("PKGBUILD missing %q", want)
 		}
+	}
+	// A Windows checkout can turn the template line ends into CRLF.
+	if srcinfo := strings.ReplaceAll(read("SRCINFO"), "\r\n", "\n"); !strings.Contains(srcinfo, "\tlicense = Apache-2.0\n\tlicense = OFL-1.1\n") {
+		t.Errorf("SRCINFO should declare Apache-2.0 and OFL-1.1:\n%s", srcinfo)
 	}
 	mod, err := os.ReadFile(filepath.Join("..", "..", "go.mod"))
 	if err != nil {

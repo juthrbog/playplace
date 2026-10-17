@@ -487,13 +487,18 @@ palettes, so it needs no night rule.
 The stylesheet keeps the night differences in the token layer, as role
 variables for each palette, for example `--on-shell`, `--shell-chip`,
 `--search-edge`, `--stamp-blend` and `--scrim`. Components read the role
-variables, so no component has its own night rule. Plain CSS needs the night
-values under `[data-theme=night]` and again under
-`@media (prefers-color-scheme: dark)` for `:root:not([data-theme=day])`. If
-every browser that the web UI supports has `light-dark()`, phase 1 uses it
-for the colors. `light-dark()` covers only colors, so `--stamp-blend` keeps
-its own rule. If one does not, the stylesheet has two copies of the night
-values, and a test keeps the two copies equal.
+variables, so no component has its own night rule. The web UI supports
+evergreen Chrome, Edge, Firefox and Safari from 2024 on (see PRODUCT.md).
+All of them have `light-dark()`, so the stylesheet uses it. Each color token
+and each color role is one `light-dark(day, night)` value, so every value
+has one copy. The root sets `color-scheme: light`, which keeps the night
+desk off. `[data-theme=night]` sets `color-scheme: dark`, and nothing sets
+that attribute in phase 1. `--stamp-blend` and `--scrim` do not fit in one
+`light-dark()` value. They have their day value on the root and their night
+value under `[data-theme=night]`. When the night desk turns on, the
+`prefers-color-scheme` rule sets the dark scheme and these two values for
+`:root:not([data-theme=day])`. A test reads the `light-dark()` pairs and
+checks the contrast of both palettes.
 
 Violet on selected card is the tightest text pair at 4.6:1. If a turned
 stamp on a selected row reads weak at night, the first fallback is the
@@ -769,7 +774,7 @@ message is the page's one `aria-live="polite"` region.
 - **Mono values:** account IDs and versions in Courier Prime at the size of the text around them.
 
 ### Feedback
-- **Inline note:** paper with a panel-rule border, 6px corners, a 16 px icon, a bold first line and a 13.5 px body. A refusal uses a red-ink border and an alert icon and names the recovery. An empty desk uses card stock.
+- **Inline note:** paper with a panel-rule border, 6px corners, a 16 px icon, a semibold first line and a 13.5 px body. A refusal uses a red-ink border and an alert icon and names the recovery. An empty desk uses card stock.
 - **Dialog:** a native `<dialog>` on paper with a 1 px ink border, 8px corners and a maximum width of 640 px. The head and the footer are separated by panel rules, and the footer is paper tint. Only three tasks use it: the deny reason, the bulk approval summary, and the consequences of Return.
 - **Live update:** an 8 px shelf ink dot and "Updated 12 seconds ago" in the footer. `app.js` resets the Updated time after each successful poll, also when nothing changed. The dot hides for one 90 ms step only when new data arrives, with no fade. Under `prefers-reduced-motion` it does not blink.
 - **Keycap:** 12 px semibold pencil grey on paper, with a panel-rule border that is 2 px at the bottom.

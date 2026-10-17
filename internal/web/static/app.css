@@ -1,0 +1,1145 @@
+/* playplace web UI. Values come from DESIGN.md. Colors live only in the tokens layer. */
+
+/* A later layer wins over an earlier one, whatever the selector. So a
+   component beats an element rule in base, and a state in utilities beats
+   every component variant. */
+@layer tokens, base, layout, components, utilities;
+
+/* Public Sans is one variable file per subset. The browser fetches a subset
+   only when the page uses a character in its unicode-range. */
+@font-face {
+  font-family: 'Public Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 700;
+  src: url(fonts/public-sans-latin-ext-wght-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Public Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 700;
+  src: url(fonts/public-sans-latin-wght-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url(fonts/courier-prime-latin-ext-400-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url(fonts/courier-prime-latin-400-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url(fonts/courier-prime-latin-ext-700-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url(fonts/courier-prime-latin-700-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* Each color is light-dark(day, night). color-scheme picks the palette, so
+   the root stays light and the night desk stays off. Only
+   [data-theme="night"] turns it on, and nothing sets that attribute yet. */
+@layer tokens {
+  :root {
+    color-scheme: light;
+
+    --shelf: light-dark(#2F5D50, #16302A);
+    --shelf-deep: light-dark(#264D42, #21443B);
+    --shelf-rule: light-dark(#A9BDB4, #6A8C80);
+    --shelf-ink: light-dark(#2F5D50, #7AB8A6);
+    --card: light-dark(#EDE3CC, #2C2A22);
+    --card-hover: light-dark(#E8DEC4, #332F27);
+    --card-sel: light-dark(#E2D5B6, #3A3729);
+    --card-rule: light-dark(#CDBF9E, #4A4536);
+    --violet: light-dark(#5A3E9B, #A996E6);
+    --violet-deep: light-dark(#4A3184, #9682D9);
+    --red: light-dark(#C8323C, #F07A80);
+    --red-ink: light-dark(#A8262F, #F59BA0);
+    --red-deep: light-dark(#8E1F27, #E3868C);
+    --ink: light-dark(#22201C, #ECE7DA);
+    --ink-2: light-dark(#55514A, #B3AD9F);
+    --control-rule: light-dark(#8E8A80, #7A756A);
+    --rule: light-dark(#D6D1C4, #353B37);
+    --rule-soft: light-dark(#E7E3D9, #272D29);
+    --ground: light-dark(#F2F1EC, #121614);
+    --paper: light-dark(#FFFFFF, #1B201D);
+    --paper-tint: light-dark(#F8F6F0, #212622);
+    --paper-warm: light-dark(#FBF8F1, #25231D);
+
+    /* Roles: the shell and stamp colors that differ between the palettes.
+       Components read these, so no component has a night rule. */
+    --on-shell: light-dark(var(--card), var(--ink));
+    --on-shell-hi: light-dark(var(--paper), var(--ink));
+    --shell-chip: light-dark(var(--card), var(--ink));
+    --on-shell-chip: light-dark(var(--ink), var(--paper));
+    --shell-chip-hover: light-dark(var(--card-sel), var(--ink-2));
+    --search-edge: light-dark(var(--paper-warm), var(--shelf-rule));
+    --stamp-blend: multiply;
+    --scrim: rgba(34, 32, 28, 0.45);
+
+    --font-sans: "Public Sans", system-ui, sans-serif;
+    --font-stamp: "Courier Prime", monospace;
+    --r-meter: 2px;
+    --r-stamp: 3px;
+    --r-control: 4px;
+    --r-group: 5px;
+    --r-note: 6px;
+    --r-panel: 8px;
+    --r-pill: 9px;
+    --space-hair: 2px;
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 12px;
+    --space-lg: 16px;
+    --space-xl: 24px;
+    --space-xxl: 32px;
+    --control-h: 34px;
+    --control-h-sm: 30px;
+    --touch: 44px;
+  }
+
+  /* A blend mode and a scrim with alpha are not light-dark() colors, so the
+     night values of these two have their own rule. */
+  :root[data-theme="night"] {
+    color-scheme: dark;
+    --stamp-blend: normal;
+    --scrim: rgba(0, 0, 0, 0.55);
+  }
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+  :root {
+    accent-color: var(--violet);
+    caret-color: var(--violet);
+    scrollbar-color: var(--control-rule) var(--rule-soft);
+  }
+  /* The root of the type: Public Sans 14 with tabular lining figures, so
+     every number lines up. Elements below set longhands only, because the
+     font shorthand would reset the figures. */
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.45;
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+  h1,
+  h2,
+  h3,
+  p {
+    margin: 0;
+  }
+  h1 {
+    font-size: 19px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+  h2 {
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+  p {
+    max-width: 75ch;
+  }
+  a {
+    color: var(--ink);
+    text-decoration-line: underline;
+    text-decoration-color: var(--rule);
+    text-underline-offset: 3px;
+  }
+  a:hover {
+    color: var(--violet);
+    text-decoration-color: currentColor;
+  }
+  ::selection {
+    background: var(--violet);
+    color: var(--paper);
+  }
+  :focus-visible {
+    outline: 2px solid var(--violet);
+    outline-offset: 2px;
+  }
+  code {
+    font-family: var(--font-stamp);
+    font-size: inherit;
+  }
+  /* History details are data, not a stamp, so they use the system
+     monospace (DESIGN.md: Courier Prime is only for stamps and IDs). */
+  pre {
+    margin: var(--space-xs) 0 0;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    line-height: 1.35;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  button,
+  input,
+  select {
+    font: inherit;
+  }
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: var(--control-h);
+    padding: 0 13px;
+    border: 1px solid var(--control-rule);
+    border-radius: var(--r-control);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 13.5px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  button:hover {
+    background: var(--paper-tint);
+    border-color: var(--ink);
+  }
+  input:not([type=checkbox]):not([type=radio]):not([type=hidden]) {
+    height: var(--control-h);
+    padding: 0 10px;
+    border: 1px solid var(--control-rule);
+    border-radius: var(--r-control);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 400;
+  }
+  /* As specific as the field rule above, so the focus border wins. */
+  input:focus-visible:not([type=checkbox]):not([type=radio]) {
+    border-color: var(--violet);
+    outline: 2px solid var(--violet);
+    outline-offset: 1px;
+  }
+  /* An invalid field gets a red-ink border. :user-invalid starts only after
+     the user edits the field, so an empty form stays calm. It comes after
+     the focus rule, so a field keeps its red-ink border inside the violet
+     ring while the user fixes it. */
+  input:user-invalid:not([type=checkbox]):not([type=radio]) {
+    border-color: var(--red-ink);
+  }
+  ::placeholder {
+    color: var(--ink-2);
+    opacity: 1;
+  }
+  input[type=checkbox] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--paper);
+  }
+  th {
+    height: var(--control-h);
+    padding: 0 14px;
+    text-align: left;
+    white-space: nowrap;
+    background: var(--paper-tint);
+    color: var(--ink-2);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+  td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--rule-soft);
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  tbody tr:hover td {
+    background: var(--paper-tint);
+  }
+  /* Icons draw in the color of their text. The symbols carry no paint, so
+     these rules set it through <use>. */
+  .i {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  /* The sprite only holds symbols. With display: none, some browsers do not
+     draw the <use> copies, so the sprite has no size instead. */
+  .sprite {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+}
+
+@layer layout {
+  .shell {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    min-height: 54px;
+    padding: 10px var(--space-xl);
+    background: var(--shelf);
+    color: var(--on-shell);
+  }
+  .shell-menu {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+  main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+    max-width: 1600px;
+    padding: var(--space-lg) var(--space-xl) var(--space-xxl);
+  }
+
+  @media (max-width: 640px) {
+    .shell {
+      min-height: 56px;
+      padding: 6px 6px 6px var(--space-lg);
+    }
+    main {
+      gap: var(--space-md);
+      padding: var(--space-md) var(--space-lg) var(--space-xl);
+    }
+  }
+}
+
+@layer components {
+  /* On the shelf the focus ring takes the shell text color: card stock by
+     day and ink at night. */
+  .shell :focus-visible {
+    outline-color: var(--on-shell);
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-right: var(--space-lg);
+    color: var(--on-shell);
+    font-size: 19px;
+    font-weight: 400;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+  }
+  .brand b {
+    font-weight: 700;
+  }
+  .brand .place {
+    color: var(--on-shell-hi);
+  }
+  /* The mark is the shell color in both palettes. It never turns and is
+     never violet. */
+  .mark {
+    width: 28px;
+    height: 28px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    color: var(--on-shell);
+  }
+  .nav ul {
+    display: flex;
+    gap: var(--space-xs);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: auto;
+    padding: 6px 11px;
+    border: 0;
+    border-radius: var(--r-control);
+    background: transparent;
+    color: var(--on-shell);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.45;
+    text-decoration: none;
+  }
+  .nav-link:hover,
+  .nav-link[aria-current=page] {
+    background: var(--shelf-deep);
+    color: var(--on-shell-hi);
+  }
+  #queue-count:empty {
+    display: none;
+  }
+  .count-pill {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: var(--r-pill);
+    background: var(--shell-chip);
+    color: var(--on-shell-chip);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.5;
+  }
+  /* Sync, or New request when there is no Sync, starts the right side. */
+  .sync,
+  .nav + .btn-chip {
+    margin-left: auto;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: var(--control-h);
+    padding: 0 13px;
+    border: 1px solid transparent;
+    border-radius: var(--r-control);
+    font-size: 13.5px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  .btn-ghost {
+    background: transparent;
+    border-color: var(--shelf-rule);
+    color: var(--on-shell);
+  }
+  .btn-ghost:hover {
+    background: var(--shelf-deep);
+    border-color: var(--shelf-rule);
+    color: var(--on-shell-hi);
+  }
+  .btn-chip {
+    background: var(--shell-chip);
+    color: var(--on-shell-chip);
+  }
+  .btn-chip:hover {
+    background: var(--shell-chip-hover);
+    color: var(--on-shell-chip);
+  }
+  .person {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--on-shell);
+  }
+  .badge {
+    padding: 2px 6px;
+    border: 1px solid var(--shelf-rule);
+    border-radius: var(--r-stamp);
+    color: var(--on-shell);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+  .menu-toggle {
+    display: none;
+  }
+  .noauth {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-xl);
+    background: var(--paper-warm);
+    border-bottom: 1px solid var(--rule);
+    color: var(--ink);
+    font-size: 13.5px;
+  }
+  .noauth .i {
+    color: var(--red);
+  }
+  .notice {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 10px var(--space-md);
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-note);
+    font-size: 13.5px;
+  }
+  .notice .i {
+    color: var(--ink-2);
+  }
+  .notice:empty {
+    display: none;
+  }
+  /* Panels are paper on the ground, closed by a panel rule. A table in a
+     panel runs to its edges, and its outer cells line up with the head. */
+  .panel {
+    min-width: 0;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-panel);
+  }
+  .panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px var(--space-lg);
+    min-height: 48px;
+    padding: 10px var(--space-lg);
+  }
+  .panel-head > .check,
+  .panel-head > .link {
+    margin-left: auto;
+  }
+  .panel-head .muted {
+    font-size: 13.5px;
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+  /* An account name can have 50 letters and no hyphen. The name breaks
+     anywhere, so a phone page never scrolls sideways. */
+  .panel-head > h1 {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  /* The account head keeps the status label and its qualifier together.
+     They wrap as one unit with the 8 px gap of the facts list, so the
+     qualifier never lands alone under the name. */
+  .head-status {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+  .head-status > .qualifier {
+    margin-top: 0;
+  }
+  .panel-body {
+    padding: 0 var(--space-lg) var(--space-lg);
+  }
+  /* A short ledger, such as daily spend, takes only the width it needs. */
+  .panel-fit {
+    align-self: flex-start;
+    min-width: min(100%, 20rem);
+  }
+  /* Positioned, so the visually hidden row names inside stay in the
+     scroll box and do not widen the page. */
+  .scroll {
+    position: relative;
+    overflow-x: auto;
+  }
+  /* The scroll box clips the last table rows to the panel corners. */
+  .panel > .scroll:last-child {
+    border-radius: 0 0 calc(var(--r-panel) - 1px) calc(var(--r-panel) - 1px);
+  }
+  .panel th:first-child,
+  .panel td:first-child {
+    padding-left: var(--space-lg);
+  }
+  .panel th:last-child,
+  .panel td:last-child {
+    padding-right: var(--space-lg);
+  }
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .empty {
+    padding: 0 var(--space-lg) var(--space-lg);
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+  .help {
+    margin-top: var(--space-sm);
+    color: var(--ink-2);
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .lede {
+    margin-bottom: var(--space-md);
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+  .num {
+    text-align: right;
+  }
+
+  /* Forms: the label sits above its field in 13.5 semibold. A checkbox
+     comes before its words, and the whole label is the target. */
+  .form-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-md) 10px;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    color: var(--ink);
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .in-days {
+    width: 80px;
+  }
+  .in-budget {
+    width: 96px;
+  }
+  .check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-height: var(--control-h);
+    color: var(--ink);
+    font-size: 13.5px;
+    font-weight: 400;
+    cursor: pointer;
+  }
+
+  /* Button variants. The plain button is the base button. */
+  .btn-primary {
+    background: var(--card);
+    border-color: var(--card-rule);
+    color: var(--ink);
+  }
+  .btn-primary:hover {
+    background: var(--card-sel);
+    border-color: var(--card-rule);
+    color: var(--ink);
+  }
+  .btn-approve {
+    background: var(--violet);
+    border-color: var(--violet);
+    color: var(--paper);
+  }
+  .btn-approve:hover {
+    background: var(--violet-deep);
+    border-color: var(--violet-deep);
+    color: var(--paper);
+  }
+  /* Row buttons stay on one line. A narrow table scrolls instead. */
+  .row-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 6px;
+  }
+  form.inline {
+    display: inline-flex;
+  }
+
+  /* Chips. The dashed chip takes the place of Approve and Deny on a
+     person's own request. */
+  .chip-mine,
+  .flag {
+    display: inline-block;
+    padding: var(--space-hair) 7px;
+    border-radius: var(--r-stamp);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+    white-space: nowrap;
+  }
+  .chip-mine {
+    border: 1px dashed var(--control-rule);
+    color: var(--ink-2);
+  }
+  .flag {
+    background: var(--ink);
+    color: var(--card);
+  }
+
+  /* Tables. Rows stay one line. The cells that hold free text wrap. */
+  .fleet {
+    min-width: 1120px;
+  }
+  /* A long owner email ends in an ellipsis, so the row actions stay in
+     view at 1440 px. The title and the account page hold the whole
+     address. A block span clips in every browser, and a cell does not. */
+  .fleet .owner {
+    display: block;
+    max-width: 14rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  td a {
+    font-weight: 600;
+  }
+  .pending td:first-child {
+    font-weight: 600;
+  }
+  /* 9rem still holds "example.com" after the break at the @, and it
+     keeps the queue inside its panel at 1440 px. */
+  .pending td.wrap {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    min-width: 9rem;
+  }
+  .pending td[colspan] {
+    white-space: normal;
+  }
+  .pending .via {
+    display: block;
+    color: var(--ink-2);
+    font-size: 12px;
+  }
+  .history td.wrap {
+    white-space: normal;
+    min-width: 16rem;
+  }
+  .event {
+    font-weight: 500;
+  }
+  summary {
+    color: var(--ink-2);
+    font-size: 13.5px;
+    cursor: pointer;
+  }
+  summary:hover {
+    color: var(--violet);
+  }
+  a.link {
+    font-size: 13.5px;
+    font-weight: 500;
+  }
+
+  /* A status is a word and an icon, never color alone. The icon color
+     says normal, settling or needs attention. */
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--ink);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .status-pending .i,
+  .status-closing .i,
+  .status-unavailable .i {
+    color: var(--ink);
+  }
+  .status-creating .i,
+  .status-expiring .i {
+    color: var(--violet);
+  }
+  .status-active .i {
+    color: var(--shelf-ink);
+  }
+  .status-closed .i {
+    color: var(--ink-2);
+  }
+  .status-failed .i,
+  .status-overdue .i {
+    color: var(--red);
+  }
+  .budget-ok .i {
+    color: var(--shelf-ink);
+  }
+  .budget-quiet .i {
+    color: var(--ink-2);
+  }
+  .budget-settling .i {
+    color: var(--violet);
+  }
+  .budget-fault .i {
+    color: var(--red);
+  }
+
+  /* Qualifiers and cell errors are 12 px lines under a label, with 13 px
+     icons. Long ones wrap inside a bounded width, so the row stays
+     readable. */
+  .qualifier {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: var(--space-hair);
+    color: var(--ink-2);
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .qualifier .i {
+    color: var(--violet);
+  }
+  .muted {
+    color: var(--ink-2);
+  }
+  .error {
+    color: var(--red-ink);
+  }
+  .error .i {
+    color: var(--red);
+  }
+  td .error {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: var(--space-hair);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  td .qualifier,
+  td .error {
+    min-width: 12rem;
+    max-width: 32rem;
+    white-space: normal;
+  }
+  .qualifier .i,
+  td .error .i,
+  .meter-label .i {
+    width: 13px;
+    height: 13px;
+    margin-top: 1.5px;
+  }
+  .page-error {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  /* The spend meter. The server sets the fill length, and these classes
+     set every color. */
+  .spend {
+    white-space: nowrap;
+  }
+  .meter-line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-top: var(--space-xs);
+  }
+  .meter {
+    display: block;
+    flex: none;
+  }
+  .meter-track {
+    fill: var(--rule-soft);
+  }
+  .meter-ok .meter-fill {
+    fill: var(--shelf-ink);
+  }
+  .meter-high .meter-fill {
+    fill: var(--ink);
+  }
+  .meter-near .meter-fill,
+  .meter-over .meter-fill {
+    fill: var(--red);
+  }
+  .meter-label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  .meter-label .i {
+    margin-top: 0;
+    color: var(--red);
+  }
+  .meter-near .meter-label,
+  .meter-over .meter-label {
+    color: var(--red-ink);
+  }
+  .spend + .status,
+  .meter-line + .status {
+    margin-top: var(--space-xs);
+  }
+
+  /* A refusal names the problem beside the form. It is empty until the
+     server fills it, and app.js empties it again. */
+  .refusal {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    width: fit-content;
+    max-width: 100%;
+    margin-top: var(--space-md);
+    padding: 10px var(--space-md);
+    background: var(--paper);
+    border: 1px solid var(--red-ink);
+    border-radius: var(--r-note);
+    color: var(--ink);
+    font-size: 13.5px;
+  }
+  /* The message is the first line of the note, so it is semibold. Core
+     writes most refusals as one sentence. */
+  .refusal > span {
+    max-width: 75ch;
+    font-weight: 600;
+  }
+  .refusal .i {
+    margin-top: 2px;
+    color: var(--red);
+  }
+  .refusal:empty {
+    display: none;
+  }
+  /* In a panel with no body, such as the pending card, the refusal sits
+     under the head at the row inset. */
+  .panel > .refusal {
+    margin: 0 var(--space-lg) var(--space-md);
+  }
+  .banner-incomplete {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 10px var(--space-md);
+    background: var(--paper-warm);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-note);
+    color: var(--ink);
+    font-size: 13.5px;
+  }
+  .banner-incomplete .i {
+    color: var(--red);
+  }
+
+  /* The account facts: a word column and a value column. A value holds a
+     label, a qualifier and a note side by side, and wraps when needed. */
+  .facts {
+    display: grid;
+    grid-template-columns: minmax(10rem, max-content) 1fr;
+    align-items: baseline;
+    gap: 6px var(--space-lg);
+    margin: 0;
+  }
+  .facts dt {
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+  .facts dd {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-hair) var(--space-sm);
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .facts dd.error,
+  .facts dd.qualifier {
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .facts dd.error .i {
+    margin-top: 2px;
+  }
+  .facts dd > .qualifier {
+    margin-top: 0;
+  }
+
+  @media (max-width: 1000px) {
+    .person-email {
+      display: none;
+    }
+  }
+
+  /* The phone bar keeps the brand, Queue, Sync and the menu toggle. The
+     other items become rows below it. The wrappers step aside, so every
+     item is a row or a bar item of the shell itself. Without script the
+     toggle stays hidden and the rows always show. */
+  @media (max-width: 640px) {
+    .brand {
+      margin-right: auto;
+    }
+    .shell-menu,
+    .nav,
+    .nav ul {
+      display: contents;
+    }
+    .nav li,
+    .sync {
+      order: 1;
+    }
+    .sync,
+    .nav + .btn-chip {
+      margin-left: 0;
+    }
+    .sync button {
+      justify-content: center;
+      width: var(--touch);
+      padding: 0;
+    }
+    .sync .btn-word {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border: 0;
+    }
+    .sync .i,
+    .menu-toggle .i {
+      width: 22px;
+      height: 22px;
+    }
+    /* The bar keeps 6 px on the right for the toggle. The rows add 10 px,
+       so they end 16 px from the edge, like the content gutters. */
+    .shell .in-menu {
+      order: 3;
+      flex-basis: 100%;
+      margin-right: 10px;
+    }
+    .in-menu > .nav-link {
+      width: 100%;
+    }
+    .shell-menu > .in-menu:last-child {
+      margin-bottom: var(--space-sm);
+    }
+    /* The open menu has room, so it names the person beside Sign out. */
+    .person-email {
+      display: inline;
+    }
+    .person {
+      min-height: var(--touch);
+      padding: 0 11px;
+    }
+    html.js .menu-toggle {
+      display: inline-flex;
+      order: 2;
+      justify-content: center;
+      width: var(--touch);
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--on-shell);
+    }
+    html.js .menu-toggle:hover,
+    html.js .menu-toggle[aria-expanded=true] {
+      background: var(--shelf-deep);
+      color: var(--on-shell-hi);
+    }
+    html.js .shell:not(.menu-open) .in-menu {
+      display: none;
+    }
+    .noauth {
+      padding: var(--space-sm) var(--space-lg);
+    }
+    /* Fields share the row two by two and fill it. */
+    .form-row > .field {
+      flex: 1 1 9rem;
+    }
+    .form-row > .field > input {
+      width: 100%;
+    }
+    .facts {
+      grid-template-columns: 1fr;
+      row-gap: var(--space-hair);
+    }
+    .facts dd {
+      margin-bottom: var(--space-sm);
+    }
+    /* On a phone the ledger fills the row, like every other panel. */
+    .panel-fit {
+      align-self: stretch;
+    }
+  }
+}
+
+@layer utilities {
+  /* Visually hidden, still read by screen readers. */
+  .vh {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+  /* The last layer, so a disabled control looks disabled whatever its
+     variant. */
+  :is(button, .btn):disabled,
+  :is(button, .btn)[aria-disabled=true] {
+    background: var(--rule-soft);
+    border: 1px dashed var(--control-rule);
+    color: var(--ink-2);
+    cursor: not-allowed;
+  }
+  /* A busy button keeps its size and its colors. Only the pointer and
+     the word change. */
+  :is(button, .btn)[aria-busy=true] {
+    cursor: progress;
+  }
+  input:disabled {
+    background: var(--rule-soft);
+    border-style: dashed;
+    color: var(--ink-2);
+  }
+
+  /* Every touch target on a phone is at least 44 px tall. */
+  @media (max-width: 640px) {
+    button,
+    select,
+    .btn,
+    input:not([type=checkbox]):not([type=radio]):not([type=hidden]) {
+      height: var(--touch);
+    }
+    .nav-link,
+    .check,
+    .brand,
+    a.link,
+    td a {
+      min-height: var(--touch);
+    }
+    a.link,
+    td a {
+      display: inline-flex;
+      align-items: center;
+    }
+    summary {
+      min-height: var(--touch);
+      padding-block: 12px;
+    }
+  }
+}

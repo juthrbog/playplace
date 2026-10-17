@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
@@ -137,6 +138,93 @@ func TestEngineerSeesOnlyOwnAccounts(t *testing.T) {
 	}
 }
 
+// With no rows the accounts panel shows one plain line and no table, as the
+// pending card does. The section still polls its own view, and Show closed
+// stays in the head with its state, so the viewer can still ask for closed
+// accounts.
+func TestEmptyAccountsPanelHasNoTable(t *testing.T) {
+	ts, _ := newServer(t)
+	checked := regexp.MustCompile(`<input id="show-closed"[^>]*\schecked[\s>/]`)
+	for _, tc := range []struct {
+		path, line, poll string
+		all              bool
+	}{
+		{"/", `<p class="empty">No open accounts.</p>`, `hx-get="/accounts"`, false},
+		{"/accounts", `<p class="empty">No open accounts.</p>`, `hx-get="/accounts"`, false},
+		{"/accounts?all=1", `<p class="empty">No accounts.</p>`, `hx-get="/accounts?all=1"`, true},
+	} {
+		_, body := do(t, ts, "GET", tc.path, "nobody@example.com", false, nil, tc.path != "/")
+		_, section, ok := strings.Cut(body, `<section id="accounts"`)
+		if !ok {
+			t.Fatalf("%s: no accounts section:\n%s", tc.path, body)
+		}
+		section, _, _ = strings.Cut(section, "</section>")
+		if !strings.Contains(section, tc.line) {
+			t.Errorf("%s: missing %s:\n%s", tc.path, tc.line, section)
+		}
+		if strings.Contains(section, "<table") || strings.Contains(section, "<th") {
+			t.Errorf("%s: an empty panel has a table:\n%s", tc.path, section)
+		}
+		// The Show closed box has its own hx-get, so the poll check reads
+		// the section tag alone.
+		tag, _, _ := strings.Cut(section, ">")
+		for _, want := range []string{tc.poll, `hx-trigger="every 15s"`} {
+			if !strings.Contains(tag, want) {
+				t.Errorf("%s: the section tag lacks %s: <section id=\"accounts\"%s>", tc.path, want, tag)
+			}
+		}
+		if !strings.Contains(section, `id="show-closed"`) {
+			t.Errorf("%s: the head lacks Show closed:\n%s", tc.path, section)
+		}
+		if got := checked.MatchString(section); got != tc.all {
+			t.Errorf("%s: Show closed checked = %v, want %v:\n%s", tc.path, got, tc.all, section)
+		}
+	}
+}
+
+// A failed load is not an empty fleet. The page error names the problem. The
+// panel shows no count and says that the list is unavailable. The section
+// still polls, so the next good poll fills it.
+func TestFailedAccountLoadIsNotAnEmptyFleet(t *testing.T) {
+	pg := page{Viewer: Viewer{Email: "nobody@example.com"}, SignIn: true, Limits: core.DefaultConfig()}
+	render := func(errMsg string) (string, string) {
+		t.Helper()
+		var out strings.Builder
+		if err := indexPage(pg, nil, errMsg).Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		_, section, ok := strings.Cut(out.String(), `<section id="accounts"`)
+		if !ok {
+			t.Fatalf("no accounts section:\n%s", out.String())
+		}
+		section, _, _ = strings.Cut(section, "</section>")
+		return out.String(), section
+	}
+
+	body, section := render("list accounts: AccessDenied")
+	if !strings.Contains(body, "list accounts: AccessDenied") {
+		t.Errorf("the page error is missing:\n%s", body)
+	}
+	if !strings.Contains(section, `<p class="empty">The account list is unavailable. The page tries again every 15 seconds.</p>`) {
+		t.Errorf("the panel does not say that the list is unavailable:\n%s", section)
+	}
+	for _, bad := range []string{"(0)", "No open accounts.", "No accounts.", "<table"} {
+		if strings.Contains(section, bad) {
+			t.Errorf("a failed load shows %q, which reads as an empty fleet:\n%s", bad, section)
+		}
+	}
+	tag, _, _ := strings.Cut(section, ">")
+	if !strings.Contains(tag, `hx-get="/accounts"`) || !strings.Contains(tag, `hx-trigger="every 15s"`) {
+		t.Errorf("the section stops polling after a failed load: <section id=\"accounts\"%s>", tag)
+	}
+
+	// A good load with no accounts keeps the count and the empty line.
+	_, section = render("")
+	if !strings.Contains(section, `<span class="muted">(0)</span>`) || !strings.Contains(section, "No open accounts.") || strings.Contains(section, "unavailable") {
+		t.Errorf("an empty fleet lost its count or its line:\n%s", section)
+	}
+}
+
 func TestExtendIsCappedForEngineersNotAdmins(t *testing.T) {
 	ts, prov := newServer(t)
 	// annas-box joined at t0 and expires in 3 days; 100 days pushes its
@@ -163,16 +251,36 @@ func TestExtendIsCappedForEngineersNotAdmins(t *testing.T) {
 func TestPagesShipTheirOwnScriptsUnderACSP(t *testing.T) {
 	ts, _ := newServer(t)
 	res, body := do(t, ts, "GET", "/", "anna@example.com", false, nil, false)
-	if res.StatusCode != http.StatusOK || strings.Contains(body, "unpkg.com") || !strings.Contains(body, `src="/static/htmx.min.js"`) || strings.Contains(body, "hx-on") {
+	if res.StatusCode != http.StatusOK || strings.Contains(body, "unpkg.com") || !strings.Contains(body, `src="/static/htmx.min.js?v=`) || strings.Contains(body, "hx-on") {
 		t.Fatalf("page should load scripts from this origin and carry no inline handlers:\n%s", body)
 	}
-	if got := res.Header.Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self'") || strings.Contains(got, "unsafe-eval") {
+	if !strings.Contains(body, `src="/static/app.js?v=`) || !strings.Contains(body, `<link rel="stylesheet" href="/static/app.css?v=`) {
+		t.Fatalf("the page script and the stylesheet should be versioned:\n%s", body)
+	}
+	if got := res.Header.Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self'") || !strings.Contains(got, "style-src 'self'") || !strings.Contains(got, "font-src 'self'") || strings.Contains(got, "unsafe-eval") || strings.Contains(got, "unsafe-inline") {
 		t.Fatalf("csp = %q", got)
 	}
-	// Icon and logo links carry a version so browsers drop cached copies
-	// when the files change, and the versioned URL still resolves.
-	if !strings.Contains(body, `href="/static/favicon.svg?v=`) || !strings.Contains(body, `src="/static/logo.svg?v=`) {
-		t.Fatalf("icon and logo links should be versioned:\n%s", body)
+	// htmx adds an indicator <style> to the head unless the config turns it
+	// off, and the CSP would block it.
+	if !strings.Contains(html.UnescapeString(body), `"includeIndicatorStyles":false`) {
+		t.Fatalf("the htmx config should turn off the indicator styles:\n%s", body)
+	}
+	// The CSP blocks inline styles, so a page with one loses that style.
+	// The admin pages render the most markup.
+	for _, path := range []string{"/", "/accounts/111111111111"} {
+		res, page := do(t, ts, "GET", path, "admin@example.com", true, nil, false)
+		if res.StatusCode != http.StatusOK || strings.Contains(page, "style=") || strings.Contains(page, "<style") {
+			t.Fatalf("GET %s = %d, want 200 with no inline style:\n%s", path, res.StatusCode, page)
+		}
+	}
+	// Icon links carry a version so browsers drop cached copies when the
+	// files change, and the versioned URL still resolves.
+	if !strings.Contains(body, `href="/static/favicon.svg?v=`) {
+		t.Fatalf("icon links should be versioned:\n%s", body)
+	}
+	// The shell draws the line mark from the icon sprite in the page.
+	if !strings.Contains(body, `<svg class="mark"`) || !strings.Contains(body, `<use href="#i-mark">`) || !strings.Contains(body, `<symbol id="i-mark"`) {
+		t.Fatalf("the shell should draw the mark from the sprite:\n%s", body)
 	}
 	if res, _ := do(t, ts, "GET", asset("favicon.svg"), "", false, nil, false); res.StatusCode != http.StatusOK {
 		t.Fatalf("versioned favicon = %d", res.StatusCode)
@@ -184,6 +292,59 @@ func TestPagesShipTheirOwnScriptsUnderACSP(t *testing.T) {
 	}
 	if res, _ := do(t, ts, "GET", "/static/app.js", "", false, nil, false); res.StatusCode != http.StatusOK {
 		t.Fatalf("app.js = %d", res.StatusCode)
+	}
+}
+
+func TestStaticCaching(t *testing.T) {
+	ts, _ := newServer(t)
+	// A versioned URL never changes, so browsers keep it.
+	res, _ := do(t, ts, "GET", asset("app.css"), "", false, nil, false)
+	if res.StatusCode != http.StatusOK || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/css") || !strings.Contains(res.Header.Get("Cache-Control"), "immutable") {
+		t.Fatalf("versioned app.css = %d, %q, %q", res.StatusCode, res.Header.Get("Content-Type"), res.Header.Get("Cache-Control"))
+	}
+	// An unversioned URL, such as a font that app.css loads, revalidates.
+	etag := `"` + assetVersion + `"`
+	res, _ = do(t, ts, "GET", "/static/app.css", "", false, nil, false)
+	if res.StatusCode != http.StatusOK || res.Header.Get("Cache-Control") != "no-cache" || res.Header.Get("ETag") != etag {
+		t.Fatalf("unversioned app.css = %d, Cache-Control %q, ETag %q", res.StatusCode, res.Header.Get("Cache-Control"), res.Header.Get("ETag"))
+	}
+	req, _ := http.NewRequest("GET", ts.URL+"/static/app.css", nil)
+	req.Header.Set("If-None-Match", etag)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := res.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusNotModified {
+		t.Fatalf("revalidation with the current ETag = %d, want 304", res.StatusCode)
+	}
+	// An old version is not the current file, so it is not kept for a year.
+	if res, _ := do(t, ts, "GET", "/static/app.css?v=00000000", "", false, nil, false); strings.Contains(res.Header.Get("Cache-Control"), "immutable") {
+		t.Fatalf("a stale version must not be immutable, Cache-Control %q", res.Header.Get("Cache-Control"))
+	}
+	res, body := do(t, ts, "GET", asset("htmx.min.js"), "", false, nil, false)
+	if res.StatusCode != http.StatusOK || !strings.HasPrefix(body, "var htmx=") {
+		t.Fatalf("versioned htmx = %d", res.StatusCode)
+	}
+}
+
+func TestFontsShipWithTheirLicense(t *testing.T) {
+	ts, _ := newServer(t)
+	for _, name := range []string{"public-sans-latin-wght-normal.woff2", "public-sans-latin-ext-wght-normal.woff2", "courier-prime-latin-400-normal.woff2", "courier-prime-latin-ext-400-normal.woff2", "courier-prime-latin-700-normal.woff2", "courier-prime-latin-ext-700-normal.woff2"} {
+		// Go's built-in type table has no .woff2, so the server sets it.
+		res, body := do(t, ts, "GET", "/static/fonts/"+name, "", false, nil, false)
+		if res.StatusCode != http.StatusOK || res.Header.Get("Content-Type") != "font/woff2" || !strings.HasPrefix(body, "wOF2") {
+			t.Fatalf("%s = %d, %q", name, res.StatusCode, res.Header.Get("Content-Type"))
+		}
+	}
+	// The OFL asks for the license with every copy of the fonts.
+	for _, name := range []string{"OFL-PublicSans.txt", "OFL-CourierPrime.txt"} {
+		res, body := do(t, ts, "GET", "/static/fonts/"+name, "", false, nil, false)
+		if res.StatusCode != http.StatusOK || !strings.Contains(body, "SIL OPEN FONT LICENSE") {
+			t.Fatalf("%s = %d", name, res.StatusCode)
+		}
 	}
 }
 
@@ -317,6 +478,16 @@ func TestRequestApprovalFlow(t *testing.T) {
 	}
 }
 
+// With self-approval off, an approver's own request shows the chip in place
+// of Approve and Deny. The self-approval test checks the opposite.
+func TestOwnRequestShowsTheChip(t *testing.T) {
+	ts, _ := newServer(t)
+	res, body := do(t, ts, "POST", "/requests", "ops@example.com", true, url.Values{"name": {"mine"}, "owner": {"dana@example.com"}}, true)
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, ">Your request<") || strings.Contains(body, "/requests/mine/approve") {
+		t.Fatalf("the requester should see the chip, not Approve:\n%s", body)
+	}
+}
+
 func TestSelfApprovalSettingShowsTheButton(t *testing.T) {
 	prov := fake.New()
 	cfg := core.DefaultConfig()
@@ -327,7 +498,7 @@ func TestSelfApprovalSettingShowsTheButton(t *testing.T) {
 	defer ts.Close()
 	// No-auth mode: the operator requests and must be able to approve alone.
 	res, body := do(t, ts, "POST", "/requests", "", false, url.Values{"name": {"solo"}, "owner": {"john@example.com"}}, true)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, "/requests/solo/approve") || strings.Contains(body, ">yours<") {
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "/requests/solo/approve") || strings.Contains(body, ">Your request<") {
 		t.Fatalf("with self-approval on, the requester should see Approve:\n%s", body)
 	}
 	if res, _ := do(t, ts, "POST", "/requests/solo/approve", "", false, versionIn(t, body, "solo"), true); res.StatusCode != http.StatusOK {
@@ -432,7 +603,7 @@ func TestAccountPageShowsHistory(t *testing.T) {
 	ts, _ := newServer(t)
 	do(t, ts, "POST", "/accounts/111111111111/extend", "anna@example.com", false, url.Values{"by": {"2"}}, true)
 	_, body := do(t, ts, "GET", "/accounts/111111111111", "anna@example.com", false, nil, false)
-	if !strings.Contains(body, "<h3 style=\"margin-top:0\">History</h3>") || !strings.Contains(body, "anna@example.com extended annas-box") || !strings.Contains(body, `<span class="pill">extended</span>`) {
+	if !strings.Contains(body, ">History</h2>") || !strings.Contains(body, "anna@example.com extended annas-box") || !strings.Contains(body, `<span class="event">extended</span>`) {
 		t.Fatalf("history card missing the extension:\n%s", body)
 	}
 	// Another owner's page shows only its own events.
@@ -458,7 +629,8 @@ func TestShowClosedSwitchInsteadOfHeaderLink(t *testing.T) {
 	}
 	// Turning the switch on fetches the table with closed accounts and keeps the switch on.
 	_, body = do(t, ts, "GET", "/accounts?all=1", "ops@example.com", true, nil, true)
-	if !strings.Contains(body, "gone-box") || !strings.Contains(body, `checked`) || !strings.Contains(body, `hx-get="/accounts?all=1"`) {
+	// The budget label says "not checked", so look at the box itself.
+	if !strings.Contains(body, "gone-box") || !regexp.MustCompile(`<input id="show-closed"[^>]*\schecked[\s>/]`).MatchString(body) || !strings.Contains(body, `hx-get="/accounts?all=1"`) {
 		t.Fatalf("all=1 should show closed accounts, check the switch, and poll with all=1:\n%s", body)
 	}
 	// An action posted with the switch state keeps it.

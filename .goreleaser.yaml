@@ -50,6 +50,11 @@ archives:
       - src: .generated/completions/*
         dst: completions
         strip_parent: true
+      # The binary embeds the web fonts, and the SIL Open Font License asks
+      # for its text next to every copy of them.
+      - src: internal/web/static/fonts/OFL-*.txt
+        dst: licenses
+        strip_parent: true
 
 source:
   enabled: true

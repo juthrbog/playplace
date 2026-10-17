@@ -227,3 +227,7 @@ and run `task docs` (http://localhost:8000). `task docs:build` builds it into `s
 ## License
 
 [Apache License 2.0](LICENSE).
+
+The web UI embeds the Public Sans and Courier Prime fonts under the SIL Open
+Font License 1.1. The license texts are in `internal/web/static/fonts/`, and
+the release archives carry them under `licenses/`.

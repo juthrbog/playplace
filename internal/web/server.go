@@ -137,12 +137,13 @@ type page struct {
 	ShowAll bool
 	Pending []core.Request // requests the viewer may see: their own, or all for approvers
 	Limits  core.Config    // ceilings and defaults shown in the form
+	Path    string         // the request path, so the shell can mark the current page
 }
 
 func (s *Server) pageFor(r *http.Request) page {
 	// "all" arrives as a query parameter on GET and, thanks to hx-include on
 	// the switch, in the body of every action, so the view survives actions.
-	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), ShowAll: r.FormValue("all") == "1", Limits: s.svc.Config()}
+	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), ShowAll: r.FormValue("all") == "1", Limits: s.svc.Config(), Path: r.URL.Path}
 	if all, err := s.svc.PendingRequests(r.Context()); err == nil {
 		for _, q := range all {
 			if canSeeRequest(pg.Viewer, q) {
@@ -214,7 +215,8 @@ func (s *Server) rows(ctx context.Context, v Viewer, showAll bool, force bool) (
 	return rows, nil
 }
 
-// pendingCard re-renders the pending section for htmx responses.
+// pendingAndTable re-renders the table and the pending section for htmx
+// responses.
 func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request) {
 	pg := s.pageFor(r)
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
@@ -224,7 +226,7 @@ func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	accountsTable(pg, rows).Render(r.Context(), w)
-	pendingCard(pg).Render(r.Context(), w)
+	pendingUpdate(pg).Render(r.Context(), w)
 }
 
 // submit puts a request in the queue. Engineers request for themselves;
@@ -277,24 +279,28 @@ func requestRef(r *http.Request) core.RequestRef {
 	return core.RequestRef{Name: r.PathValue("name"), Version: r.FormValue("version")}
 }
 
-// failRequest reports a refused decision on a request. When the request
-// changed or ended after the page was loaded, the pending card is rendered
-// again with the error, so the viewer sees what is waiting now.
+// failRequest reports a refused decision on a request. The refusal shows in
+// the pending card, beside the rows, not in the New request form. When the
+// request changed or ended after the page was loaded, the pending card is
+// rendered again first, so the viewer sees what is waiting now.
 func (s *Server) failRequest(w http.ResponseWriter, r *http.Request, err error) {
-	stale := errors.Is(err, core.ErrRequestChanged) || errors.Is(err, core.ErrNotFound)
-	if !stale || r.Header.Get("HX-Request") != "true" {
+	if r.Header.Get("HX-Request") != "true" {
 		s.fail(w, r, err)
 		return
 	}
 	s.log.Warn("request failed", "path", r.URL.Path, "err", err)
-	// Core drops the cache when it refuses a version. withdraw looks the
-	// request up before core sees the version, so a request that is gone
-	// arrives here with the cache untouched.
-	s.svc.Invalidate()
 	w.Header().Set("HX-Reswap", "none")
 	w.Header().Set("X-Form-Error", "1")
-	s.render(w, r, errorFragment(err.Error()))
-	s.render(w, r, pendingCard(s.pageFor(r)))
+	if errors.Is(err, core.ErrRequestChanged) || errors.Is(err, core.ErrNotFound) {
+		// Core drops the cache when it refuses a version. withdraw looks the
+		// request up before core sees the version, so a request that is gone
+		// arrives here with the cache untouched.
+		s.svc.Invalidate()
+		// htmx swaps out-of-band parts in order. The fresh card lands
+		// first with an empty slot, and the refusal then fills it.
+		s.render(w, r, pendingUpdate(s.pageFor(r)))
+	}
+	s.render(w, r, errorFragment("pending-error", err.Error()))
 }
 
 func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
@@ -336,7 +342,7 @@ func (s *Server) editForm(w http.ResponseWriter, r *http.Request) {
 	}
 	q, err := s.svc.GetRequest(r.Context(), r.PathValue("name"))
 	if err != nil {
-		s.fail(w, r, err)
+		s.failRequest(w, r, err)
 		return
 	}
 	s.render(w, r, pendingEditRow(pg, q))
@@ -348,7 +354,7 @@ func (s *Server) editCancel(w http.ResponseWriter, r *http.Request) {
 	pg := s.pageFor(r)
 	q, err := s.svc.GetRequest(r.Context(), r.PathValue("name"))
 	if err != nil {
-		s.fail(w, r, err)
+		s.failRequest(w, r, err)
 		return
 	}
 	if !canSeeRequest(pg.Viewer, q) {
@@ -372,7 +378,7 @@ func (s *Server) editSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		s.fail(w, r, err)
+		s.failRequest(w, r, err)
 		return
 	}
 	// The form was filled from the record that its version names. If the
@@ -385,7 +391,7 @@ func (s *Server) editSave(w http.ResponseWriter, r *http.Request) {
 	}
 	e, err := RequestEditFromForm(r, q)
 	if err != nil {
-		s.fail(w, r, err)
+		s.failRequest(w, r, err)
 		return
 	}
 	if _, err := s.svc.UpdateRequest(r.Context(), requestRef(r), v.Email, e); err != nil {
@@ -505,7 +511,7 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	accountsTable(pg, rows).Render(r.Context(), w)
-	pendingCard(pg).Render(r.Context(), w)
+	pendingUpdate(pg).Render(r.Context(), w)
 	noticeFragment(msg).Render(r.Context(), w)
 }
 
@@ -600,7 +606,7 @@ func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why ...string) {
 		w.Header().Set("HX-Reswap", "none")
 		w.Header().Set("X-Form-Error", "1")
 		w.WriteHeader(http.StatusForbidden)
-		errorFragment(msg).Render(r.Context(), w)
+		errorFragment("form-error", msg).Render(r.Context(), w)
 		return
 	}
 	http.Error(w, msg, http.StatusForbidden)
@@ -615,7 +621,7 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		// the form not to reset its fields.
 		w.Header().Set("HX-Reswap", "none")
 		w.Header().Set("X-Form-Error", "1")
-		s.render(w, r, errorFragment(err.Error()))
+		s.render(w, r, errorFragment("form-error", err.Error()))
 		return
 	}
 	http.Error(w, err.Error(), http.StatusBadRequest)
