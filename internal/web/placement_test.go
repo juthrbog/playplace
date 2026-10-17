@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -37,12 +38,12 @@ func TestUnplacedCreationPageShowsAPlacementNote(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(body, "<dt>placement</dt>") || !strings.Contains(body, "waits outside the Playground OU") {
 		t.Fatalf("status %d, body: %s", res.StatusCode, body)
 	}
-	if strings.Contains(body, "<dt>failure</dt>") || !strings.Contains(body, `<dd class="note">`) {
+	if strings.Contains(body, "<dt>failure</dt>") || !strings.Contains(body, `<dd class="qualifier">`) {
 		t.Fatalf("the placement note is shown as a failure: %s", body)
 	}
-	// The list row uses the same warning color as the creating pill.
+	// The list row shows the same qualifier under the creating label.
 	res, body = do(t, ts, "GET", "/", "admin@example.com", true, nil, false)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, `<div class="note">AWS created this account`) {
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "status-creating") || !regexp.MustCompile(`class="qualifier">(?:<svg.*?</svg>)?<span>AWS created this account`).MatchString(body) {
 		t.Fatalf("list row: status %d, body: %s", res.StatusCode, body)
 	}
 }

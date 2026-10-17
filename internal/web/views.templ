@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -160,42 +161,49 @@ type accountRow struct {
 	Spend   float64 // month to date
 }
 
+
+// indexPage is the home page. The shell is the visible heading, so the page
+// h1 is for screen readers only.
 templ indexPage(pg page, rows []accountRow, errMsg string) {
 	@layout(pg, "Accounts") {
-		<div class="card" id="request">
-			<form hx-post="/requests" hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" data-reset-on-success>
-				<div class="row">
-					<label>name<input name="name" required pattern="[a-z0-9][a-z0-9\-]{1,48}[a-z0-9]" placeholder="dev-alex"/></label>
-					if pg.Viewer.Admin {
-						<label>owner<input name="owner" placeholder="owner email" value={ ownerDefault(pg.Viewer) }/></label>
-					} else {
-						<label>owner<input value={ pg.Viewer.Email } disabled title="requests are always in your name"/></label>
-					}
-					if pg.Viewer.Admin {
-						<label>days<input name="ttl" type="number" min="1" placeholder={ dayCount(pg.Limits.DefaultTTL) } style="width:5rem" title={ "up to " + dayCount(pg.Limits.MaxTTL) + " unless overridden" }/></label>
-						<label>budget $<input name="budget" type="number" min="1" placeholder={ fmt.Sprintf("%.0f", pg.Limits.DefaultBudgetUSD) } style="width:6rem" title={ fmt.Sprintf("up to $%.0f unless overridden", pg.Limits.MaxBudgetUSD) }/></label>
-					} else {
-						<label>days<input name="ttl" type="number" min="1" max={ dayCount(pg.Limits.MaxTTL) } placeholder={ dayCount(pg.Limits.DefaultTTL) } style="width:5rem" title={ "up to " + dayCount(pg.Limits.MaxTTL) }/></label>
-						<label>budget $<input name="budget" type="number" min="1" max={ fmt.Sprintf("%.0f", pg.Limits.MaxBudgetUSD) } placeholder={ fmt.Sprintf("%.0f", pg.Limits.DefaultBudgetUSD) } style="width:6rem" title={ fmt.Sprintf("up to $%.0f", pg.Limits.MaxBudgetUSD) }/></label>
-					}
-					<label>purpose<input name="purpose" placeholder="what you will try" size="24" maxlength={ fmt.Sprint(core.MaxPurpose) } pattern={ tagPattern } title="letters, numbers, spaces, and _ . : / = + - @"/></label>
-					if pg.Viewer.Admin {
-						<label title="admins may exceed the ceilings; recorded on the request">override limits<input type="checkbox" name="override"/></label>
-					}
-					<button type="submit">Request</button>
-				</div>
-				<div id="form-error" class="error"></div>
-				<p class="muted" style="margin:.5rem 0 0">{ limitsNote(pg) }</p>
-			</form>
-		</div>
+		<h1 class="vh">Accounts</h1>
+		<section class="panel" id="request" aria-labelledby="request-title">
+			<div class="panel-head"><h2 id="request-title">New request</h2></div>
+			<div class="panel-body">
+				<form hx-post="/requests" hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" data-reset-on-success>
+					<div class="form-row">
+						<label class="field">name<input name="name" required pattern="[a-z0-9][a-z0-9\-]{1,48}[a-z0-9]" placeholder="dev-alex"/></label>
+						if pg.Viewer.Admin {
+							<label class="field">owner<input name="owner" placeholder="owner email" value={ ownerDefault(pg.Viewer) }/></label>
+						} else {
+							<label class="field">owner<input value={ pg.Viewer.Email } disabled title="requests are always in your name"/></label>
+						}
+						if pg.Viewer.Admin {
+							<label class="field">days<input name="ttl" type="number" min="1" placeholder={ dayCount(pg.Limits.DefaultTTL) } title={ "up to " + dayCount(pg.Limits.MaxTTL) + " unless overridden" } class="in-days"/></label>
+							<label class="field">budget $<input name="budget" type="number" min="1" placeholder={ fmt.Sprintf("%.0f", pg.Limits.DefaultBudgetUSD) } title={ fmt.Sprintf("up to $%.0f unless overridden", pg.Limits.MaxBudgetUSD) } class="in-budget"/></label>
+						} else {
+							<label class="field">days<input name="ttl" type="number" min="1" max={ dayCount(pg.Limits.MaxTTL) } placeholder={ dayCount(pg.Limits.DefaultTTL) } title={ "up to " + dayCount(pg.Limits.MaxTTL) } class="in-days"/></label>
+							<label class="field">budget $<input name="budget" type="number" min="1" max={ fmt.Sprintf("%.0f", pg.Limits.MaxBudgetUSD) } placeholder={ fmt.Sprintf("%.0f", pg.Limits.DefaultBudgetUSD) } title={ fmt.Sprintf("up to $%.0f", pg.Limits.MaxBudgetUSD) } class="in-budget"/></label>
+						}
+						<label class="field">purpose<input name="purpose" placeholder="what you will try" size="24" maxlength={ fmt.Sprint(core.MaxPurpose) } pattern={ tagPattern } title="letters, numbers, spaces, and _ . : / = + - @"/></label>
+						if pg.Viewer.Admin {
+							<label class="check" title="admins may exceed the ceilings; recorded on the request"><input type="checkbox" name="override"/>override limits</label>
+						}
+						<button type="submit" class="btn-primary">Request</button>
+					</div>
+					<div id="form-error" class="refusal"></div>
+					<p class="help">{ limitsNote(pg) }</p>
+				</form>
+			</div>
+		</section>
 		if errMsg != "" {
-			<p class="error">{ errMsg }</p>
+			<p class="error page-error">@icon("alert")<span>{ errMsg }</span></p>
 		}
 		@pendingCard(pg)
 		@accountsTable(pg, rows)
-		<p class="muted">
+		<p class="help">
 			if pg.SignIn && !pg.Viewer.Admin {
-				You see the accounts you own. 
+				You see the accounts you own.
 			}
 			Spend is month to date from Cost Explorer and lags about a day.
 		</p>
@@ -203,21 +211,23 @@ templ indexPage(pg page, rows []accountRow, errMsg string) {
 }
 
 templ pendingCard(pg page) {
-	<div id="pending" class="card" hx-swap-oob="true">
-		<h3 style="margin-top:0" id="pending-title">
-			if pg.Viewer.Approver {
-				Pending approvals
-			} else {
-				Your pending requests
-			}
-			<span class="muted" style="font-weight:normal">({ fmt.Sprint(len(pg.Pending)) })</span>
-		</h3>
+	<section id="pending" class="panel" hx-swap-oob="true" aria-labelledby="pending-title">
+		<div class="panel-head">
+			<h2 id="pending-title">
+				if pg.Viewer.Approver {
+					Pending approvals
+				} else {
+					Your pending requests
+				}
+				<span class="muted">({ fmt.Sprint(len(pg.Pending)) })</span>
+			</h2>
+		</div>
 		if len(pg.Pending) == 0 {
-			<p class="muted" style="margin:0">Nothing waiting.</p>
+			<p class="empty">Nothing waiting.</p>
 		} else {
 			<div class="scroll">
 				<table class="pending">
-					<thead><tr><th>Name</th><th>Owner</th><th>Requested by</th><th>TTL</th><th>Budget</th><th>Purpose</th><th>When</th><th></th></tr></thead>
+					<thead><tr><th scope="col">Name</th><th scope="col">Owner</th><th scope="col">Requested by</th><th scope="col">TTL</th><th scope="col">Budget</th><th scope="col">Purpose</th><th scope="col">When</th><th scope="col"><span class="vh">Actions</span></th></tr></thead>
 					<tbody>
 						for _, q := range pg.Pending {
 							@pendingRow(pg, q)
@@ -226,9 +236,11 @@ templ pendingCard(pg page) {
 				</table>
 			</div>
 		}
-	</div>
+	</section>
 }
 
+// pendingRow is one request in the queue. Each action button carries the
+// request name for screen readers, so "Approve" says which request.
 templ pendingRow(pg page, q core.Request) {
 	<tr id={ "req-" + q.Name }>
 		<td>{ q.Name }</td>
@@ -239,32 +251,37 @@ templ pendingRow(pg page, q core.Request) {
 		<td class="wrap">
 			{ q.Purpose }
 			if q.OverrideLimits {
-				<span class="pill" title="an admin allowed values above the ceilings">limits overridden</span>
+				<span class="flag" title="an admin allowed values above the ceilings">limits overridden</span>
 			}
 		</td>
 		<td title={ q.RequestedAt.Format(time.RFC3339) }>{ q.RequestedAt.Format("Jan 2 15:04") }</td>
 		<td class="actions">
-			if canApprove(pg, q) {
-				<form class="inline" hx-post={ "/requests/" + q.Name + "/approve" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
-					@versionField(q)
-					<button type="submit">Approve</button>
-				</form>
-				<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-prompt="Reason for denying (shown in the notice and in history)">
-					@versionField(q)
-					<button type="submit" class="danger">Deny</button>
-				</form>
-			} else if pg.Viewer.Approver {
-				<span class="muted" title="you requested this; another approver must act">yours</span>
-			}
-			if pg.Viewer.Admin {
-				<button hx-get={ "/requests/" + q.Name + "/edit" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML" title="change owner, days, budget, or purpose before approving">Edit</button>
-			}
-			if canWithdraw(pg.Viewer, q) {
-				<form class="inline" hx-post={ "/requests/" + q.Name + "/withdraw" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-confirm={ "Withdraw the request for " + q.Name + "?" }>
-					@versionField(q)
-					<button type="submit">Withdraw</button>
-				</form>
-			}
+			<div class="row-actions">
+				if canApprove(pg, q) {
+					<form class="inline" hx-post={ "/requests/" + q.Name + "/approve" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
+						@versionField(q)
+						<button type="submit" class="btn-approve">
+							@icon("stamp")
+							Approve<span class="vh">{ " " + q.Name }</span>
+						</button>
+					</form>
+					<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-prompt="Reason for denying (shown in the notice and in history)">
+						@versionField(q)
+						<button type="submit">Deny<span class="vh">{ " " + q.Name }</span></button>
+					</form>
+				} else if pg.Viewer.Approver {
+					<span class="chip-mine" title="you requested this; another approver must act">Your request</span>
+				}
+				if pg.Viewer.Admin {
+					<button hx-get={ "/requests/" + q.Name + "/edit" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML" title="change owner, days, budget, or purpose before approving">Edit<span class="vh">{ " " + q.Name }</span></button>
+				}
+				if canWithdraw(pg.Viewer, q) {
+					<form class="inline" hx-post={ "/requests/" + q.Name + "/withdraw" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-confirm={ "Withdraw the request for " + q.Name + "?" }>
+						@versionField(q)
+						<button type="submit">Withdraw<span class="vh">{ " " + q.Name }</span></button>
+					</form>
+				}
+			</div>
 		</td>
 	</tr>
 }
@@ -295,13 +312,13 @@ templ pendingEditRow(pg page, q core.Request) {
 		<td colspan="6">
 			<form hx-post={ "/requests/" + q.Name + "/edit" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
 				@versionField(q)
-				<div class="row">
-					<label>owner<input name="owner" value={ q.Owner } size="24"/></label>
-					<label>{ dayLabel(q.TTL) }<input name="ttl" type="number" min="0" step="any" value={ dayValue(q.TTL) } style="width:5rem"/></label>
-					<label>budget $<input name="budget" type="number" min="0.01" step="0.01" value={ budgetValue(q.BudgetUSD) } style="width:6rem"/></label>
-					<label>purpose<input name="purpose" value={ q.Purpose } size="28" maxlength={ fmt.Sprint(core.MaxPurpose) } pattern={ tagPattern } title="letters, numbers, spaces, and _ . : / = + - @"/></label>
-					<label title="allow values above the ceilings">override limits<input type="checkbox" name="override" checked?={ q.OverrideLimits }/></label>
-					<button type="submit">Save</button>
+				<div class="form-row">
+					<label class="field">owner<input name="owner" value={ q.Owner } size="24"/></label>
+					<label class="field">{ dayLabel(q.TTL) }<input name="ttl" type="number" min="0" step="any" value={ dayValue(q.TTL) } class="in-days"/></label>
+					<label class="field">budget $<input name="budget" type="number" min="0.01" step="0.01" value={ budgetValue(q.BudgetUSD) } class="in-budget"/></label>
+					<label class="field">purpose<input name="purpose" value={ q.Purpose } size="28" maxlength={ fmt.Sprint(core.MaxPurpose) } pattern={ tagPattern } title="letters, numbers, spaces, and _ . : / = + - @"/></label>
+					<label class="check" title="allow values above the ceilings"><input type="checkbox" name="override" checked?={ q.OverrideLimits }/>override limits</label>
+					<button type="submit" class="btn-primary">Save</button>
 					<button type="button" hx-get={ "/requests/" + q.Name + "/row" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML">Cancel</button>
 				</div>
 			</form>
@@ -311,59 +328,57 @@ templ pendingEditRow(pg page, q core.Request) {
 }
 
 templ accountsTable(pg page, rows []accountRow) {
-	<div id="accounts" hx-get={ tableURL(pg.ShowAll) } hx-trigger="every 15s" hx-swap="outerHTML">
-		<div class="toolbar">
-			<h3>
+	<section id="accounts" class="panel" hx-get={ tableURL(pg.ShowAll) } hx-trigger="every 15s" hx-swap="outerHTML" aria-labelledby="accounts-title">
+		<div class="panel-head">
+			<h2 id="accounts-title">
 				if pg.SignIn && !pg.Viewer.Admin {
 					Your accounts
 				} else {
 					Accounts
 				}
-				<span class="muted" style="font-weight:normal">({ fmt.Sprint(len(rows)) })</span>
-			</h3>
-			<label class="switch" title="include accounts AWS explicitly reports CLOSED">
-				<input id="show-closed" type="checkbox" name="all" value="1" checked?={ pg.ShowAll } hx-get="/accounts" hx-target="#accounts" hx-swap="outerHTML" hx-trigger="change"/>
-				<span class="track"></span>
-				Show closed
-			</label>
+				<span class="muted">({ fmt.Sprint(len(rows)) })</span>
+			</h2>
+			<label class="check" title="include accounts AWS explicitly reports CLOSED"><input id="show-closed" type="checkbox" name="all" value="1" checked?={ pg.ShowAll } hx-get="/accounts" hx-target="#accounts" hx-swap="outerHTML" hx-trigger="change"/>Show closed</label>
 		</div>
 		<div class="scroll">
-		<table>
-			<thead>
-				<tr><th>Name</th><th>Owner</th><th>Status</th><th>Account</th><th>Expires</th><th>Spend / Budget</th><th></th></tr>
-			</thead>
-			<tbody>
-				if len(rows) == 0 {
-					<tr><td colspan="7" class="muted">
-						if pg.ShowAll {
-							No accounts.
-						} else {
-							No open accounts.
-						}
-					</td></tr>
-				}
-				for _, r := range rows {
-					@accountTR(r)
-				}
-			</tbody>
-		</table>
+			<table class="fleet">
+				<thead>
+					<tr><th scope="col">Name</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Account</th><th scope="col">Expires</th><th scope="col">Spend / Budget</th><th scope="col"><span class="vh">Actions</span></th></tr>
+				</thead>
+				<tbody>
+					if len(rows) == 0 {
+						<tr><td colspan="7" class="muted">
+							if pg.ShowAll {
+								No accounts.
+							} else {
+								No open accounts.
+							}
+						</td></tr>
+					}
+					for _, r := range rows {
+						@accountTR(r)
+					}
+				</tbody>
+			</table>
 		</div>
-	</div>
+	</section>
 }
 
+// accountTR is one row of the fleet table. A placement wait is settling, not
+// a failure, so it is a qualifier with a clock. Errors are red with an alert.
 templ accountTR(r accountRow) {
 	<tr>
 		<td><a href={ templ.SafeURL("/accounts/" + r.Account.ID) }>{ r.Account.Name }</a></td>
 		<td>{ r.Account.Owner }</td>
 		<td>
-			@statusPill(r.Account.Status)
+			@statusLabel(r.Account)
 			if r.Account.LastError != "" && r.Account.Status == core.StatusCreating {
-				<div class="note">{ r.Account.LastError }</div>
+				<div class="qualifier">@icon("clock")<span>{ r.Account.LastError }</span></div>
 			} else if r.Account.LastError != "" {
-				<div class="error">{ r.Account.LastError }</div>
+				<div class="error">@icon("alert")<span>{ r.Account.LastError }</span></div>
 			}
 			if r.Account.RepairError() != nil {
-				<div class="error">{ r.Account.RepairError().Error() }</div>
+				<div class="error">@icon("alert")<span>{ r.Account.RepairError().Error() }</span></div>
 			}
 		</td>
 		<td><code>{ r.Account.ProviderID }</code></td>
@@ -377,159 +392,211 @@ templ accountTR(r accountRow) {
 			}
 		</td>
 		<td>
+			<div class="spend">{ fmt.Sprintf("$%.2f / %s", r.Spend, budgetAmount(r.Account.BudgetUSD)) }</div>
 			if r.Account.BudgetUSD > 0 {
-				<div class="bar" class={ templ.KV("over", r.Spend > r.Account.BudgetUSD) } title={ fmt.Sprintf("$%.2f of $%.0f", r.Spend, r.Account.BudgetUSD) }>
-					<span style={ barWidth(r.Spend, r.Account.BudgetUSD) }></span>
-				</div>
+				@meterLine(spendMeter(r.Spend, r.Account.BudgetUSD, meterWidth), fmt.Sprintf("$%.2f of $%.2f", r.Spend, r.Account.BudgetUSD))
 			}
-			<small class="muted">{ fmt.Sprintf("$%.2f / %s", r.Spend, budgetAmount(r.Account.BudgetUSD)) }</small>
-			<div class="muted" title={ r.Account.BudgetError }>{ r.Account.BudgetHealth }</div>
+			@budgetLabel(r.Account.BudgetHealth, r.Account.BudgetError)
 		</td>
-		<td>
-			if r.Account.CanExtend() {
-				<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/extend" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
-					<input type="hidden" name="by" value="7d"/>
-					<button type="submit" title="extend by 7 days">+7d</button>
-				</form>
-			}
-			if r.Account.Status.CanClose() {
-				<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/close" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-confirm={ "Request closure of " + r.Account.Name + "? AWS processes closure asynchronously. Charges may continue while pending, and commitments or subscriptions can outlive closure." }>
-					<button type="submit" class="danger">Close</button>
-				</form>
-			}
+		<td class="actions">
+			<div class="row-actions">
+				if r.Account.CanExtend() {
+					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/extend" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
+						<input type="hidden" name="by" value="7d"/>
+						<button type="submit" title="extend by 7 days" class="btn-approve">
+							@icon("stamp")
+							+7d<span class="vh">{ " " + r.Account.Name }</span>
+						</button>
+					</form>
+				}
+				if r.Account.Status.CanClose() {
+					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/close" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-confirm={ "Request closure of " + r.Account.Name + "? AWS processes closure asynchronously. Charges may continue while pending, and commitments or subscriptions can outlive closure." }>
+						<button type="submit">Close<span class="vh">{ " " + r.Account.Name }</span></button>
+					</form>
+				}
+			</div>
 		</td>
 	</tr>
 }
 
-templ statusPill(s core.Status) {
-	<span class={ "pill", string(s) }>{ string(s) }</span>
+// statusLabel is the icon and the word of an account status. A closing
+// account with an error is an overdue closure, so its box turns red.
+templ statusLabel(a *core.Account) {
+	<span class={ "status", "status-" + string(a.Status), templ.KV("status-overdue", a.Status == core.StatusClosing && a.LastError != "") }>@icon(statusIcon(a.Status))<span>{ string(a.Status) }</span></span>
+}
+
+// budgetLabel is the icon and the word of a budget protection state. The
+// error text, if any, is the tooltip. A settling state adds a qualifier.
+templ budgetLabel(health, errText string) {
+	{{ look, word := budgetState(health) }}
+	<span
+		class={ "status", "budget-" + look.Tone }
+		if errText != "" {
+			title={ errText }
+		}
+	>@icon(look.Icon)<span>{ word }</span></span>
+	if look.Settling {
+		<span class="qualifier">settling protection</span>
+	}
+}
+
+// meterLine draws the spend meter as SVG. The fill length is a width
+// attribute and the colors come from classes, because the CSP allows no
+// inline style. The label sits to the right, so the row stays one line.
+templ meterLine(m meter, title string) {
+	<div class={ "meter-line", "meter-" + m.Level } title={ title }>
+		<svg class="meter" width={ strconv.Itoa(meterWidth) } height="4" viewBox={ "0 0 " + strconv.Itoa(meterWidth) + " 4" } aria-hidden="true" focusable="false"><rect class="meter-track" width={ strconv.Itoa(meterWidth) } height="4" rx="2"></rect><rect class="meter-fill" width={ strconv.Itoa(m.Fill) } height="4" rx="2"></rect></svg>
+		if m.Label != "" {
+			<span class="meter-label">
+				if m.Level == "near" || m.Level == "over" {
+					@icon("alert")
+				}
+				{ m.Label }
+			</span>
+		}
+	</div>
 }
 
 templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float64, history historyView) {
 	@layout(pg, a.Name) {
-		<div class="card">
-			<h2 style="margin-top:0">{ a.Name } @statusPill(a.Status)</h2>
-			<dl class="grid">
-				<dt>owner</dt><dd>{ a.Owner }</dd>
-				<dt>account id</dt><dd><code>{ a.ProviderID }</code></dd>
-				if a.RequestID != "" {
-					<dt>request id</dt><dd><code>{ a.RequestID }</code></dd>
-				}
-				<dt>root email</dt><dd>{ a.Email }</dd>
-				<dt>budget</dt><dd>{ budgetAmount(a.BudgetUSD) } / month</dd>
-				<dt>budget protection</dt><dd>{ a.BudgetHealth } <span class="muted">(last state observation: { a.BudgetChecked })</span></dd>
-				if a.BudgetError != "" {
-					<dt>budget error</dt><dd class="error">{ a.BudgetError }</dd>
-				}
-				<dt>spend, 30 days</dt><dd>{ fmt.Sprintf("$%.2f", total) }</dd>
-				<dt>created</dt><dd>{ a.CreatedAt.Format("2006-01-02 15:04 MST") }</dd>
-				if a.ProviderID != "" {
-					<dt>expires</dt><dd>{ expiryDate(a.ExpiresAt, "2006-01-02 15:04 MST") }
-						if !a.ExpiresAt.IsZero() {
-							<span class="muted"> ({ expiresIn(a.ExpiresAt) })</span>
-						}
-					</dd>
-				}
-				if a.WarnedAt != nil {
-					<dt>expiring notice sent</dt><dd>{ a.WarnedAt.Format("2006-01-02 15:04 MST") }</dd>
-				}
-				if a.CloseRequestedAt != nil {
-					<dt>close requested</dt><dd>{ a.CloseRequestedAt.Format("2006-01-02 15:04 MST") }</dd>
-				}
-				if a.LastError != "" && a.Status == core.StatusCreating {
-					// A creation that waits in the root for placement: a note, not a failure.
-					<dt>placement</dt><dd class="note">{ a.LastError }</dd>
-				} else if a.LastError != "" {
-					<dt>failure</dt><dd class="error">{ a.LastError }</dd>
-				}
-				if a.RepairError() != nil {
-					<dt>repair required</dt><dd class="error">{ a.RepairError().Error() }</dd>
-				}
-				if !a.Managed {
-					<dt>note</dt><dd class="muted">not yet tagged by playplace; the next sync adopts it</dd>
-				}
-			</dl>
-		</div>
-		if pg.Viewer.Admin && a.Managed && a.Status.CanExtend() && a.RepairError() == nil {
-			<div class="card">
-				<h3>Change monthly budget</h3>
-				<p class="muted">An increase above reported spend can lift the provisioning restriction and rearm enforcement. AWS billing and policy changes are delayed. Existing resources keep charging.</p>
-				<form hx-post={ "/accounts/" + a.ID + "/budget" }>
-					<div class="row">
-						<label>USD per month<input name="budget" type="number" min="0.01" step="0.01" value={ fmt.Sprintf("%.2f", a.BudgetUSD) } required/></label>
-						<label>reason<input name="reason" maxlength="500" required/></label>
-						<label>override budget ceiling<input type="checkbox" name="override"/></label>
-						<button type="submit">Save budget</button>
-					</div>
-				</form>
-				<div id="form-error" class="error"></div>
+		<section class="panel" aria-labelledby="account-title">
+			<div class="panel-head">
+				<h1 id="account-title">{ a.Name }</h1>
+				@statusLabel(a)
 			</div>
+			<div class="panel-body">
+				<dl class="facts">
+					<dt>owner</dt><dd>{ a.Owner }</dd>
+					<dt>account id</dt><dd><code>{ a.ProviderID }</code></dd>
+					if a.RequestID != "" {
+						// Courier Prime is only for account IDs and request versions,
+						// so the creation request id is plain text.
+						<dt>request id</dt><dd>{ a.RequestID }</dd>
+					}
+					<dt>root email</dt><dd>{ a.Email }</dd>
+					<dt>budget</dt><dd>{ budgetAmount(a.BudgetUSD) } / month</dd>
+					<dt>budget protection</dt><dd>@budgetLabel(a.BudgetHealth, a.BudgetError)<span class="muted">(last state observation: { a.BudgetChecked })</span></dd>
+					if a.BudgetError != "" {
+						<dt>budget error</dt><dd class="error">@icon("alert")<span>{ a.BudgetError }</span></dd>
+					}
+					<dt>spend, 30 days</dt><dd>{ fmt.Sprintf("$%.2f", total) }</dd>
+					<dt>created</dt><dd>{ a.CreatedAt.Format("2006-01-02 15:04 MST") }</dd>
+					if a.ProviderID != "" {
+						<dt>expires</dt><dd>{ expiryDate(a.ExpiresAt, "2006-01-02 15:04 MST") }
+							if !a.ExpiresAt.IsZero() {
+								<span class="muted">({ expiresIn(a.ExpiresAt) })</span>
+							}
+						</dd>
+					}
+					if a.WarnedAt != nil {
+						<dt>expiring notice sent</dt><dd>{ a.WarnedAt.Format("2006-01-02 15:04 MST") }</dd>
+					}
+					if a.CloseRequestedAt != nil {
+						<dt>close requested</dt><dd>{ a.CloseRequestedAt.Format("2006-01-02 15:04 MST") }</dd>
+					}
+					if a.LastError != "" && a.Status == core.StatusCreating {
+						// A creation that waits in the root for placement: a qualifier, not a failure.
+						<dt>placement</dt><dd class="qualifier">@icon("clock")<span>{ a.LastError }</span></dd>
+					} else if a.LastError != "" {
+						<dt>failure</dt><dd class="error">@icon("alert")<span>{ a.LastError }</span></dd>
+					}
+					if a.RepairError() != nil {
+						<dt>repair required</dt><dd class="error">@icon("alert")<span>{ a.RepairError().Error() }</span></dd>
+					}
+					if !a.Managed {
+						<dt>note</dt><dd class="muted">not yet tagged by playplace; the next sync adopts it</dd>
+					}
+				</dl>
+			</div>
+		</section>
+		if pg.Viewer.Admin && a.Managed && a.Status.CanExtend() && a.RepairError() == nil {
+			<section class="panel" aria-labelledby="budget-title">
+				<div class="panel-head"><h2 id="budget-title">Change monthly budget</h2></div>
+				<div class="panel-body">
+					<p class="lede">An increase above reported spend can lift the provisioning restriction and rearm enforcement. AWS billing and policy changes are delayed. Existing resources keep charging.</p>
+					<form hx-post={ "/accounts/" + a.ID + "/budget" }>
+						<div class="form-row">
+							<label class="field">USD per month<input name="budget" type="number" min="0.01" step="0.01" value={ fmt.Sprintf("%.2f", a.BudgetUSD) } required class="in-budget"/></label>
+							<label class="field">reason<input name="reason" maxlength="500" required/></label>
+							<label class="check"><input type="checkbox" name="override"/>override budget ceiling</label>
+							<button type="submit" class="btn-primary">Save budget</button>
+						</div>
+					</form>
+					<div id="form-error" class="refusal"></div>
+				</div>
+			</section>
 		}
 		if history.Enabled {
-			<div class="card">
-				<h3 style="margin-top:0">History</h3>
-				if history.OrderURL != "" {
-					<a href={ templ.SafeURL(history.OrderURL) }>
-						if history.OldestFirst {
-							Show newest first
-						} else {
-							Show oldest first
-						}
-					</a>
-				}
+			<section class="panel" aria-labelledby="history-title">
+				<div class="panel-head">
+					<h2 id="history-title">History</h2>
+					if history.OrderURL != "" {
+						<a class="link" href={ templ.SafeURL(history.OrderURL) }>
+							if history.OldestFirst {
+								Show newest first
+							} else {
+								Show oldest first
+							}
+						</a>
+					}
+				</div>
 				if history.Notice != "" {
-					<p class="muted">{ history.Notice }</p>
+					<p class="empty">{ history.Notice }</p>
 				}
 				if history.Error != "" {
-					<p class="error" role="alert">{ history.Error }</p>
+					<div class="panel-body"><p class="error page-error" role="alert">@icon("alert")<span>{ history.Error }</span></p></div>
 				} else if len(history.Page.Events) == 0 && !history.Page.Incomplete {
-					<p class="muted">Nothing recorded yet for this journey.</p>
+					<p class="empty">Nothing recorded yet for this journey.</p>
 				} else if len(history.Page.Events) > 0 {
-					<table>
-						<thead><tr><th>When</th><th>Event</th><th>By</th><th>What happened</th></tr></thead>
+					<div class="scroll">
+						<table class="history">
+							<thead><tr><th scope="col">When</th><th scope="col">Event</th><th scope="col">By</th><th scope="col">What happened</th></tr></thead>
+							<tbody>
+								for _, e := range history.Page.Events {
+									<tr>
+										<td title={ e.At.Format(time.RFC3339Nano) }>{ e.At.UTC().Format("2006-01-02 15:04:05 MST") }</td>
+										<td><span class="event">{ e.Event }</span></td>
+										<td>{ e.Actor }
+											if e.Via != "" {
+												<span class="muted">via { e.Via }</span>
+											}
+										</td>
+										<td class="wrap">{ e.Message }
+											if len(e.Details) > 0 {
+												<details><summary>Details</summary><pre>{ historyDetails(e) }</pre></details>
+											}
+										</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+			</section>
+		}
+		if history.Enabled && history.Page.Incomplete {
+			<p class="banner-incomplete" role="alert">@icon("alert")<span>History is incomplete: some stored records could not be read.</span></p>
+		}
+		if history.NextURL != "" {
+			<p><a class="link" href={ templ.SafeURL(history.NextURL) }>Next history page</a></p>
+		}
+		<section class="panel panel-fit" aria-labelledby="spend-title">
+			<div class="panel-head"><h2 id="spend-title">Daily spend</h2></div>
+			if len(costs) == 0 {
+				<p class="empty">No cost data yet.</p>
+			} else {
+				<div class="scroll">
+					<table class="daily">
+						<thead><tr><th scope="col">Date</th><th scope="col" class="num">USD</th></tr></thead>
 						<tbody>
-							for _, e := range history.Page.Events {
-								<tr>
-									<td title={ e.At.Format(time.RFC3339Nano) }>{ e.At.UTC().Format("2006-01-02 15:04:05 MST") }</td>
-									<td><span class="pill">{ e.Event }</span></td>
-									<td>{ e.Actor }
-										if e.Via != "" {
-											<span class="muted">via { e.Via }</span>
-										}
-									</td>
-									<td style="white-space:normal">{ e.Message }
-										if len(e.Details) > 0 {
-											<details><summary>Details</summary><pre>{ historyDetails(e) }</pre></details>
-										}
-									</td>
-								</tr>
+							for i := len(costs) - 1; i >= 0; i-- {
+								<tr><td>{ costs[i].Date.Format("2006-01-02") }</td><td class="num">{ fmt.Sprintf("%.2f", costs[i].AmountUSD) }</td></tr>
 							}
 						</tbody>
 					</table>
-				}
-			</div>
-		}
-		if history.Enabled && history.Page.Incomplete {
-			<p class="error" role="alert">History is incomplete: some stored records could not be read.</p>
-		}
-		if history.NextURL != "" {
-			<p><a href={ templ.SafeURL(history.NextURL) }>Next history page</a></p>
-		}
-		<div class="card">
-			<h3 style="margin-top:0">Daily spend</h3>
-			if len(costs) == 0 {
-				<p class="muted">No cost data yet.</p>
-			} else {
-				<table>
-					<thead><tr><th>Date</th><th>USD</th></tr></thead>
-					<tbody>
-						for i := len(costs) - 1; i >= 0; i-- {
-							<tr><td>{ costs[i].Date.Format("2006-01-02") }</td><td>{ fmt.Sprintf("%.2f", costs[i].AmountUSD) }</td></tr>
-						}
-					</tbody>
-				</table>
+				</div>
 			}
-		</div>
+		</section>
 	}
 }
 
@@ -537,6 +604,8 @@ templ noticeFragment(msg string) {
 	<p id="notice" class="notice" hx-swap-oob="true">@icon("sync")<span>{ msg }</span></p>
 }
 
+// errorFragment is a refusal of the form above it. It names what went wrong
+// beside the form, with an alert icon.
 templ errorFragment(msg string) {
-	<div id="form-error" class="error" hx-swap-oob="true">{ msg }</div>
+	<div id="form-error" class="refusal" hx-swap-oob="true">@icon("alert")<span>{ msg }</span></div>
 }

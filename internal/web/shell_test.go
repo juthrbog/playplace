@@ -161,6 +161,15 @@ func TestEveryIconHasASymbol(t *testing.T) {
 	if len(used) < 4 {
 		t.Fatalf("expected the mark and the shell icons, found %v", used)
 	}
+	// The test pages do not show every status and budget state, so the
+	// maps and the fallback icon count too.
+	for _, name := range statusIcons {
+		used[name] = true
+	}
+	for _, look := range budgetIcons {
+		used[look.Icon] = true
+	}
+	used[statusIcon("no-such-status")] = true
 	for name := range used {
 		if !strings.Contains(home, `<symbol id="i-`+name+`"`) {
 			t.Errorf("icon %s has no symbol in the sprite", name)

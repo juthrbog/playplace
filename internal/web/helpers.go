@@ -45,15 +45,102 @@ func budgetAmount(amount float64) string {
 	return fmt.Sprintf("$%.2f", amount)
 }
 
-func barWidth(spend, budget float64) string {
+// meterWidth is the width in pixels of the inline spend meter.
+const meterWidth = 96
+
+// meter is one spend meter. Fill is the bar length in pixels. Level picks
+// the color class: ok, high, near or over. Label is the word beside the bar,
+// empty below 75 percent.
+type meter struct {
+	Fill  int
+	Level string
+	Label string
+}
+
+// spendMeter measures spend against the budget on a bar that is width
+// pixels long. The CSP allows no inline style, so the bar length is a
+// number for an SVG width attribute. Over budget means spend above the
+// budget, and the bar is then full. The percent is cut down, so 99.6
+// percent reads "99% used" and never claims the whole budget too early.
+func spendMeter(spend, budget float64, width int) meter {
 	if budget <= 0 {
-		return "width:0"
+		return meter{Level: "ok"}
+	}
+	if spend > budget {
+		return meter{Fill: width, Level: "over", Label: "over budget"}
 	}
 	pct := spend / budget * 100
-	if pct > 100 {
-		pct = 100
+	m := meter{Fill: int(math.Round(math.Min(pct, 100) / 100 * float64(width)))}
+	switch {
+	case pct >= 95:
+		m.Level = "near"
+	case pct >= 75:
+		m.Level = "high"
+	default:
+		m.Level = "ok"
+		return m
 	}
-	return fmt.Sprintf("width:%.0f%%", pct)
+	m.Label = fmt.Sprintf("%d%% used", int(math.Floor(pct)))
+	return m
+}
+
+// statusIcons names the icon of each account status (DESIGN.md, Status
+// label).
+var statusIcons = map[core.Status]string{
+	core.StatusPending:     "slip",
+	core.StatusCreating:    "clock-arc",
+	core.StatusActive:      "check",
+	core.StatusExpiring:    "hourglass",
+	core.StatusClosing:     "box",
+	core.StatusClosed:      "door",
+	core.StatusUnavailable: "ban",
+	core.StatusFailed:      "x-circle",
+}
+
+// statusIcon is the icon of a status. A status that the map does not know
+// gets the dashed circle, so the label never points at a missing symbol.
+func statusIcon(s core.Status) string {
+	if name, ok := statusIcons[s]; ok {
+		return name
+	}
+	return "dashed-circle"
+}
+
+// budgetLook is how a budget protection state shows: its icon, its tone
+// (the color class) and whether it is settling.
+type budgetLook struct {
+	Icon     string
+	Tone     string
+	Settling bool
+}
+
+// budgetIcons maps each budget protection state to its look (DESIGN.md,
+// Status label). Normal states are quiet, work in progress is settling, and
+// a state that needs a person is a fault.
+var budgetIcons = map[string]budgetLook{
+	"ready":           {Icon: "check", Tone: "ok"},
+	"alerts-only":     {Icon: "bell", Tone: "quiet"},
+	"alerts-disabled": {Icon: "bell-off", Tone: "quiet"},
+	"retired":         {Icon: "minus", Tone: "quiet"},
+	"setup-pending":   {Icon: "clock", Tone: "settling", Settling: true},
+	"restricting":     {Icon: "lock", Tone: "settling", Settling: true},
+	"recovering":      {Icon: "unlock", Tone: "settling", Settling: true},
+	"retiring":        {Icon: "minus", Tone: "settling", Settling: true},
+	"restricted":      {Icon: "lock", Tone: "fault"},
+	"error":           {Icon: "alert", Tone: "fault"},
+}
+
+// budgetState is the look and the word of a budget protection state. No
+// state yet reads "not checked". A state that the map does not know keeps
+// its own word with the quiet dashed circle.
+func budgetState(health string) (budgetLook, string) {
+	if health == "" {
+		return budgetLook{Icon: "dashed-circle", Tone: "quiet"}, "not checked"
+	}
+	if look, ok := budgetIcons[health]; ok {
+		return look, health
+	}
+	return budgetLook{Icon: "dashed-circle", Tone: "quiet"}, health
 }
 
 // dayCount renders a duration as a whole number of days.

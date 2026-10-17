@@ -377,6 +377,16 @@ func TestRequestApprovalFlow(t *testing.T) {
 	}
 }
 
+// With self-approval off, an approver's own request shows the chip in place
+// of Approve and Deny. The self-approval test checks the opposite.
+func TestOwnRequestShowsTheChip(t *testing.T) {
+	ts, _ := newServer(t)
+	res, body := do(t, ts, "POST", "/requests", "ops@example.com", true, url.Values{"name": {"mine"}, "owner": {"dana@example.com"}}, true)
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, ">Your request<") || strings.Contains(body, "/requests/mine/approve") {
+		t.Fatalf("the requester should see the chip, not Approve:\n%s", body)
+	}
+}
+
 func TestSelfApprovalSettingShowsTheButton(t *testing.T) {
 	prov := fake.New()
 	cfg := core.DefaultConfig()
@@ -387,7 +397,7 @@ func TestSelfApprovalSettingShowsTheButton(t *testing.T) {
 	defer ts.Close()
 	// No-auth mode: the operator requests and must be able to approve alone.
 	res, body := do(t, ts, "POST", "/requests", "", false, url.Values{"name": {"solo"}, "owner": {"john@example.com"}}, true)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, "/requests/solo/approve") || strings.Contains(body, ">yours<") {
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "/requests/solo/approve") || strings.Contains(body, ">Your request<") {
 		t.Fatalf("with self-approval on, the requester should see Approve:\n%s", body)
 	}
 	if res, _ := do(t, ts, "POST", "/requests/solo/approve", "", false, versionIn(t, body, "solo"), true); res.StatusCode != http.StatusOK {
@@ -492,7 +502,7 @@ func TestAccountPageShowsHistory(t *testing.T) {
 	ts, _ := newServer(t)
 	do(t, ts, "POST", "/accounts/111111111111/extend", "anna@example.com", false, url.Values{"by": {"2"}}, true)
 	_, body := do(t, ts, "GET", "/accounts/111111111111", "anna@example.com", false, nil, false)
-	if !strings.Contains(body, "<h3 style=\"margin-top:0\">History</h3>") || !strings.Contains(body, "anna@example.com extended annas-box") || !strings.Contains(body, `<span class="pill">extended</span>`) {
+	if !strings.Contains(body, ">History</h2>") || !strings.Contains(body, "anna@example.com extended annas-box") || !strings.Contains(body, `<span class="event">extended</span>`) {
 		t.Fatalf("history card missing the extension:\n%s", body)
 	}
 	// Another owner's page shows only its own events.
@@ -518,7 +528,8 @@ func TestShowClosedSwitchInsteadOfHeaderLink(t *testing.T) {
 	}
 	// Turning the switch on fetches the table with closed accounts and keeps the switch on.
 	_, body = do(t, ts, "GET", "/accounts?all=1", "ops@example.com", true, nil, true)
-	if !strings.Contains(body, "gone-box") || !strings.Contains(body, `checked`) || !strings.Contains(body, `hx-get="/accounts?all=1"`) {
+	// The budget label says "not checked", so look at the box itself.
+	if !strings.Contains(body, "gone-box") || !regexp.MustCompile(`<input id="show-closed"[^>]*\schecked[\s>/]`).MatchString(body) || !strings.Contains(body, `hx-get="/accounts?all=1"`) {
 		t.Fatalf("all=1 should show closed accounts, check the switch, and poll with all=1:\n%s", body)
 	}
 	// An action posted with the switch state keeps it.

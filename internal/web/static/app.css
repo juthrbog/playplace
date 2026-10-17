@@ -1,9 +1,9 @@
 /* playplace web UI. Values come from DESIGN.md. Colors live only in the tokens layer. */
 
-/* A later layer wins over an earlier one, whatever the selector. The interim
-   layer holds the class rules of the old page style until the panels get
-   their own rules, so every new rule beats it. */
-@layer tokens, interim, base, layout, components, utilities;
+/* A later layer wins over an earlier one, whatever the selector. So a
+   component beats an element rule in base, and a state in utilities beats
+   every component variant. */
+@layer tokens, base, layout, components, utilities;
 
 /* Public Sans is one variable file per subset. The browser fetches a subset
    only when the page uses a character in its unicode-range. */
@@ -127,157 +127,6 @@
   }
 }
 
-/* The class rules of the old inline page style, with tokens in place of
-   the old colors. They keep the panels readable until each panel gets its
-   own rules. Element rules did not move: the base layer replaces them. */
-@layer interim {
-  .card {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-md);
-    padding: var(--space-lg);
-    background: var(--paper);
-    border: 1px solid var(--rule);
-    border-radius: var(--r-panel);
-  }
-  .card > a {
-    align-self: flex-start;
-  }
-  .card > .error:empty {
-    display: none;
-  }
-  .card h3,
-  .toolbar h3 {
-    font-size: 17px;
-    font-weight: 700;
-    line-height: 1.3;
-    letter-spacing: -0.01em;
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: 10rem 1fr;
-    gap: 6px var(--space-lg);
-    margin: 0;
-  }
-  .grid dt {
-    color: var(--ink-2);
-  }
-  .grid dd {
-    margin: 0;
-  }
-  .row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-md) 10px;
-    align-items: flex-end;
-  }
-  .row label {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    font-size: 13.5px;
-    font-weight: 600;
-  }
-  .note {
-    color: var(--violet);
-  }
-  /* A neutral frame keeps the status word apart from the account name in
-     the heading. It has no state colors: the status label replaces it. */
-  .pill {
-    display: inline-block;
-    padding: var(--space-hair) 7px;
-    border: 1px solid var(--rule);
-    border-radius: var(--r-stamp);
-    color: var(--ink);
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1.35;
-    letter-spacing: 0;
-    vertical-align: middle;
-  }
-  .card h2 .pill {
-    margin-left: var(--space-sm);
-  }
-  .bar {
-    height: 6px;
-    min-width: 6rem;
-    overflow: hidden;
-    background: var(--rule-soft);
-    border-radius: var(--r-stamp);
-  }
-  .bar span {
-    display: block;
-    height: 100%;
-    background: var(--shelf-ink);
-  }
-  .bar.over span {
-    background: var(--red);
-  }
-  .toolbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin: 0 0 var(--space-sm);
-  }
-  .switch {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-sm);
-    cursor: pointer;
-    color: var(--ink-2);
-    font-size: 13.5px;
-    user-select: none;
-  }
-  .switch input {
-    position: absolute;
-    opacity: 0;
-  }
-  /* The track is a control, so its off state uses the control rule (3:1 on
-     the ground), not the panel rule. */
-  .switch .track {
-    position: relative;
-    width: 2.2rem;
-    height: 1.2rem;
-    border-radius: var(--r-pill);
-    background: var(--control-rule);
-  }
-  .switch .track::after {
-    content: "";
-    position: absolute;
-    top: 0.15rem;
-    left: 0.15rem;
-    width: 0.9rem;
-    height: 0.9rem;
-    border-radius: 50%;
-    background: var(--paper);
-  }
-  .switch input:checked + .track {
-    background: var(--shelf-ink);
-  }
-  .switch input:checked + .track::after {
-    left: 1.15rem;
-  }
-  .switch input:focus-visible + .track {
-    outline: 2px solid var(--violet);
-    outline-offset: 2px;
-  }
-  .pending td.actions {
-    text-align: right;
-  }
-  .pending td.actions form,
-  .pending td.actions > button {
-    margin: var(--space-hair) 0 var(--space-hair) var(--space-xs);
-  }
-
-  @media (max-width: 640px) {
-    .switch,
-    .row label:has(input[type=checkbox]) {
-      min-height: var(--touch);
-    }
-  }
-}
-
 @layer base {
   *,
   *::before,
@@ -388,6 +237,7 @@
     background: var(--paper);
     color: var(--ink);
     font-size: 14px;
+    font-weight: 400;
   }
   /* As specific as the field rule above, so the focus border wins. */
   input:focus-visible:not([type=checkbox]):not([type=radio]) {
@@ -656,33 +506,427 @@
   .notice:empty {
     display: none;
   }
+  /* Panels are paper on the ground, closed by a panel rule. A table in a
+     panel runs to its edges, and its outer cells line up with the head. */
+  .panel {
+    min-width: 0;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-panel);
+  }
+  .panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px var(--space-lg);
+    min-height: 48px;
+    padding: 10px var(--space-lg);
+  }
+  .panel-head > .check,
+  .panel-head > .link {
+    margin-left: auto;
+  }
+  .panel-head .muted {
+    font-size: 13.5px;
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+  .panel-body {
+    padding: 0 var(--space-lg) var(--space-lg);
+  }
+  /* A short ledger, such as daily spend, takes only the width it needs. */
+  .panel-fit {
+    align-self: flex-start;
+    min-width: min(100%, 20rem);
+  }
+  /* Positioned, so the visually hidden row names inside stay in the
+     scroll box and do not widen the page. */
   .scroll {
+    position: relative;
     overflow-x: auto;
   }
-  /* Pending rows carry long emails and free text. Those cells wrap, and
-     the buttons stay together. */
+  /* The scroll box clips the last table rows to the panel corners. */
+  .panel > .scroll:last-child {
+    border-radius: 0 0 calc(var(--r-panel) - 1px) calc(var(--r-panel) - 1px);
+  }
+  .panel th:first-child,
+  .panel td:first-child {
+    padding-left: var(--space-lg);
+  }
+  .panel th:last-child,
+  .panel td:last-child {
+    padding-right: var(--space-lg);
+  }
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .empty {
+    padding: 0 var(--space-lg) var(--space-lg);
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+  .help {
+    margin-top: var(--space-sm);
+    color: var(--ink-2);
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .lede {
+    margin-bottom: var(--space-md);
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+  .num {
+    text-align: right;
+  }
+
+  /* Forms: the label sits above its field in 13.5 semibold. A checkbox
+     comes before its words, and the whole label is the target. */
+  .form-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-md) 10px;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    color: var(--ink);
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .in-days {
+    width: 80px;
+  }
+  .in-budget {
+    width: 96px;
+  }
+  .check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-height: var(--control-h);
+    color: var(--ink);
+    font-size: 13.5px;
+    font-weight: 400;
+    cursor: pointer;
+  }
+
+  /* Button variants. The plain button is the base button. */
+  .btn-primary {
+    background: var(--card);
+    border-color: var(--card-rule);
+    color: var(--ink);
+  }
+  .btn-primary:hover {
+    background: var(--card-sel);
+    border-color: var(--card-rule);
+    color: var(--ink);
+  }
+  .btn-approve {
+    background: var(--violet);
+    border-color: var(--violet);
+    color: var(--paper);
+  }
+  .btn-approve:hover {
+    background: var(--violet-deep);
+    border-color: var(--violet-deep);
+    color: var(--paper);
+  }
+  /* Row buttons stay on one line. A narrow table scrolls instead. */
+  .row-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 6px;
+  }
+  form.inline {
+    display: inline-flex;
+  }
+
+  /* Chips. The dashed chip takes the place of Approve and Deny on a
+     person's own request. */
+  .chip-mine,
+  .flag {
+    display: inline-block;
+    padding: var(--space-hair) 7px;
+    border-radius: var(--r-stamp);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+    white-space: nowrap;
+  }
+  .chip-mine {
+    border: 1px dashed var(--control-rule);
+    color: var(--ink-2);
+  }
+  .flag {
+    background: var(--ink);
+    color: var(--card);
+  }
+
+  /* Tables. Rows stay one line. The cells that hold free text wrap. */
+  .fleet {
+    min-width: 1120px;
+  }
+  td a {
+    font-weight: 600;
+  }
+  .pending td:first-child {
+    font-weight: 600;
+  }
   .pending td.wrap {
     white-space: normal;
     overflow-wrap: anywhere;
-    min-width: 7rem;
+    min-width: 10rem;
   }
-  .pending td.actions {
+  .pending td[colspan] {
     white-space: normal;
-    min-width: 12rem;
   }
   .pending .via {
     display: block;
     color: var(--ink-2);
     font-size: 12px;
   }
-  form.inline {
+  .history td.wrap {
+    white-space: normal;
+    min-width: 16rem;
+  }
+  .event {
+    font-weight: 500;
+  }
+  summary {
+    color: var(--ink-2);
+    font-size: 13.5px;
+    cursor: pointer;
+  }
+  summary:hover {
+    color: var(--violet);
+  }
+  a.link {
+    font-size: 13.5px;
+    font-weight: 500;
+  }
+
+  /* A status is a word and an icon, never color alone. The icon color
+     says normal, settling or needs attention. */
+  .status {
     display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--ink);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .status-pending .i,
+  .status-closing .i,
+  .status-unavailable .i {
+    color: var(--ink);
+  }
+  .status-creating .i,
+  .status-expiring .i {
+    color: var(--violet);
+  }
+  .status-active .i {
+    color: var(--shelf-ink);
+  }
+  .status-closed .i {
+    color: var(--ink-2);
+  }
+  .status-failed .i,
+  .status-overdue .i {
+    color: var(--red);
+  }
+  .budget-ok .i {
+    color: var(--shelf-ink);
+  }
+  .budget-quiet .i {
+    color: var(--ink-2);
+  }
+  .budget-settling .i {
+    color: var(--violet);
+  }
+  .budget-fault .i {
+    color: var(--red);
+  }
+
+  /* Qualifiers and cell errors are 12 px lines under a label, with 13 px
+     icons. Long ones wrap inside a bounded width, so the row stays
+     readable. */
+  .qualifier {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: var(--space-hair);
+    color: var(--ink-2);
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .qualifier .i {
+    color: var(--violet);
   }
   .muted {
     color: var(--ink-2);
   }
   .error {
     color: var(--red-ink);
+  }
+  .error .i {
+    color: var(--red);
+  }
+  td .error {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: var(--space-hair);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  td .qualifier,
+  td .error {
+    min-width: 16rem;
+    max-width: 32rem;
+    white-space: normal;
+  }
+  .qualifier .i,
+  td .error .i,
+  .meter-label .i {
+    width: 13px;
+    height: 13px;
+    margin-top: 1.5px;
+  }
+  .page-error {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  /* The spend meter. The server sets the fill length, and these classes
+     set every color. */
+  .spend {
+    white-space: nowrap;
+  }
+  .meter-line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-top: var(--space-xs);
+  }
+  .meter {
+    display: block;
+    flex: none;
+  }
+  .meter-track {
+    fill: var(--rule-soft);
+  }
+  .meter-ok .meter-fill {
+    fill: var(--shelf-ink);
+  }
+  .meter-high .meter-fill {
+    fill: var(--ink);
+  }
+  .meter-near .meter-fill,
+  .meter-over .meter-fill {
+    fill: var(--red);
+  }
+  .meter-label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  .meter-label .i {
+    margin-top: 0;
+    color: var(--red);
+  }
+  .meter-near .meter-label,
+  .meter-over .meter-label {
+    color: var(--red-ink);
+  }
+  .spend + .status,
+  .meter-line + .status {
+    margin-top: var(--space-xs);
+  }
+
+  /* A refusal names the problem beside the form. It is empty until the
+     server fills it, and app.js empties it again. */
+  .refusal {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    width: fit-content;
+    max-width: 100%;
+    margin-top: var(--space-md);
+    padding: 10px var(--space-md);
+    background: var(--paper);
+    border: 1px solid var(--red-ink);
+    border-radius: var(--r-note);
+    color: var(--ink);
+    font-size: 13.5px;
+  }
+  .refusal > span {
+    max-width: 75ch;
+  }
+  .refusal .i {
+    margin-top: 2px;
+    color: var(--red);
+  }
+  .refusal:empty {
+    display: none;
+  }
+  .banner-incomplete {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 10px var(--space-md);
+    background: var(--paper-warm);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-note);
+    color: var(--ink);
+    font-size: 13.5px;
+  }
+  .banner-incomplete .i {
+    color: var(--red);
+  }
+
+  /* The account facts: a word column and a value column. A value holds a
+     label, a qualifier and a note side by side, and wraps when needed. */
+  .facts {
+    display: grid;
+    grid-template-columns: minmax(10rem, max-content) 1fr;
+    align-items: baseline;
+    gap: 6px var(--space-lg);
+    margin: 0;
+  }
+  .facts dt {
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+  .facts dd {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-hair) var(--space-sm);
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .facts dd.error,
+  .facts dd.qualifier {
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .facts dd.error .i {
+    margin-top: 2px;
+  }
+  .facts dd > .qualifier {
+    margin-top: 0;
   }
 
   @media (max-width: 1000px) {
@@ -772,6 +1016,20 @@
     .noauth {
       padding: var(--space-sm) var(--space-lg);
     }
+    /* Fields share the row two by two and fill it. */
+    .form-row > .field {
+      flex: 1 1 9rem;
+    }
+    .form-row > .field > input {
+      width: 100%;
+    }
+    .facts {
+      grid-template-columns: 1fr;
+      row-gap: var(--space-hair);
+    }
+    .facts dd {
+      margin-bottom: var(--space-sm);
+    }
   }
 }
 
@@ -797,6 +1055,11 @@
     color: var(--ink-2);
     cursor: not-allowed;
   }
+  /* A busy button keeps its size and its colors. Only the pointer and
+     the word change. */
+  :is(button, .btn)[aria-busy=true] {
+    cursor: progress;
+  }
   input:disabled {
     background: var(--rule-soft);
     border-style: dashed;
@@ -813,10 +1076,13 @@
     }
     .nav-link,
     .check,
-    a.link {
+    .brand,
+    a.link,
+    td a {
       min-height: var(--touch);
     }
-    a.link {
+    a.link,
+    td a {
       display: inline-flex;
       align-items: center;
     }

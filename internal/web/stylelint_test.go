@@ -112,6 +112,23 @@ var (
 	templSpread    = regexp.MustCompile(`\{\s*[\w.]+\s*\.\.\.\s*\}`)
 )
 
+// TestStylesheetHasNoInterimLayer keeps the old page style from coming back.
+// Each panel has its own component rules now, so the interim layer that held
+// the old class rules is gone, and the layer order names only the five
+// layers of the design.
+func TestStylesheetHasNoInterimLayer(t *testing.T) {
+	css := appCSS(t)
+	if strings.Contains(css, "@layer interim") {
+		t.Error("app.css still has an @layer interim block")
+	}
+	if strings.Contains(css, "interim") {
+		t.Error("app.css still names the interim layer")
+	}
+	if !strings.Contains(css, "@layer tokens, base, layout, components, utilities;") {
+		t.Error("app.css must declare the layers tokens, base, layout, components, utilities in that order")
+	}
+}
+
 // TestNoColorAttributesInTempl keeps colors out of the markup: an SVG or
 // element color attribute in a template is only none or currentColor, so
 // the stylesheet decides every color. A dynamic value or an attribute spread
