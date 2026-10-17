@@ -163,8 +163,11 @@ func TestExtendIsCappedForEngineersNotAdmins(t *testing.T) {
 func TestPagesShipTheirOwnScriptsUnderACSP(t *testing.T) {
 	ts, _ := newServer(t)
 	res, body := do(t, ts, "GET", "/", "anna@example.com", false, nil, false)
-	if res.StatusCode != http.StatusOK || strings.Contains(body, "unpkg.com") || !strings.Contains(body, `src="/static/htmx.min.js"`) || strings.Contains(body, "hx-on") {
+	if res.StatusCode != http.StatusOK || strings.Contains(body, "unpkg.com") || !strings.Contains(body, `src="/static/htmx.min.js?v=`) || strings.Contains(body, "hx-on") {
 		t.Fatalf("page should load scripts from this origin and carry no inline handlers:\n%s", body)
+	}
+	if !strings.Contains(body, `src="/static/app.js?v=`) || !strings.Contains(body, `<link rel="stylesheet" href="/static/app.css?v=`) {
+		t.Fatalf("the page script and the stylesheet should be versioned:\n%s", body)
 	}
 	if got := res.Header.Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self'") || strings.Contains(got, "unsafe-eval") {
 		t.Fatalf("csp = %q", got)
@@ -184,6 +187,59 @@ func TestPagesShipTheirOwnScriptsUnderACSP(t *testing.T) {
 	}
 	if res, _ := do(t, ts, "GET", "/static/app.js", "", false, nil, false); res.StatusCode != http.StatusOK {
 		t.Fatalf("app.js = %d", res.StatusCode)
+	}
+}
+
+func TestStaticCaching(t *testing.T) {
+	ts, _ := newServer(t)
+	// A versioned URL never changes, so browsers keep it.
+	res, _ := do(t, ts, "GET", asset("app.css"), "", false, nil, false)
+	if res.StatusCode != http.StatusOK || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/css") || !strings.Contains(res.Header.Get("Cache-Control"), "immutable") {
+		t.Fatalf("versioned app.css = %d, %q, %q", res.StatusCode, res.Header.Get("Content-Type"), res.Header.Get("Cache-Control"))
+	}
+	// An unversioned URL, such as a font that app.css loads, revalidates.
+	etag := `"` + assetVersion + `"`
+	res, _ = do(t, ts, "GET", "/static/app.css", "", false, nil, false)
+	if res.StatusCode != http.StatusOK || res.Header.Get("Cache-Control") != "no-cache" || res.Header.Get("ETag") != etag {
+		t.Fatalf("unversioned app.css = %d, Cache-Control %q, ETag %q", res.StatusCode, res.Header.Get("Cache-Control"), res.Header.Get("ETag"))
+	}
+	req, _ := http.NewRequest("GET", ts.URL+"/static/app.css", nil)
+	req.Header.Set("If-None-Match", etag)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := res.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusNotModified {
+		t.Fatalf("revalidation with the current ETag = %d, want 304", res.StatusCode)
+	}
+	// An old version is not the current file, so it is not kept for a year.
+	if res, _ := do(t, ts, "GET", "/static/app.css?v=00000000", "", false, nil, false); strings.Contains(res.Header.Get("Cache-Control"), "immutable") {
+		t.Fatalf("a stale version must not be immutable, Cache-Control %q", res.Header.Get("Cache-Control"))
+	}
+	res, body := do(t, ts, "GET", asset("htmx.min.js"), "", false, nil, false)
+	if res.StatusCode != http.StatusOK || !strings.HasPrefix(body, "var htmx=") {
+		t.Fatalf("versioned htmx = %d", res.StatusCode)
+	}
+}
+
+func TestFontsShipWithTheirLicense(t *testing.T) {
+	ts, _ := newServer(t)
+	for _, name := range []string{"public-sans-latin-wght-normal.woff2", "public-sans-latin-ext-wght-normal.woff2", "courier-prime-latin-400-normal.woff2", "courier-prime-latin-ext-400-normal.woff2", "courier-prime-latin-700-normal.woff2", "courier-prime-latin-ext-700-normal.woff2"} {
+		// Go's built-in type table has no .woff2, so the server sets it.
+		res, body := do(t, ts, "GET", "/static/fonts/"+name, "", false, nil, false)
+		if res.StatusCode != http.StatusOK || res.Header.Get("Content-Type") != "font/woff2" || !strings.HasPrefix(body, "wOF2") {
+			t.Fatalf("%s = %d, %q", name, res.StatusCode, res.Header.Get("Content-Type"))
+		}
+	}
+	// The OFL asks for the license with every copy of the fonts.
+	for _, name := range []string{"OFL-PublicSans.txt", "OFL-CourierPrime.txt"} {
+		res, body := do(t, ts, "GET", "/static/fonts/"+name, "", false, nil, false)
+		if res.StatusCode != http.StatusOK || !strings.Contains(body, "SIL OPEN FONT LICENSE") {
+			t.Fatalf("%s = %d", name, res.StatusCode)
+		}
 	}
 }
 

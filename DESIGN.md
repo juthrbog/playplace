@@ -487,13 +487,18 @@ palettes, so it needs no night rule.
 The stylesheet keeps the night differences in the token layer, as role
 variables for each palette, for example `--on-shell`, `--shell-chip`,
 `--search-edge`, `--stamp-blend` and `--scrim`. Components read the role
-variables, so no component has its own night rule. Plain CSS needs the night
-values under `[data-theme=night]` and again under
-`@media (prefers-color-scheme: dark)` for `:root:not([data-theme=day])`. If
-every browser that the web UI supports has `light-dark()`, phase 1 uses it
-for the colors. `light-dark()` covers only colors, so `--stamp-blend` keeps
-its own rule. If one does not, the stylesheet has two copies of the night
-values, and a test keeps the two copies equal.
+variables, so no component has its own night rule. The web UI supports
+evergreen Chrome, Edge, Firefox and Safari from 2024 on (see PRODUCT.md).
+All of them have `light-dark()`, so the stylesheet uses it. Each color token
+and each color role is one `light-dark(day, night)` value, so every value
+has one copy. The root sets `color-scheme: light`, which keeps the night
+desk off. `[data-theme=night]` sets `color-scheme: dark`, and nothing sets
+that attribute in phase 1. `--stamp-blend` and `--scrim` do not fit in one
+`light-dark()` value. They have their day value on the root and their night
+value under `[data-theme=night]`. When the night desk turns on, the
+`prefers-color-scheme` rule sets the dark scheme and these two values for
+`:root:not([data-theme=day])`. A test reads the `light-dark()` pairs and
+checks the contrast of both palettes.
 
 Violet on selected card is the tightest text pair at 4.6:1. If a turned
 stamp on a selected row reads weak at night, the first fallback is the

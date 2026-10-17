@@ -18,9 +18,10 @@ templ layout(pg page, title string) {
 			<link rel="icon" href={ asset("favicon.svg") } type="image/svg+xml"/>
 			<link rel="icon" href={ asset("favicon.ico") } sizes="32x32"/>
 			<link rel="apple-touch-icon" href={ asset("apple-touch-icon.png") }/>
+			<link rel="stylesheet" href={ asset("app.css") }/>
 			<meta name="htmx-config" content='{"allowEval":false,"selfRequestsOnly":true}'/>
-			<script src="/static/htmx.min.js"></script>
-			<script src="/static/app.js"></script>
+			<script src={ asset("htmx.min.js") }></script>
+			<script src={ asset("app.js") }></script>
 			<style>
 				:root { --fg:#1c1c1c; --muted:#6b6b6b; --line:#e3e3e3; --bg:#fafafa; --ok:#1f7a3a; --warn:#b26a00; --bad:#b3261e; }
 				body { font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--fg); background:var(--bg); margin:0; }

@@ -1,0 +1,125 @@
+/* playplace web UI. Values come from DESIGN.md. Colors live only in the tokens layer. */
+
+@layer tokens, base, layout, components, utilities;
+
+/* Public Sans is one variable file per subset. The browser fetches a subset
+   only when the page uses a character in its unicode-range. */
+@font-face {
+  font-family: 'Public Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 700;
+  src: url(fonts/public-sans-latin-ext-wght-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Public Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 700;
+  src: url(fonts/public-sans-latin-wght-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url(fonts/courier-prime-latin-ext-400-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url(fonts/courier-prime-latin-400-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url(fonts/courier-prime-latin-ext-700-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url(fonts/courier-prime-latin-700-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* Each color is light-dark(day, night). color-scheme picks the palette, so
+   the root stays light and the night desk stays off. Only
+   [data-theme="night"] turns it on, and nothing sets that attribute yet. */
+@layer tokens {
+  :root {
+    color-scheme: light;
+
+    --shelf: light-dark(#2F5D50, #16302A);
+    --shelf-deep: light-dark(#264D42, #21443B);
+    --shelf-rule: light-dark(#A9BDB4, #6A8C80);
+    --shelf-ink: light-dark(#2F5D50, #7AB8A6);
+    --card: light-dark(#EDE3CC, #2C2A22);
+    --card-hover: light-dark(#E8DEC4, #332F27);
+    --card-sel: light-dark(#E2D5B6, #3A3729);
+    --card-rule: light-dark(#CDBF9E, #4A4536);
+    --violet: light-dark(#5A3E9B, #A996E6);
+    --violet-deep: light-dark(#4A3184, #9682D9);
+    --red: light-dark(#C8323C, #F07A80);
+    --red-ink: light-dark(#A8262F, #F59BA0);
+    --red-deep: light-dark(#8E1F27, #E3868C);
+    --ink: light-dark(#22201C, #ECE7DA);
+    --ink-2: light-dark(#55514A, #B3AD9F);
+    --control-rule: light-dark(#8E8A80, #7A756A);
+    --rule: light-dark(#D6D1C4, #353B37);
+    --rule-soft: light-dark(#E7E3D9, #272D29);
+    --ground: light-dark(#F2F1EC, #121614);
+    --paper: light-dark(#FFFFFF, #1B201D);
+    --paper-tint: light-dark(#F8F6F0, #212622);
+    --paper-warm: light-dark(#FBF8F1, #25231D);
+
+    /* Roles: the shell and stamp colors that differ between the palettes.
+       Components read these, so no component has a night rule. */
+    --on-shell: light-dark(var(--card), var(--ink));
+    --on-shell-hi: light-dark(var(--paper), var(--ink));
+    --shell-chip: light-dark(var(--card), var(--ink));
+    --on-shell-chip: light-dark(var(--ink), var(--paper));
+    --shell-chip-hover: light-dark(var(--card-sel), var(--ink-2));
+    --search-edge: light-dark(var(--paper-warm), var(--shelf-rule));
+    --stamp-blend: multiply;
+    --scrim: rgba(34, 32, 28, 0.45);
+
+    --font-sans: "Public Sans", system-ui, sans-serif;
+    --font-stamp: "Courier Prime", monospace;
+    --r-meter: 2px;
+    --r-stamp: 3px;
+    --r-control: 4px;
+    --r-group: 5px;
+    --r-note: 6px;
+    --r-panel: 8px;
+    --r-pill: 9px;
+    --space-hair: 2px;
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 12px;
+    --space-lg: 16px;
+    --space-xl: 24px;
+    --space-xxl: 32px;
+    --control-h: 34px;
+    --control-h-sm: 30px;
+    --touch: 44px;
+  }
+
+  /* A blend mode and a scrim with alpha are not light-dark() colors, so the
+     night values of these two have their own rule. */
+  :root[data-theme="night"] {
+    color-scheme: dark;
+    --stamp-blend: normal;
+    --scrim: rgba(0, 0, 0, 0.55);
+  }
+}

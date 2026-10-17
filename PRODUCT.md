@@ -94,6 +94,10 @@ account limit of the organization until 90 days after it closes.
 - Devices: desktop first. On a phone, people approve from the Slack link
   and check one account, so those tasks work well at phone width. The full
   fleet table stays desktop-first.
+- Browsers (owner, 2026-10-16): the web UI supports evergreen Chrome, Edge,
+  Firefox and Safari from 2024 on. It does not support older browsers. This
+  floor lets the stylesheet use cascade layers and `light-dark()` for the
+  day and night colors.
 - Requests are free-form (owner, 2026-10-12). The web form starts with the
   default lifetime and budget and states the ceilings. The overhaul adds no
   admin-defined presets. A later preset will only fill in the form, so the
