@@ -336,7 +336,9 @@ database. A request records owner, TTL, budget, purpose, who asked, and when.
 Approving marks the record approved first and requests the account second,
 so a second approver, in the same process or another, finds nothing pending.
 If AWS refuses the creation the mark is removed and the request is pending
-again. If AWS accepts the request and reports the creation as failed later,
+again. The removal also runs when the approver stops waiting, for example
+when the browser closes or a Slack click passes its deadline. It has a limit
+of 30 seconds of its own. If AWS accepts the request and reports the creation as failed later,
 the approved record stays for 7 days. The first refresh or CLI wait that sees
 the failure sets an `f` flag in the record, then writes the *failed* history
 event and sends the *creation failed* notice. The flag comes first, so a

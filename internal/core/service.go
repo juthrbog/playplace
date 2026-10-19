@@ -1420,12 +1420,18 @@ func (s *Service) checkQueueRoom(ctx context.Context) error {
 	return nil
 }
 
+// restoreTimeout bounds the write that makes a claimed request pending again
+// after its creation failed. The write ignores the cancellation of the
+// caller's context, so it needs a limit of its own.
+const restoreTimeout = 30 * time.Second
+
 // Approve creates the account for a pending request and removes it from the queue.
 //
 // The record is marked approved before the account is requested, so a
 // second approver, in this process or another, finds nothing pending. If the
-// creation then fails the mark is removed and the request is pending again.
-// ref must carry the version the approver saw; see pendingAt.
+// creation then fails the mark is removed and the request is pending again,
+// also when the caller stopped waiting. ref must carry the version the
+// approver saw; see pendingAt.
 func (s *Service) Approve(ctx context.Context, ref RequestRef, approver string) (*Account, error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
@@ -1456,9 +1462,15 @@ func (s *Service) Approve(ctx context.Context, ref RequestRef, approver string) 
 		journeyID:      r.JourneyID,
 	})
 	if err != nil {
-		if uerr := s.provider.SetOUTags(ctx, map[string]string{pending.Key(): pending.Encode()}); uerr != nil {
+		// The caller's context can be the reason the creation failed: the
+		// browser went away, or Slack's deadline passed. The restore must
+		// not fail for the same reason, so it ignores the cancellation and
+		// has a time limit of its own.
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreTimeout)
+		if uerr := s.provider.SetOUTags(rctx, map[string]string{pending.Key(): pending.Encode()}); uerr != nil {
 			s.log.Error("request left marked approved after a failed creation; reconcile drops it after a day", "name", name, "err", uerr)
 		}
+		cancel()
 		s.Invalidate()
 		return nil, err
 	}
