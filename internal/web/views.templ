@@ -11,7 +11,8 @@ import (
 
 // layout is the frame of every page. The htmx config turns off eval and the
 // indicator style element that htmx adds to the head, because the CSP blocks
-// both.
+// both. idiomorph loads after htmx and before app.js, because app.js defines
+// the morph extension that calls both.
 templ layout(pg page, title string) {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -25,77 +26,109 @@ templ layout(pg page, title string) {
 			<link rel="stylesheet" href={ asset("app.css") }/>
 			<meta name="htmx-config" content='{"allowEval":false,"selfRequestsOnly":true,"includeIndicatorStyles":false}'/>
 			<script src={ asset("htmx.min.js") }></script>
+			<script src={ asset("idiomorph.min.js") }></script>
 			<script src={ asset("app.js") }></script>
 		</head>
-		<body>
+		<body hx-ext="morph">
 			@iconSprite()
 			@shell(pg)
 			if !pg.SignIn {
 				<div class="noauth" role="note">@icon("alert")<span>Sign-in is off. Every visitor is an admin.</span></div>
 			}
 			<main>
-				<p id="notice" class="notice"></p>
+				if !pg.RegionInCard {
+					@region()
+				}
 				{ children... }
 			</main>
 		</body>
 	</html>
 }
 
+// region is the page's one live region. The node stays from page load and
+// htmx writes into it, so screen readers keep listening to it. Nothing sits
+// inside it at rest. Most pages hold it at the top of main. The home page
+// holds it in the pending card, next to the decisions, because approvers
+// arrive from the BASE/#pending link, and the top of main is then out of
+// view.
+templ region() {
+	<p id="notice" class="notice" role="status" aria-live="polite"></p>
+}
+
 // shell is the bar on every page. The links depend on the role: engineers
 // get Home, approvers also get Queue with its count, and admins get Queue
 // and Accounts, because the brand is their link home. The menu toggle comes
 // right after the brand, so the next Tab after it enters the menu. On a phone
-// the in-menu items hide behind it, and Queue and Sync stay in the bar.
+// the in-menu items hide behind it, and Queue and Sync stay in the bar. A
+// page for nobody, such as a failed sign-in, shows only the brand. Only the
+// home page has the accounts section, so Sync on any other page swaps
+// nothing, and its answer writes only into the live region.
 templ shell(pg page) {
 	<header class="shell">
 		<a class="brand" href="/"><svg class="mark" aria-hidden="true" focusable="false"><use href="#i-mark"></use></svg><span class="brand-word"><b>play</b><span class="place">place</span></span></a>
-		<button type="button" class="menu-toggle" aria-expanded="false" aria-controls="shell-menu">@icon("menu")<span class="vh">Menu</span></button>
-		<div id="shell-menu" class="shell-menu">
-			<nav class="nav" aria-label="Main">
-				<ul>
-					if !pg.Viewer.Admin {
-						<li class="in-menu">
-							<a
-								class="nav-link"
-								href="/"
-								if pg.Path == "/" {
-									aria-current="page"
-								}
-							>Home</a>
-						</li>
-					}
-					if pg.Viewer.Approver {
-						<li>
-							<a class="nav-link" href="/#pending">
-								Queue
-								@queueCount(pg, false)
-							</a>
-						</li>
-					}
-					if pg.Viewer.Admin {
-						<li class="in-menu"><a class="nav-link" href="/#accounts">Accounts</a></li>
-					}
-				</ul>
-			</nav>
-			if pg.Viewer.Admin {
-				<form class="sync" hx-post="/refresh" hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
-					<button type="submit" class="btn-ghost" title="poll creations, sweep expiry, retry closes">@icon("sync")<span class="btn-word">Sync with AWS</span></button>
-				</form>
-			}
-			<a class="btn btn-chip in-menu" href="/#request">
-				@icon("plus")
-				New request
-			</a>
-			if pg.SignIn {
-				<span class="person in-menu">
-					<span class="person-email">{ pg.Viewer.Email }</span>
-					if pg.Viewer.Admin {
-						<span class="badge">admin</span>
-					}
-				</span>
-				<form class="signout in-menu" method="post" action="/auth/logout"><button type="submit" class="nav-link">Sign out</button></form>
-			}
-		</div>
+		if !pg.SignedOut {
+			<button type="button" class="menu-toggle" aria-expanded="false" aria-controls="shell-menu">@icon("menu")<span class="vh">Menu</span></button>
+			<div id="shell-menu" class="shell-menu">
+				<nav class="nav" aria-label="Main">
+					<ul>
+						if !pg.Viewer.Admin {
+							<li class="in-menu">
+								<a
+									class="nav-link"
+									href="/"
+									if pg.Path == "/" {
+										aria-current="page"
+									}
+								>Home</a>
+							</li>
+						}
+						if pg.Viewer.Approver {
+							<li>
+								<a class="nav-link" href="/#pending">
+									Queue
+									@queueCount(pg, false)
+								</a>
+							</li>
+						}
+						if pg.Viewer.Admin {
+							<li class="in-menu"><a class="nav-link" href="/#accounts">Accounts</a></li>
+						}
+					</ul>
+				</nav>
+				if pg.Viewer.Admin {
+					<form
+						class="sync"
+						hx-post="/refresh"
+						if pg.Path == "/" {
+							hx-target="#accounts"
+							hx-swap="morph"
+							hx-include="#show-closed"
+						} else {
+							hx-target="#notice"
+							hx-swap="none"
+						}
+						hx-sync="this:drop"
+					>
+						// The word cell is also the phone's hidden word, so the phone rule
+						// hides both words and a screen reader still hears the busy verb.
+						<button type="submit" class="btn-ghost" title="poll creations, sweep expiry, retry closes">@icon("sync")<span class="btn-word word"><span>Sync with AWS</span><span class="busy">Syncing</span></span></button>
+					</form>
+				}
+				<a class="btn btn-chip in-menu" href="/#request">
+					@icon("plus")
+					New request
+				</a>
+				if pg.SignIn {
+					<span class="person in-menu">
+						<span class="person-email">{ pg.Viewer.Email }</span>
+						if pg.Viewer.Admin {
+							<span class="badge">admin</span>
+						}
+					</span>
+					<form class="signout in-menu" method="post" action="/auth/logout"><button type="submit" class="nav-link">Sign out</button></form>
+				}
+			</div>
+		}
 	</header>
 }
 
@@ -118,10 +151,43 @@ templ queueCount(pg page, oob bool) {
 // the shell count, so the two never disagree. Other viewers have no Queue
 // link. A count with no target makes htmx log an error.
 templ pendingUpdate(pg page) {
-	@pendingCard(pg)
+	@pendingCard(pg, true)
 	if pg.Viewer.Approver {
 		@queueCount(pg, true)
 	}
+}
+
+// accountsAnswer answers the poll and every request from outside the
+// pending card: the accounts section is the main swap, and the pending card
+// rides out of band. When the queue did not load, the card and the count
+// stay out, so the page keeps the ones it shows. Rendered with no hash, it
+// is also what the poll hash covers.
+templ accountsAnswer(pg page, rows []accountRow, errMsg, hash string) {
+	@accountsPanel(pg, rows, errMsg, hash, false)
+	if !pg.PendingFailed {
+		@pendingUpdate(pg)
+	}
+}
+
+// cardAnswer answers a decision made in the pending card. The card is the
+// main swap, because htmx finds the morph extension from the form that
+// sent the request. An out-of-band part runs first and can take that form
+// out of the page. The accounts section and the count ride out of band.
+templ cardAnswer(pg page, rows []accountRow, hash string) {
+	@pendingCard(pg, false)
+	@accountsPanel(pg, rows, "", hash, true)
+	if pg.Viewer.Approver && !pg.PendingFailed {
+		@queueCount(pg, true)
+	}
+}
+
+// busyWord is the word of a button and its verb in progress, in one grid
+// cell. The button keeps the width of its word, and the verb spills into
+// the side padding, so a busy button keeps its size. app.js sets
+// aria-busy on the button while its request runs, and the stylesheet then
+// shows the busy verb. The hidden word is left out of the accessible name.
+templ busyWord(word, busy string) {
+	<span class="word"><span>{ word }</span><span class="busy">{ busy }</span></span>
 }
 
 // icon draws one symbol of the sprite. It sits next to a word, so screen
@@ -167,13 +233,13 @@ type accountRow struct {
 
 // indexPage is the home page. The shell is the visible heading, so the page
 // h1 is for screen readers only.
-templ indexPage(pg page, rows []accountRow, errMsg string) {
-	@layout(pg, "Accounts") {
+templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
+	@layout(regionInCard(pg), "Accounts") {
 		<h1 class="vh">Accounts</h1>
 		<section class="panel" id="request" aria-labelledby="request-title">
 			<div class="panel-head"><h2 id="request-title">New request</h2></div>
 			<div class="panel-body">
-				<form hx-post="/requests" hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" data-reset-on-success>
+				<form hx-post="/requests" hx-target="#accounts" hx-swap="morph" hx-include="#show-closed" data-reset-on-success hx-sync="this:drop">
 					<div class="form-row">
 						<label class="field">name<input name="name" required pattern="[a-z0-9][a-z0-9\-]{1,48}[a-z0-9]" placeholder="dev-alex"/></label>
 						if pg.Viewer.Admin {
@@ -192,19 +258,17 @@ templ indexPage(pg page, rows []accountRow, errMsg string) {
 						if pg.Viewer.Admin {
 							<label class="check" title="admins may exceed the ceilings; recorded on the request"><input type="checkbox" name="override"/>override limits</label>
 						}
-						<button type="submit" class="btn-primary">Request</button>
+						<button type="submit" class="btn-primary">@busyWord("Request", "Sending")</button>
 					</div>
 					<div id="form-error" class="refusal"></div>
 					<p class="help">{ limitsNote(pg) }</p>
 				</form>
 			</div>
 		</section>
-		if errMsg != "" {
-			<p class="error page-error">@icon("alert")<span>{ errMsg }</span></p>
-		}
-		@pendingCard(pg)
-		// errMsg comes only from a failed account load.
-		@accountsPanel(pg, rows, errMsg != "")
+		@pendingCard(pg, false)
+		// errMsg comes only from a failed account load. The panel shows it,
+		// so the next good poll clears it.
+		@accountsPanel(pg, rows, errMsg, hash, false)
 		<p class="help">
 			if pg.SignIn && !pg.Viewer.Admin {
 				You see the accounts you own.
@@ -214,22 +278,42 @@ templ indexPage(pg page, rows []accountRow, errMsg string) {
 	}
 }
 
-templ pendingCard(pg page) {
-	<section id="pending" class="panel" hx-swap-oob="true" aria-labelledby="pending-title">
+// pendingCard is the queue. oob marks it as an out-of-band part of an htmx
+// answer, which htmx morphs into the card on the page. When the queue did
+// not load, the head shows no count and the card says so, as the accounts
+// panel does. An empty card would read as an empty queue. The card holds
+// the live region of the home page. Every answer renders the empty node, so
+// a morph pairs it by id, and app.js keeps the node as it is.
+templ pendingCard(pg page, oob bool) {
+	<section
+		id="pending"
+		class="panel"
+		if oob {
+			hx-swap-oob="morph"
+		}
+		aria-labelledby="pending-title"
+	>
+		// app.js moves the focus to the heading when a decision takes the
+		// last row out, so the heading takes focus from script only.
 		<div class="panel-head">
-			<h2 id="pending-title">
+			<h2 id="pending-title" tabindex="-1">
 				if pg.Viewer.Approver {
 					Pending approvals
 				} else {
 					Your pending requests
 				}
-				<span class="muted">({ fmt.Sprint(len(pg.Pending)) })</span>
+				if !pg.PendingFailed {
+					<span class="muted">({ fmt.Sprint(len(pg.Pending)) })</span>
+				}
 			</h2>
 		</div>
+		@region()
 		// A refused decision on a row shows here, beside the rows, and not in
 		// the New request form.
 		<div id="pending-error" class="refusal"></div>
-		if len(pg.Pending) == 0 {
+		if pg.PendingFailed {
+			<p class="empty">The pending requests are unavailable. The page tries again every 15 seconds.</p>
+		} else if len(pg.Pending) == 0 {
 			<p class="empty">Nothing waiting.</p>
 		} else {
 			<div class="scroll">
@@ -247,7 +331,9 @@ templ pendingCard(pg page) {
 }
 
 // pendingRow is one request in the queue. Each action button carries the
-// request name for screen readers, so "Approve" says which request.
+// request name for screen readers, so "Approve" says which request. Each
+// control whose answer takes the focused button away names its action, so
+// app.js knows where the focus goes next.
 templ pendingRow(pg page, q core.Request) {
 	<tr id={ "req-" + q.Name }>
 		<td>{ q.Name }</td>
@@ -265,27 +351,27 @@ templ pendingRow(pg page, q core.Request) {
 		<td class="actions">
 			<div class="row-actions">
 				if canApprove(pg, q) {
-					<form class="inline" hx-post={ "/requests/" + q.Name + "/approve" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
+					<form class="inline" hx-post={ "/requests/" + q.Name + "/approve" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-action="approve">
 						@versionField(q)
 						<button type="submit" class="btn-approve">
 							@icon("stamp")
-							Approve<span class="vh">{ " " + q.Name }</span>
+							@busyWord("Approve", "Approving")<span class="vh">{ " " + q.Name }</span>
 						</button>
 					</form>
-					<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-prompt="Reason for denying (shown in the notice and in history)">
+					<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-prompt="Reason for denying (sent with the denied notice and kept in history)" hx-sync="this:drop" data-action="deny">
 						@versionField(q)
-						<button type="submit">Deny<span class="vh">{ " " + q.Name }</span></button>
+						<button type="submit">@busyWord("Deny", "Denying")<span class="vh">{ " " + q.Name }</span></button>
 					</form>
 				} else if pg.Viewer.Approver {
 					<span class="chip-mine" title="you requested this; another approver must act">Your request</span>
 				}
 				if pg.Viewer.Admin {
-					<button hx-get={ "/requests/" + q.Name + "/edit" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML" title="change owner, days, budget, or purpose before approving">Edit<span class="vh">{ " " + q.Name }</span></button>
+					<button hx-get={ "/requests/" + q.Name + "/edit" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML" title="change owner, days, budget, or purpose before approving" data-action="edit">Edit<span class="vh">{ " " + q.Name }</span></button>
 				}
 				if canWithdraw(pg.Viewer, q) {
-					<form class="inline" hx-post={ "/requests/" + q.Name + "/withdraw" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-confirm={ "Withdraw the request for " + q.Name + "?" }>
+					<form class="inline" hx-post={ "/requests/" + q.Name + "/withdraw" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-confirm={ "Withdraw the request for " + q.Name + "?" } hx-sync="this:drop" data-action="withdraw">
 						@versionField(q)
-						<button type="submit">Withdraw<span class="vh">{ " " + q.Name }</span></button>
+						<button type="submit">@busyWord("Withdraw", "Withdrawing")<span class="vh">{ " " + q.Name }</span></button>
 					</form>
 				}
 			</div>
@@ -317,7 +403,7 @@ templ pendingEditRow(pg page, q core.Request) {
 	<tr id={ "req-" + q.Name }>
 		<td>{ q.Name }</td>
 		<td colspan="6">
-			<form hx-post={ "/requests/" + q.Name + "/edit" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
+			<form hx-post={ "/requests/" + q.Name + "/edit" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-editing data-action="save">
 				@versionField(q)
 				<div class="form-row">
 					<label class="field">owner<input name="owner" value={ q.Owner } size="24"/></label>
@@ -325,8 +411,8 @@ templ pendingEditRow(pg page, q core.Request) {
 					<label class="field">budget $<input name="budget" type="number" min="0.01" step="0.01" value={ budgetValue(q.BudgetUSD) } class="in-budget"/></label>
 					<label class="field">purpose<input name="purpose" value={ q.Purpose } size="28" maxlength={ fmt.Sprint(core.MaxPurpose) } pattern={ tagPattern } title="letters, numbers, spaces, and _ . : / = + - @"/></label>
 					<label class="check" title="allow values above the ceilings"><input type="checkbox" name="override" checked?={ q.OverrideLimits }/>override limits</label>
-					<button type="submit" class="btn-primary">Save</button>
-					<button type="button" hx-get={ "/requests/" + q.Name + "/row" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML">Cancel</button>
+					<button type="submit" class="btn-primary">@busyWord("Save", "Saving")</button>
+					<button type="button" hx-get={ "/requests/" + q.Name + "/row" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML" data-action="cancel">Cancel</button>
 				</div>
 			</form>
 		</td>
@@ -334,17 +420,28 @@ templ pendingEditRow(pg page, q core.Request) {
 	</tr>
 }
 
-// accountsTable is the accounts panel after a good load.
-templ accountsTable(pg page, rows []accountRow) {
-	@accountsPanel(pg, rows, false)
-}
-
-// accountsPanel is the accounts panel. When the list did not load, the head
-// shows no count and the panel says the list is unavailable. An empty list
-// would look like a fleet with no accounts. The section keeps polling, so
-// the next good poll fills it.
-templ accountsPanel(pg page, rows []accountRow, failed bool) {
-	<section id="accounts" class="panel" hx-get={ tableURL(pg.ShowAll) } hx-trigger="every 15s" hx-swap="outerHTML" aria-labelledby="accounts-title">
+// accountsPanel is the accounts panel. When the list did not load, errMsg
+// holds the error, the head shows no count and the panel says the list is
+// unavailable. An empty list would look like a fleet with no accounts. The
+// section keeps polling, so the next good poll fills it. oob marks it as an
+// out-of-band part of an htmx answer. hash is the poll hash of this answer.
+// pollHash renders the section with no hash, so the hash never covers
+// itself.
+templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
+	<section
+		id="accounts"
+		class="panel"
+		hx-get={ tableURL(pg.ShowAll) }
+		hx-trigger="every 15s"
+		hx-swap="morph"
+		aria-labelledby="accounts-title"
+		if oob {
+			hx-swap-oob="morph"
+		}
+		if hash != "" {
+			data-poll-hash={ hash }
+		}
+	>
 		<div class="panel-head">
 			<h2 id="accounts-title">
 				if pg.SignIn && !pg.Viewer.Admin {
@@ -352,17 +449,19 @@ templ accountsPanel(pg page, rows []accountRow, failed bool) {
 				} else {
 					Accounts
 				}
-				if !failed {
+				if errMsg == "" {
 					<span class="muted">({ fmt.Sprint(len(rows)) })</span>
 				}
 			</h2>
-			<label class="check" title="include accounts AWS explicitly reports CLOSED"><input id="show-closed" type="checkbox" name="all" value="1" checked?={ pg.ShowAll } hx-get="/accounts" hx-target="#accounts" hx-swap="outerHTML" hx-trigger="change"/>Show closed</label>
+			<label class="check" title="include accounts AWS explicitly reports CLOSED"><input id="show-closed" type="checkbox" name="all" value="1" checked?={ pg.ShowAll } hx-get="/accounts" hx-target="#accounts" hx-swap="morph" hx-trigger="change"/>Show closed</label>
 		</div>
-		// A failed load and an empty list each show one plain line, as the
-		// pending card does, and no column heads. The head keeps Show
-		// closed, and the section keeps polling.
-		if failed {
-			<p class="empty">The account list is unavailable. The page tries again every 15 seconds.</p>
+		// A failed load is one note: the problem, then the error and the
+		// recovery. An empty list is one plain line, as in the pending card.
+		// Neither has column heads. The head keeps Show closed, and the
+		// section keeps polling. The error note has an id, so a morph never
+		// pairs it with the table that replaces it.
+		if errMsg != "" {
+			<div id="accounts-error" class="refusal">@icon("alert")<div class="note-text"><p class="note-title">The account list is unavailable.</p><p class="note-body">{ sentence(errMsg) + " The page tries again every 15 seconds." }</p></div></div>
 		} else if len(rows) == 0 {
 			<p class="empty">
 				if pg.ShowAll {
@@ -391,7 +490,7 @@ templ accountsPanel(pg page, rows []accountRow, failed bool) {
 // accountTR is one row of the fleet table. A placement wait is settling, not
 // a failure, so it is a qualifier with a clock. Errors are red with an alert.
 templ accountTR(r accountRow) {
-	<tr>
+	<tr id={ "acct-" + r.Account.ID }>
 		<td><a href={ templ.SafeURL("/accounts/" + r.Account.ID) }>{ r.Account.Name }</a></td>
 		<td><span class="owner" title={ r.Account.Owner }>{ r.Account.Owner }</span></td>
 		<td>
@@ -406,7 +505,13 @@ templ accountTR(r accountRow) {
 			}
 		</td>
 		<td><code>{ r.Account.ProviderID }</code></td>
-		<td title={ expiryDate(r.Account.ExpiresAt, time.RFC3339) }>
+		// A pending request counts its expiry from now, so the exact time
+		// would change on every read and every poll would get 200, not 204.
+		<td
+			if r.Account.Status != core.StatusPending {
+				title={ expiryDate(r.Account.ExpiresAt, time.RFC3339) }
+			}
+		>
 			if r.Account.Status == core.StatusActive || r.Account.Status == core.StatusExpiring || r.Account.Status == core.StatusClosing {
 				{ expiresIn(r.Account.ExpiresAt) }
 			} else if !r.Account.ExpiresAt.IsZero() && r.Account.Status != core.StatusFailed && r.Account.Status != core.StatusClosed {
@@ -425,7 +530,7 @@ templ accountTR(r accountRow) {
 		<td class="actions">
 			<div class="row-actions">
 				if r.Account.CanExtend() {
-					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/extend" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
+					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/extend" } hx-target="#accounts" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop">
 						<input type="hidden" name="by" value="7d"/>
 						<button type="submit" title="extend by 7 days" class="btn-approve">
 							@icon("stamp")
@@ -434,7 +539,7 @@ templ accountTR(r accountRow) {
 					</form>
 				}
 				if r.Account.Status.CanClose() {
-					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/close" } hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed" hx-confirm={ "Request closure of " + r.Account.Name + "? AWS processes closure asynchronously. Charges may continue while pending, and commitments or subscriptions can outlive closure." }>
+					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/close" } hx-target="#accounts" hx-swap="morph" hx-include="#show-closed" hx-confirm={ "Request closure of " + r.Account.Name + "? AWS processes closure asynchronously. Charges may continue while pending, and commitments or subscriptions can outlive closure." } hx-sync="this:drop" data-action="close">
 						<button type="submit">Close<span class="vh">{ " " + r.Account.Name }</span></button>
 					</form>
 				}
@@ -567,12 +672,12 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 				<div class="panel-head"><h2 id="budget-title">Change monthly budget</h2></div>
 				<div class="panel-body">
 					<p class="lede">An increase above reported spend can lift the provisioning restriction and rearm enforcement. AWS billing and policy changes are delayed. Existing resources keep charging.</p>
-					<form hx-post={ "/accounts/" + a.ID + "/budget" }>
+					<form hx-post={ "/accounts/" + a.ID + "/budget" } hx-sync="this:drop">
 						<div class="form-row">
 							<label class="field">USD per month<input name="budget" type="number" min="0.01" step="0.01" value={ fmt.Sprintf("%.2f", a.BudgetUSD) } required class="in-budget"/></label>
 							<label class="field">reason<input name="reason" maxlength="500" required/></label>
 							<label class="check"><input type="checkbox" name="override"/>override budget ceiling</label>
-							<button type="submit" class="btn-primary">Save budget</button>
+							<button type="submit" class="btn-primary">@busyWord("Save budget", "Saving")</button>
 						</div>
 					</form>
 					<div id="form-error" class="refusal"></div>
@@ -597,7 +702,7 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 					<p class="empty">{ history.Notice }</p>
 				}
 				if history.Error != "" {
-					<div class="panel-body"><p class="error page-error" role="alert">@icon("alert")<span>{ history.Error }</span></p></div>
+					<div class="panel-body"><p class="error page-error">@icon("alert")<span>{ history.Error }</span></p></div>
 				} else if len(history.Page.Events) == 0 && !history.Page.Incomplete {
 					<p class="empty">Nothing recorded yet for this journey.</p>
 				} else if len(history.Page.Events) > 0 {
@@ -628,7 +733,7 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 			</section>
 		}
 		if history.Enabled && history.Page.Incomplete {
-			<p class="banner-incomplete" role="alert">@icon("alert")<span>History is incomplete: some stored records could not be read.</span></p>
+			<p class="banner-incomplete">@icon("alert")<span>History is incomplete: some stored records could not be read.</span></p>
 		}
 		if history.NextURL != "" {
 			<p><a class="link" href={ templ.SafeURL(history.NextURL) }>Next history page</a></p>
@@ -653,13 +758,36 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 	}
 }
 
-templ noticeFragment(msg string) {
-	<p id="notice" class="notice" hx-swap-oob="true">@icon("sync")<span>{ msg }</span></p>
+// errorPage is a styled 400, 403 or 404 page: the title and the status
+// code, a refusal note that names the problem and the recovery, and one way
+// back. The note stacks its two lines, so the message stays the semibold
+// first line and the recovery is the body.
+templ errorPage(pg page, e errorView) {
+	@layout(pg, e.Title) {
+		<section class="panel" aria-labelledby="error-title">
+			<div class="panel-head"><h1 id="error-title">{ e.Title }</h1><span class="muted">{ fmt.Sprint(e.Code) }</span></div>
+			<div class="panel-body">
+				<div class="refusal">@icon("alert")<div class="note-text"><p class="note-title">{ e.Message }</p><p class="note-body">{ e.Recovery }</p></div></div>
+				<p class="way-back"><a class="btn btn-primary" href={ templ.SafeURL(e.Back) }>{ e.BackLabel }</a></p>
+			</div>
+		</section>
+	}
+}
+
+// noticeFragment writes a message into the live region. htmx swaps only what
+// is inside, so the region node keeps its role. Sync says what it found with
+// its own icon. The result of an action gets the check in shelf ink, the
+// color of the healthy state.
+templ noticeFragment(iconName, msg string) {
+	<p id="notice" hx-swap-oob="innerHTML"><svg class={ "i", templ.KV("i-ok", iconName == "check") } aria-hidden="true" focusable="false"><use href={ "#i-" + iconName }></use></svg><span>{ msg }</span></p>
 }
 
 // errorFragment fills the refusal slot with this id: form-error under a form,
 // or pending-error in the pending card. It names what went wrong beside the
-// thing it is about, with an alert icon.
+// thing it is about, with an alert icon. The live region gets the same text
+// as a hidden copy, so a screen reader hears it once and nobody sees it
+// twice.
 templ errorFragment(id, msg string) {
-	<div id={ id } class="refusal" hx-swap-oob="true">@icon("alert")<span>{ msg }</span></div>
+	<div id={ id } hx-swap-oob="innerHTML">@icon("alert")<span>{ msg }</span></div>
+	<p id="notice" hx-swap-oob="innerHTML"><span class="vh">{ msg }</span></p>
 }

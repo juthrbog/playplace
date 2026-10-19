@@ -4,13 +4,17 @@
 package web
 
 import (
+	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -97,7 +101,7 @@ func (s *Server) Handler() http.Handler {
 		// Slack authenticates its own calls with a request signature. Static
 		// files are public, they are the same for everyone.
 		if r.URL.Path == "/healthz" || r.URL.Path == "/favicon.ico" || strings.HasPrefix(r.URL.Path, "/auth/") || strings.HasPrefix(r.URL.Path, "/slack/") || strings.HasPrefix(r.URL.Path, "/static/") {
-			s.mux.ServeHTTP(w, r)
+			s.route(w, r)
 			return
 		}
 		v, ok := s.auth.Authenticate(r)
@@ -110,7 +114,7 @@ func (s *Server) Handler() http.Handler {
 			http.Redirect(w, r, s.auth.LoginPath(), http.StatusFound)
 			return
 		}
-		s.mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), viewerKey{}, v)))
+		s.route(w, r.WithContext(context.WithValue(r.Context(), viewerKey{}, v)))
 	}))
 }
 
@@ -138,21 +142,43 @@ type page struct {
 	Pending []core.Request // requests the viewer may see: their own, or all for approvers
 	Limits  core.Config    // ceilings and defaults shown in the form
 	Path    string         // the request path, so the shell can mark the current page
+	// SignedOut marks a page for nobody, such as a failed sign-in. The shell
+	// then shows only the brand.
+	SignedOut bool
+	// PendingFailed marks a queue that did not load. The card then says so,
+	// and a poll leaves the card on the page as it is.
+	PendingFailed bool
+	// RegionInCard marks the home page, which holds the live region in the
+	// pending card. The layout then leaves out its own.
+	RegionInCard bool
+}
+
+// regionInCard is pg for the home page layout.
+func regionInCard(pg page) page {
+	pg.RegionInCard = true
+	return pg
 }
 
 func (s *Server) pageFor(r *http.Request) page {
 	// "all" arrives as a query parameter on GET and, thanks to hx-include on
 	// the switch, in the body of every action, so the view survives actions.
 	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), ShowAll: r.FormValue("all") == "1", Limits: s.svc.Config(), Path: r.URL.Path}
-	if all, err := s.svc.PendingRequests(r.Context()); err == nil {
-		for _, q := range all {
-			if canSeeRequest(pg.Viewer, q) {
-				pg.Pending = append(pg.Pending, q)
-			}
-		}
-	} else {
+	all, err := s.svc.PendingRequests(r.Context())
+	if err != nil {
 		s.log.Warn("pending requests", "err", err)
+		pg.PendingFailed = true
+		return pg
 	}
+	for _, q := range all {
+		if canSeeRequest(pg.Viewer, q) {
+			pg.Pending = append(pg.Pending, q)
+		}
+	}
+	// Core sorts the queue by time alone, over tags in map order. The name
+	// breaks ties, so two reads of the same queue hash the same.
+	slices.SortStableFunc(pg.Pending, func(a, b core.Request) int {
+		return cmp.Or(a.RequestedAt.Compare(b.RequestedAt), strings.Compare(a.Name, b.Name))
+	})
 	return pg
 }
 
@@ -200,6 +226,11 @@ func (s *Server) rows(ctx context.Context, v Viewer, showAll bool, force bool) (
 			ids = append(ids, a.ID)
 		}
 	}
+	// Core sorts accounts by creation time alone, over a listing in map
+	// order. The id breaks ties, so two reads of the same fleet hash the same.
+	slices.SortStableFunc(mine, func(a, b *core.Account) int {
+		return cmp.Or(b.CreatedAt.Compare(a.CreatedAt), strings.Compare(a.ID, b.ID))
+	})
 	if err := s.svc.WarmCosts(ctx, ids, force); err != nil {
 		s.log.Warn("costs", "err", err)
 	}
@@ -216,17 +247,52 @@ func (s *Server) rows(ctx context.Context, v Viewer, showAll bool, force bool) (
 }
 
 // pendingAndTable re-renders the table and the pending section for htmx
-// responses.
-func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request) {
+// responses. fromCard is true for a decision made in the pending card, which
+// gets the card as its main swap. result is the message for the live region,
+// which says what the action did.
+func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request, fromCard bool, result string) {
 	pg := s.pageFor(r)
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	accountsTable(pg, rows).Render(r.Context(), w)
-	pendingUpdate(pg).Render(r.Context(), w)
+	s.writeAccounts(w, r, pg, rows, "", s.pollHash(r.Context(), pg, rows, ""), fromCard, noticeFragment("check", result))
+}
+
+// pollHashHeader carries the poll hash of the page. app.js sends it on the
+// 15 s poll, and the poll answers 204 when it still matches.
+const pollHashHeader = "X-Poll-Hash"
+
+// pollHash is the hash of what a poll answer shows: the accounts section
+// without its own hash, then the pending card and the count. The home page,
+// the poll and every action answer use it, so the section always carries
+// the hash of what the page shows. It is empty if the render fails, and the
+// section then carries none, so every poll gets the full answer. The hash
+// covers a failed list as one state, because the AWS error text holds a new
+// request ID on every call. The same outage then answers 204.
+func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMsg string) string {
+	if errMsg != "" {
+		errMsg = "unavailable"
+	}
+	h := sha256.New()
+	if err := accountsAnswer(pg, rows, errMsg, "").Render(ctx, h); err != nil {
+		s.log.Error("render poll hash", "err", err)
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil)[:16])
+}
+
+// writeAccounts answers with the accounts section, which carries hash for
+// the next poll, and the pending card. fromCard makes the card the main
+// swap, for a decision made in the card. after holds parts that follow,
+// such as the Sync message.
+func (s *Server) writeAccounts(w http.ResponseWriter, r *http.Request, pg page, rows []accountRow, errMsg, hash string, fromCard bool, after ...templ.Component) {
+	main := accountsAnswer(pg, rows, errMsg, hash)
+	if fromCard {
+		main = cardAnswer(pg, rows, hash)
+	}
+	s.render(w, r, templ.Join(append([]templ.Component{main}, after...)...))
 }
 
 // submit puts a request in the queue. Engineers request for themselves;
@@ -247,7 +313,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	if val := r.FormValue("ttl"); val != "" {
 		d, err := parseDuration(val)
 		if err != nil {
-			s.fail(w, r, err)
+			s.fail(w, r, fieldError{"ttl", err})
 			return
 		}
 		in.TTL = d
@@ -255,7 +321,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	if val := r.FormValue("budget"); val != "" {
 		b, err := parseBudget(val)
 		if err != nil {
-			s.fail(w, r, err)
+			s.fail(w, r, fieldError{"budget", err})
 			return
 		}
 		in.BudgetUSD = b
@@ -270,7 +336,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 			s.log.Warn("slack post", "err", err)
 		}
 	}
-	s.pendingAndTable(w, r)
+	s.pendingAndTable(w, r, false, "Sent the request for "+q.Name+".")
 }
 
 // requestRef is the request a form acts on: the name from the path and the
@@ -291,6 +357,7 @@ func (s *Server) failRequest(w http.ResponseWriter, r *http.Request, err error) 
 	s.log.Warn("request failed", "path", r.URL.Path, "err", err)
 	w.Header().Set("HX-Reswap", "none")
 	w.Header().Set("X-Form-Error", "1")
+	markField(w, err, "pending-error")
 	if errors.Is(err, core.ErrRequestChanged) || errors.Is(err, core.ErrNotFound) {
 		// Core drops the cache when it refuses a version. withdraw looks the
 		// request up before core sees the version, so a request that is gone
@@ -306,20 +373,20 @@ func (s *Server) failRequest(w http.ResponseWriter, r *http.Request, err error) 
 func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 	v := ViewerFrom(r.Context())
 	if !v.Approver {
-		s.forbid(w, r)
+		s.forbid(w, r, approversOnly)
 		return
 	}
 	if _, err := s.svc.Approve(r.Context(), requestRef(r), v.Email); err != nil {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r)
+	s.pendingAndTable(w, r, true, "Approved "+r.PathValue("name")+".")
 }
 
 func (s *Server) deny(w http.ResponseWriter, r *http.Request) {
 	v := ViewerFrom(r.Context())
 	if !v.Approver {
-		s.forbid(w, r)
+		s.forbid(w, r, approversOnly)
 		return
 	}
 	reason := r.FormValue("reason")
@@ -330,14 +397,14 @@ func (s *Server) deny(w http.ResponseWriter, r *http.Request) {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r)
+	s.pendingAndTable(w, r, true, "Denied "+r.PathValue("name")+".")
 }
 
 // editForm swaps a pending row for an inline form. Admins only.
 func (s *Server) editForm(w http.ResponseWriter, r *http.Request) {
 	pg := s.pageFor(r)
 	if !pg.Viewer.Admin {
-		s.forbid(w, r)
+		s.forbid(w, r, adminsEditOnly)
 		return
 	}
 	q, err := s.svc.GetRequest(r.Context(), r.PathValue("name"))
@@ -358,7 +425,7 @@ func (s *Server) editCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !canSeeRequest(pg.Viewer, q) {
-		s.forbid(w, r)
+		s.forbid(w, r, notYourRequest)
 		return
 	}
 	s.render(w, r, pendingRow(pg, q))
@@ -374,7 +441,7 @@ func canSeeRequest(v Viewer, q core.Request) bool {
 func (s *Server) editSave(w http.ResponseWriter, r *http.Request) {
 	v := ViewerFrom(r.Context())
 	if !v.Admin {
-		s.forbid(w, r)
+		s.forbid(w, r, adminsEditOnly)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -398,7 +465,7 @@ func (s *Server) editSave(w http.ResponseWriter, r *http.Request) {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r)
+	s.pendingAndTable(w, r, true, "Saved "+q.Name+".")
 }
 
 // RequestEditFromForm reads owner, days, budget, purpose, and override from
@@ -416,14 +483,14 @@ func RequestEditFromForm(r *http.Request, from core.Request) (core.RequestEdit, 
 	if val := r.FormValue("ttl"); val != "" && val != dayValue(from.TTL) {
 		d, err := parseDuration(val)
 		if err != nil {
-			return e, err
+			return e, fieldError{"ttl", err}
 		}
 		e.TTL = d
 	}
 	if val := r.FormValue("budget"); val != "" && val != budgetValue(from.BudgetUSD) {
 		b, err := parseBudget(val)
 		if err != nil {
-			return e, err
+			return e, fieldError{"budget", err}
 		}
 		e.BudgetUSD = b
 	}
@@ -457,14 +524,14 @@ func (s *Server) withdraw(w http.ResponseWriter, r *http.Request) {
 			s.failRequest(w, r, fmt.Errorf("%w: the request for %s you loaded has changed or ended; look again", core.ErrRequestChanged, ref.Name))
 			return
 		}
-		s.forbid(w, r)
+		s.forbid(w, r, cannotWithdraw)
 		return
 	}
 	if err := s.svc.Withdraw(r.Context(), ref, v.Email); err != nil {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r)
+	s.pendingAndTable(w, r, true, "Withdrew the request for "+ref.Name+".")
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
@@ -474,18 +541,43 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		msg = err.Error()
 	}
-	s.render(w, r, indexPage(pg, rows, msg))
+	s.render(w, r, indexPage(pg, rows, msg, s.pollHash(r.Context(), pg, rows, msg)))
 }
 
+// table answers the 15 s poll and the Show closed box. A poll that sends the
+// hash of the current answer gets 204 and no body. A failed list is a panel
+// that says so. Its hash leaves out the error text, so the same outage
+// answers 204, and the next good poll clears it.
 func (s *Server) table(w http.ResponseWriter, r *http.Request) {
-	pg := s.pageFor(r)
-	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
-	if err != nil {
-		s.fail(w, r, err)
+	// The answer is a fragment of the home page, so a page visit goes there.
+	if r.Header.Get("HX-Request") != "true" {
+		to := "/#accounts"
+		if r.FormValue("all") == "1" {
+			to = "/?all=1#accounts"
+		}
+		http.Redirect(w, r, to, http.StatusSeeOther)
 		return
 	}
-	s.render(w, r, accountsTable(pg, rows))
+	pg := s.pageFor(r)
+	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
+	var errMsg string
+	if err != nil {
+		s.log.Warn("accounts poll", "err", err)
+		rows, errMsg = nil, err.Error()
+	}
+	// The answer changes with the data, so a cache must ask every time.
+	w.Header().Set("Cache-Control", "private, no-cache")
+	hash := s.pollHash(r.Context(), pg, rows, errMsg)
+	if hash != "" && r.Header.Get(pollHashHeader) == hash {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	s.writeAccounts(w, r, pg, rows, errMsg, hash, false)
 }
+
+// syncFromShell is the HX-Target of Sync on a page with no accounts
+// section. The answer then holds only the live region part.
+const syncFromShell = "notice"
 
 func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	pg := s.pageFor(r)
@@ -496,30 +588,50 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	// the sync form has no fields of its own, so the switch is the only value
 	sum, err := s.svc.Refresh(r.Context())
 	if err != nil {
-		s.fail(w, r, err)
+		s.failSync(w, r, err)
 		return
 	}
 	s.svc.Invalidate()
+	msg := "Synced with AWS. Nothing changed."
+	if !sum.Empty() {
+		msg = "Synced with AWS: " + sum.String() + "."
+	}
+	if r.Header.Get("HX-Target") == syncFromShell {
+		s.render(w, r, noticeFragment("sync", msg))
+		return
+	}
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, true)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	msg := "synced, nothing changed"
-	if !sum.Empty() {
-		msg = "synced: " + sum.String()
+	s.writeAccounts(w, r, pg, rows, "", s.pollHash(r.Context(), pg, rows, ""), false, noticeFragment("sync", msg))
+}
+
+// failSync reports a failed Sync. Off the home page there is no refusal slot
+// near the button, so the refusal shows in the live region itself.
+func (s *Server) failSync(w http.ResponseWriter, r *http.Request, err error) {
+	if r.Header.Get("HX-Request") != "true" || r.Header.Get("HX-Target") != syncFromShell {
+		s.fail(w, r, err)
+		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	accountsTable(pg, rows).Render(r.Context(), w)
-	pendingUpdate(pg).Render(r.Context(), w)
-	noticeFragment(msg).Render(r.Context(), w)
+	s.log.Warn("request failed", "path", r.URL.Path, "err", err)
+	w.Header().Set("HX-Reswap", "none")
+	w.Header().Set("X-Form-Error", "1")
+	s.render(w, r, noticeFragment("alert", err.Error()))
 }
 
 // owned resolves an account the viewer may act on, or writes the error.
 func (s *Server) owned(w http.ResponseWriter, r *http.Request, ref string) (*core.Account, bool) {
 	a, err := s.svc.Resolve(r.Context(), ref)
 	if errors.Is(err, core.ErrNotFound) {
-		http.NotFound(w, r)
+		// htmx does not swap a 404, so an action on an account that is
+		// gone gets a refusal the page shows.
+		if r.Header.Get("HX-Request") == "true" {
+			s.fail(w, r, err)
+		} else {
+			s.accountNotFound(w, r, ref)
+		}
 		return nil, false
 	}
 	if err != nil {
@@ -527,7 +639,7 @@ func (s *Server) owned(w http.ResponseWriter, r *http.Request, ref string) (*cor
 		return nil, false
 	}
 	if !canSee(ViewerFrom(r.Context()), a) {
-		s.forbid(w, r)
+		s.forbid(w, r, notYourAccount)
 		return nil, false
 	}
 	return a, true
@@ -569,11 +681,12 @@ func (s *Server) extend(w http.ResponseWriter, r *http.Request) {
 	}
 	// Admins may push an account past the lifetime ceiling; engineers may not.
 	v := ViewerFrom(r.Context())
-	if _, err := s.svc.Extend(r.Context(), a.ID, a.ExpiresAt.Add(d), v.Email, v.Admin); err != nil {
+	extended, err := s.svc.Extend(r.Context(), a.ID, a.ExpiresAt.Add(d), v.Email, v.Admin)
+	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	s.table(w, r)
+	s.pendingAndTable(w, r, false, "Extended "+a.Name+" to "+extended.ExpiresAt.UTC().Format("Jan 2 15:04 MST")+".")
 }
 
 func (s *Server) close(w http.ResponseWriter, r *http.Request) {
@@ -585,7 +698,7 @@ func (s *Server) close(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.table(w, r)
+	s.pendingAndTable(w, r, false, "Requested closure of "+a.Name+".")
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, c templ.Component) {
@@ -595,25 +708,37 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, c templ.Componen
 	}
 }
 
-// forbid answers 403 with a reason; the default says the account is not theirs.
-func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why ...string) {
-	msg := "that account belongs to someone else"
-	if len(why) > 0 {
-		msg = why[0]
-	}
-	s.log.Warn("forbidden", "path", r.URL.Path, "viewer", ViewerFrom(r.Context()).Email, "why", msg)
+// forbid answers 403 with the reason, which names the rule that refused the
+// viewer. Every /requests/{name}/... route acts from the pending card, so its
+// refusal fills the slot of the card. A page visit gets the styled 403 page.
+func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why string) {
+	s.log.Warn("forbidden", "path", r.URL.Path, "viewer", ViewerFrom(r.Context()).Email, "why", why)
 	if r.Header.Get("HX-Request") == "true" {
+		// app.js swaps the out-of-band parts of a 403 only with HX-Reswap:
+		// none, so the slot and the live region show the refusal.
 		w.Header().Set("HX-Reswap", "none")
 		w.Header().Set("X-Form-Error", "1")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusForbidden)
-		errorFragment("form-error", msg).Render(r.Context(), w)
+		slot := "form-error"
+		if strings.HasPrefix(r.URL.Path, "/requests/") {
+			slot = "pending-error"
+		}
+		if err := errorFragment(slot, why).Render(r.Context(), w); err != nil {
+			s.log.Error("render", "path", r.URL.Path, "err", err)
+		}
 		return
 	}
-	http.Error(w, msg, http.StatusForbidden)
+	recovery := forbidRecovery[why]
+	if recovery == "" {
+		recovery = "Go back to Home."
+	}
+	s.errorPage(w, r, errorView{Code: http.StatusForbidden, Title: "Not allowed", Message: why, Recovery: recovery, Back: "/", BackLabel: "Go to Home"})
 }
 
-// fail returns an error the page can show. htmx requests get an out-of-band
-// fragment so the notice slot updates without replacing the table.
+// fail returns an error the page can show. htmx requests get out-of-band
+// parts, so the refusal slot and the live region update without replacing
+// the table. A page visit gets the styled 400 page.
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	s.log.Warn("request failed", "path", r.URL.Path, "err", err)
 	if r.Header.Get("HX-Request") == "true" {
@@ -621,10 +746,38 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		// the form not to reset its fields.
 		w.Header().Set("HX-Reswap", "none")
 		w.Header().Set("X-Form-Error", "1")
+		markField(w, err, "form-error")
 		s.render(w, r, errorFragment("form-error", err.Error()))
 		return
 	}
-	http.Error(w, err.Error(), http.StatusBadRequest)
+	s.errorPage(w, r, errorView{Code: http.StatusBadRequest, Title: "Action refused", Message: err.Error(), Recovery: "Go back to Home and try again.", Back: "/", BackLabel: "Go to Home"})
+}
+
+// The headers of a refused field. app.js marks the input with aria-invalid
+// and ties it to the slot that holds the refusal with aria-describedby.
+const (
+	invalidFieldHeader = "X-Invalid-Field"
+	invalidSlotHeader  = "X-Invalid-Slot"
+)
+
+// fieldError is a refusal of one form field. Only the numbers that the web
+// layer parses itself carry a field. Core refusals name no field.
+type fieldError struct {
+	field string
+	err   error
+}
+
+func (e fieldError) Error() string { return e.err.Error() }
+func (e fieldError) Unwrap() error { return e.err }
+
+// markField names the refused field and its slot when err is about one
+// field. Any other refusal leaves both headers out.
+func markField(w http.ResponseWriter, err error, slot string) {
+	var fe fieldError
+	if errors.As(err, &fe) {
+		w.Header().Set(invalidFieldHeader, fe.field)
+		w.Header().Set(invalidSlotHeader, slot)
+	}
 }
 
 // parseBudget reads a monthly budget. ParseFloat also accepts "NaN", "Inf",

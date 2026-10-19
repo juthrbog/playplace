@@ -527,13 +527,29 @@ development only and prints a warning. Any other sign-in flag without an
 issuer makes `serve` refuse to start, so a lost issuer setting cannot open the
 UI to everyone.
 
-The UI ships its own copy of htmx and serves every page with a
+The UI ships its own copy of htmx and idiomorph and serves every page with a
 Content-Security-Policy that allows scripts, styles and fonts only from
 itself, so nothing is loaded from a third-party host. The policy allows no
 inline style, inline script or inline event handler. Page behaviour lives in
 `internal/web/static/app.js`, and every style lives in
 `internal/web/static/app.css`. The fonts are self-hosted woff2 files under
 `internal/web/static/fonts`.
+
+`app.js` holds the htmx morph extension. The extension uses idiomorph to
+merge each answer into the page, so focus, scroll and open forms stay. Every
+page has one live region, the `#notice` element with `aria-live="polite"`.
+The home page holds it in the pending card, under the card heading, so an
+approver who arrives from the `BASE/#pending` link sees each result. Every
+other page holds it at the top of `<main>`. Each action writes a short
+result message into it. A refusal fills its slot under the form or in the
+pending card, and writes a hidden copy of the same text into the region.
+While a request runs, its button sets `aria-busy` and shows its verb in
+progress, for example Approving. When an answer takes the focused button
+out of the page, `app.js` moves the focus to the next control of that row,
+or to the same button on the next row. The home
+page polls `GET /accounts` every 15 seconds. The poll sends the
+`X-Poll-Hash` header with the hash of what the page shows. If nothing
+changed, the server answers 204 No Content and the page stays as it is.
 
 The server needs management-account credentials, because AWS only allows
 CreateAccount and CloseAccount from there. Run it in the management account

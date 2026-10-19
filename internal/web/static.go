@@ -10,12 +10,18 @@ import (
 	"strings"
 )
 
-// Static holds the vendored htmx build, the page script, the stylesheet and
-// the fonts. Serving them from the binary means the UI trusts no third-party
-// host and can run under a strict Content-Security-Policy.
+// Static holds the vendored htmx and idiomorph builds, the page script, the
+// stylesheet and the fonts. Serving them from the binary means the UI trusts
+// no third-party host and can run under a strict Content-Security-Policy.
 //
-// htmx 2.0.10, sha256 71ea67185bfa8c98c39d31717c6fce5d852370fcdfd129db4543774d3145c0de,
-// from https://unpkg.com/htmx.org@2.0.10/dist/htmx.min.js.
+// htmx 2.0.11, sha256 d6fdc75f204e6bdefa99b69bf1e6d4ac69b8a364f77929f45c13476b4000f717,
+// from https://unpkg.com/htmx.org@2.0.11/dist/htmx.min.js.
+//
+// idiomorph 0.8.0, sha256 4cbd535caf7663a51eda9bce6595371c384fc430d54b8d414e29a61167f19f96,
+// from https://unpkg.com/idiomorph@0.8.0/dist/idiomorph.min.js.
+//
+// Both are under the 0BSD license. The idiomorph file is the core only. It
+// has no eval, and app.js holds the htmx extension that calls it.
 //
 // Public Sans (variable, wght) and Courier Prime 400 and 700, latin and
 // latin-ext woff2 subsets, come from Fontsource 5.3.0

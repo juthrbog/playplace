@@ -1,7 +1,9 @@
 package web
 
 import (
+	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
@@ -134,16 +136,79 @@ func TestNoAuthBand(t *testing.T) {
 func TestNoticeLivesInMain(t *testing.T) {
 	ts, _ := newServer(t)
 	_, body := do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
-	// The notice is empty, with nothing inside, so the stylesheet can hide
-	// it with :empty.
-	notice := strings.Index(body, `<p id="notice" class="notice"></p>`)
+	// The notice is the live region. It is empty, with nothing inside, so
+	// the stylesheet can hide it with :empty.
+	notice := strings.Index(body, `<p id="notice" class="notice" role="status" aria-live="polite"></p>`)
 	if notice < 0 || notice < strings.Index(body, "<main>") || notice < strings.Index(body, "</header>") {
 		t.Fatalf("the empty notice should sit in main, after the shell:\n%s", body)
 	}
 	_, body = do(t, ts, "POST", "/refresh", "ops@example.com", true, url.Values{}, true)
-	if !strings.Contains(body, `<p id="notice" class="notice" hx-swap-oob="true">`) || !strings.Contains(body, "synced") {
+	if !strings.Contains(body, `<p id="notice" hx-swap-oob="innerHTML">`) || !strings.Contains(body, "<span>Synced with AWS") {
 		t.Fatalf("sync should fill the notice:\n%s", body)
 	}
+}
+
+// Only the home page has the accounts section. On any other page, Sync
+// targets the live region and swaps nothing, so htmx sends the request and
+// the answer is the region part alone. A target that is not on the page
+// would make htmx drop the click with no word.
+func TestSyncOffTheHomePageWritesOnlyTheRegion(t *testing.T) {
+	ts, _ := newServer(t)
+	syncForm := regexp.MustCompile(`<form class="sync"[^>]*>`)
+	_, home := do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
+	if tag := syncForm.FindString(home); !strings.Contains(tag, `hx-target="#accounts"`) || !strings.Contains(tag, `hx-swap="morph"`) {
+		t.Errorf("Sync on the home page does not morph the accounts section: %s", tag)
+	}
+	for _, path := range []string{"/accounts/111111111111", "/nope"} {
+		_, body := do(t, ts, "GET", path, "ops@example.com", true, nil, false)
+		tag := syncForm.FindString(body)
+		if tag == "" || strings.Contains(tag, "#accounts") || !strings.Contains(tag, `hx-target="#notice"`) || !strings.Contains(tag, `hx-swap="none"`) {
+			t.Errorf("%s: Sync does not write only into the region: %q", path, tag)
+		}
+	}
+
+	res, body := postSyncOffHome(t, ts)
+	if res.StatusCode != http.StatusOK || !regionPart.MatchString(body) || !strings.Contains(body, "<span>Synced with AWS") {
+		t.Fatalf("Sync from another page = %d, want the region part:\n%s", res.StatusCode, body)
+	}
+	if rest := regionPart.ReplaceAllString(body, ""); rest != "" {
+		t.Errorf("Sync from another page answers more than the region part: %s", rest)
+	}
+
+	// There is no refusal slot near Sync off the home page, so a failed
+	// Sync names the problem in the region itself.
+	flaky := &flakyList{}
+	ts, _ = newServerOn(t, func(p *fake.Provider) core.Provider { flaky.Provider = p; return flaky })
+	flaky.fail.Store(true)
+	res, body = postSyncOffHome(t, ts)
+	alert := `<p id="notice" hx-swap-oob="innerHTML"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-alert"></use></svg><span>`
+	if res.Header.Get("HX-Reswap") != "none" || res.Header.Get("X-Form-Error") != "1" || !strings.HasPrefix(body, alert) || strings.Contains(body, "form-error") {
+		t.Errorf("a failed Sync from another page = %d %v, want the refusal in the region:\n%s", res.StatusCode, res.Header, body)
+	}
+}
+
+// postSyncOffHome posts Sync as the shell does on a page with no accounts
+// section: the target is the live region.
+func postSyncOffHome(t *testing.T, ts *httptest.Server) (*http.Response, string) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", ts.URL+"/refresh", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User", "ops@example.com")
+	req.Header.Set("X-Admin", "1")
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Target", syncFromShell)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := res.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return res, string(b)
 }
 
 func TestEveryIconHasASymbol(t *testing.T) {

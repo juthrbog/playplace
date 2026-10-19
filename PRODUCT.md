@@ -78,10 +78,10 @@ account limit of the organization until 90 days after it closes.
   characters. A budget has at most two decimals.
 - Sign-in is OIDC with a 12-hour session. Without OIDC, every visitor is an
   admin named "operator", which is for development only.
-- Stack: the web UI is templ with a vendored htmx 2.0.10 today, inside one
-  Go binary, with a CSP that allows scripts only from the server. The owner
-  said on 2026-10-11 that a JS framework is acceptable for the overhaul.
-  The choice is open.
+- Stack: the web UI is templ with a vendored htmx 2.0.11 and idiomorph
+  0.8.0 today, inside one Go binary, with a CSP that allows scripts only
+  from the server. The owner said on 2026-10-11 that a JS framework is
+  acceptable for the overhaul. The choice is open.
 - Vocabulary follows CONTEXT.md. Say lifecycle notice, not notification.
   Say settling protection, not error, while it lasts under two hours. Say
   account readiness, not created or active, for "ready to use". Say

@@ -39,6 +39,13 @@ func (headerAuth) Authenticate(r *http.Request) (Viewer, bool) {
 
 func newServer(t *testing.T) (*httptest.Server, *fake.Provider) {
 	t.Helper()
+	return newServerOn(t, func(p *fake.Provider) core.Provider { return p })
+}
+
+// newServerOn is newServer with the seeded fake wrapped, for a test that
+// needs a provider that fails.
+func newServerOn(t *testing.T, wrap func(*fake.Provider) core.Provider) (*httptest.Server, *fake.Provider) {
+	t.Helper()
 	prov := fake.New()
 	prov.Now = func() time.Time { return t0 }
 	tags := func(owner string) map[string]string {
@@ -48,7 +55,7 @@ func newServer(t *testing.T) (*httptest.Server, *fake.Provider) {
 	prov.Seed(core.RemoteAccount{ProviderID: "222222222222", Name: "sams-box", Email: "s@example.com", JoinedAt: t0, Tags: tags("sam@example.com")})
 	cfg := core.DefaultConfig()
 	cfg.InventoryTTL = 0
-	svc := core.NewService(prov, nil, cfg, nil)
+	svc := core.NewService(wrap(prov), nil, cfg, nil)
 	svc.Now = func() time.Time { return t0 }
 	hist := &audit.Memory{}
 	svc.SetAuditor(hist)
@@ -182,15 +189,16 @@ func TestEmptyAccountsPanelHasNoTable(t *testing.T) {
 	}
 }
 
-// A failed load is not an empty fleet. The page error names the problem. The
-// panel shows no count and says that the list is unavailable. The section
-// still polls, so the next good poll fills it.
+// A failed load is not an empty fleet. The panel has its own note: the
+// problem as the title, then the error and the recovery. It shows no count.
+// The section still polls, so the next good poll fills it and clears the
+// note.
 func TestFailedAccountLoadIsNotAnEmptyFleet(t *testing.T) {
 	pg := page{Viewer: Viewer{Email: "nobody@example.com"}, SignIn: true, Limits: core.DefaultConfig()}
 	render := func(errMsg string) (string, string) {
 		t.Helper()
 		var out strings.Builder
-		if err := indexPage(pg, nil, errMsg).Render(context.Background(), &out); err != nil {
+		if err := indexPage(pg, nil, errMsg, "").Render(context.Background(), &out); err != nil {
 			t.Fatal(err)
 		}
 		_, section, ok := strings.Cut(out.String(), `<section id="accounts"`)
@@ -201,12 +209,14 @@ func TestFailedAccountLoadIsNotAnEmptyFleet(t *testing.T) {
 		return out.String(), section
 	}
 
-	body, section := render("list accounts: AccessDenied")
-	if !strings.Contains(body, "list accounts: AccessDenied") {
-		t.Errorf("the page error is missing:\n%s", body)
+	_, section := render("list accounts: AccessDenied")
+	want := `<div id="accounts-error" class="refusal">` + alertIcon + `<div class="note-text"><p class="note-title">The account list is unavailable.</p>` +
+		`<p class="note-body">List accounts: AccessDenied. The page tries again every 15 seconds.</p></div></div>`
+	if !strings.Contains(section, want) {
+		t.Errorf("the panel does not name the problem, the error and the recovery in its own note:\n%s", section)
 	}
-	if !strings.Contains(section, `<p class="empty">The account list is unavailable. The page tries again every 15 seconds.</p>`) {
-		t.Errorf("the panel does not say that the list is unavailable:\n%s", section)
+	if strings.Contains(section, `<p class="empty">`) {
+		t.Errorf("the failed panel repeats the problem outside its note:\n%s", section)
 	}
 	for _, bad := range []string{"(0)", "No open accounts.", "No accounts.", "<table"} {
 		if strings.Contains(section, bad) {
@@ -257,6 +267,11 @@ func TestPagesShipTheirOwnScriptsUnderACSP(t *testing.T) {
 	if !strings.Contains(body, `src="/static/app.js?v=`) || !strings.Contains(body, `<link rel="stylesheet" href="/static/app.css?v=`) {
 		t.Fatalf("the page script and the stylesheet should be versioned:\n%s", body)
 	}
+	// app.js defines the morph extension, so htmx and idiomorph load first.
+	hx, im, app := strings.Index(body, `src="/static/htmx.min.js?v=`), strings.Index(body, `src="/static/idiomorph.min.js?v=`), strings.Index(body, `src="/static/app.js?v=`)
+	if im < 0 || hx >= im || im >= app {
+		t.Fatalf("scripts should load in the order htmx, idiomorph, app.js (at %d, %d, %d):\n%s", hx, im, app, body)
+	}
 	if got := res.Header.Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self'") || !strings.Contains(got, "style-src 'self'") || !strings.Contains(got, "font-src 'self'") || strings.Contains(got, "unsafe-eval") || strings.Contains(got, "unsafe-inline") {
 		t.Fatalf("csp = %q", got)
 	}
@@ -266,11 +281,20 @@ func TestPagesShipTheirOwnScriptsUnderACSP(t *testing.T) {
 		t.Fatalf("the htmx config should turn off the indicator styles:\n%s", body)
 	}
 	// The CSP blocks inline styles, so a page with one loses that style.
-	// The admin pages render the most markup.
-	for _, path := range []string{"/", "/accounts/111111111111"} {
-		res, page := do(t, ts, "GET", path, "admin@example.com", true, nil, false)
-		if res.StatusCode != http.StatusOK || strings.Contains(page, "style=") || strings.Contains(page, "<style") {
-			t.Fatalf("GET %s = %d, want 200 with no inline style:\n%s", path, res.StatusCode, page)
+	// The admin pages render the most markup. The error pages are pages too.
+	for _, c := range []struct {
+		path, user string
+		admin      bool
+		code       int
+	}{
+		{"/", "admin@example.com", true, http.StatusOK},
+		{"/accounts/111111111111", "admin@example.com", true, http.StatusOK},
+		{"/nope", "admin@example.com", true, http.StatusNotFound},
+		{"/accounts/222222222222", "anna@example.com", false, http.StatusForbidden},
+	} {
+		res, page := do(t, ts, "GET", c.path, c.user, c.admin, nil, false)
+		if res.StatusCode != c.code || strings.Contains(page, "style=") || strings.Contains(page, "<style") {
+			t.Fatalf("GET %s = %d, want %d with no inline style:\n%s", c.path, res.StatusCode, c.code, page)
 		}
 	}
 	// Icon links carry a version so browsers drop cached copies when the
@@ -289,6 +313,10 @@ func TestPagesShipTheirOwnScriptsUnderACSP(t *testing.T) {
 	res, body = do(t, ts, "GET", "/static/htmx.min.js", "", false, nil, false)
 	if res.StatusCode != http.StatusOK || !strings.HasPrefix(body, "var htmx=") {
 		t.Fatalf("htmx should be served from the binary, got %d", res.StatusCode)
+	}
+	res, body = do(t, ts, "GET", "/static/idiomorph.min.js", "", false, nil, false)
+	if res.StatusCode != http.StatusOK || !strings.HasPrefix(body, "var Idiomorph=") {
+		t.Fatalf("idiomorph should be served from the binary, got %d", res.StatusCode)
 	}
 	if res, _ := do(t, ts, "GET", "/static/app.js", "", false, nil, false); res.StatusCode != http.StatusOK {
 		t.Fatalf("app.js = %d", res.StatusCode)
