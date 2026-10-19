@@ -219,17 +219,20 @@ func (s *Server) rows(ctx context.Context, v Viewer, showAll bool, force bool) (
 }
 
 // pendingAndTable re-renders the table and the pending section for htmx
-// responses.
-func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request) {
+// responses. fromCard is true for a decision made in the pending card, which
+// gets the card as its main swap.
+func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request, fromCard bool) {
 	pg := s.pageFor(r)
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	accountsTable(pg, rows).Render(r.Context(), w)
-	pendingUpdate(pg).Render(r.Context(), w)
+	if fromCard {
+		s.render(w, r, cardAnswer(pg, rows))
+		return
+	}
+	s.render(w, r, accountsAnswer(pg, rows))
 }
 
 // submit puts a request in the queue. Engineers request for themselves;
@@ -273,7 +276,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 			s.log.Warn("slack post", "err", err)
 		}
 	}
-	s.pendingAndTable(w, r)
+	s.pendingAndTable(w, r, false)
 }
 
 // requestRef is the request a form acts on: the name from the path and the
@@ -316,7 +319,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r)
+	s.pendingAndTable(w, r, true)
 }
 
 func (s *Server) deny(w http.ResponseWriter, r *http.Request) {
@@ -333,7 +336,7 @@ func (s *Server) deny(w http.ResponseWriter, r *http.Request) {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r)
+	s.pendingAndTable(w, r, true)
 }
 
 // editForm swaps a pending row for an inline form. Admins only.
@@ -401,7 +404,7 @@ func (s *Server) editSave(w http.ResponseWriter, r *http.Request) {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r)
+	s.pendingAndTable(w, r, true)
 }
 
 // RequestEditFromForm reads owner, days, budget, purpose, and override from
@@ -467,7 +470,7 @@ func (s *Server) withdraw(w http.ResponseWriter, r *http.Request) {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r)
+	s.pendingAndTable(w, r, true)
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
@@ -512,10 +515,7 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	if !sum.Empty() {
 		msg = "synced: " + sum.String()
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	accountsTable(pg, rows).Render(r.Context(), w)
-	pendingUpdate(pg).Render(r.Context(), w)
-	noticeFragment(msg).Render(r.Context(), w)
+	s.render(w, r, templ.Join(accountsAnswer(pg, rows), noticeFragment(msg)))
 }
 
 // owned resolves an account the viewer may act on, or writes the error.
