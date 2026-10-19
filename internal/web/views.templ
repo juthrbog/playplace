@@ -548,13 +548,12 @@ templ accountTR(r accountRow) {
 	</tr>
 }
 
-// statusLabel is the icon and the word of an account status. A closing
-// account with an error is an overdue closure. Its box turns red, and the
-// qualifier "overdue" follows the word, because color alone never names a
-// state.
+// statusLabel is the icon and the word of an account status. An overdue
+// closure (core ClosureOverdue) turns its box red, and the qualifier
+// "overdue" follows the word, because color alone never names a state.
 templ statusLabel(a *core.Account) {
-	<span class={ "status", "status-" + string(a.Status), templ.KV("status-overdue", a.Status == core.StatusClosing && a.LastError != "") }>@icon(statusIcon(a.Status))<span>{ string(a.Status) }</span></span>
-	if a.Status == core.StatusClosing && a.LastError != "" {
+	<span class={ "status", "status-" + string(a.Status), templ.KV("status-overdue", a.ClosureOverdue()) }>@icon(statusIcon(a.Status))<span>{ string(a.Status) }</span></span>
+	if a.ClosureOverdue() {
 		<span class="qualifier">overdue</span>
 	}
 }

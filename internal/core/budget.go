@@ -141,13 +141,14 @@ func (s *Service) budgetSpec(a *Account) (BudgetSpec, error) {
 	return BudgetSpec{LimitUSD: a.BudgetUSD, Email: s.cfg.AlertEmail, PolicyID: s.cfg.BudgetPolicyID, RoleARN: s.cfg.BudgetActionRole, Recovery: r, Now: s.Now()}, err
 }
 
-// protectionSettleAlert is how long protection can stay settling, that is in a
+// ProtectionSettleAlert is how long protection can stay settling, that is in a
 // state that a later pass completes (setup-pending, restricting, recovering,
-// retiring), before reconciliation reports it as a failure. Normal progress
-// takes two to four passes: minutes with the serve worker, under an hour with
-// a 15-minute scheduled reconcile. The overdue error and the docs say "two
-// hours": change them together.
-const protectionSettleAlert = 2 * time.Hour
+// retiring), before reconciliation reports it as a failure. Attention uses it
+// for the settling-long kind. Normal progress takes two to four passes:
+// minutes with the serve worker, under an hour with a 15-minute scheduled
+// reconcile. The overdue error and the docs say "two hours": change them
+// together.
+const ProtectionSettleAlert = 2 * time.Hour
 
 // reconcileBudget reports settled when protection is observed configured.
 // Unsettled protection without an error is progress: callers must not grant
@@ -283,7 +284,7 @@ func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec B
 	// the state lasts too long, so that protection that never settles still
 	// alerts.
 	since, perr := time.Parse(time.RFC3339, a.BudgetChecked)
-	if perr == nil && s.Now().Sub(since) < protectionSettleAlert {
+	if perr == nil && s.Now().Sub(since) < ProtectionSettleAlert {
 		return nil
 	}
 	return fmt.Errorf("budget for %s: protection is still %s after more than two hours (since %q). Inspect the account's budget action in AWS Budgets", a.Name, state, a.BudgetChecked)
