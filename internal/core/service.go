@@ -1480,18 +1480,31 @@ func (s *Service) Approve(ctx context.Context, ref RequestRef, approver string) 
 	return a, nil
 }
 
+// ErrSelfApproval is the sentinel of every CheckApprover refusal. An
+// interface finds it with errors.Is and can then choose its own words.
+var ErrSelfApproval = errors.New("self-approval refused")
+
+// selfApprovalError is a refusal of CheckApprover. Error returns the refusal
+// alone, with no prefix from the sentinel, so the CLI and the TUI keep their
+// words.
+type selfApprovalError struct{ msg string }
+
+func (e selfApprovalError) Error() string { return e.msg }
+func (e selfApprovalError) Unwrap() error { return ErrSelfApproval }
+
 // CheckApprover applies the self-approval rule: nobody may approve a request
 // they asked for or would own, unless self-approval is allowed. The web UI
 // uses it to decide whether to show the button, so the click always matches.
+// A refusal matches ErrSelfApproval.
 func CheckApprover(r Request, approver string, allowSelf bool) error {
 	if allowSelf {
 		return nil
 	}
 	if strings.EqualFold(r.RequestedBy, approver) {
-		return fmt.Errorf("%s requested %s and cannot approve it; another approver must", approver, r.Name)
+		return selfApprovalError{fmt.Sprintf("%s requested %s and cannot approve it; another approver must", approver, r.Name)}
 	}
 	if strings.EqualFold(r.Owner, approver) {
-		return fmt.Errorf("%s would own %s and cannot approve it; another approver must", approver, r.Name)
+		return selfApprovalError{fmt.Sprintf("%s would own %s and cannot approve it; another approver must", approver, r.Name)}
 	}
 	return nil
 }
