@@ -271,11 +271,20 @@ func TestPagesShipTheirOwnScriptsUnderACSP(t *testing.T) {
 		t.Fatalf("the htmx config should turn off the indicator styles:\n%s", body)
 	}
 	// The CSP blocks inline styles, so a page with one loses that style.
-	// The admin pages render the most markup.
-	for _, path := range []string{"/", "/accounts/111111111111"} {
-		res, page := do(t, ts, "GET", path, "admin@example.com", true, nil, false)
-		if res.StatusCode != http.StatusOK || strings.Contains(page, "style=") || strings.Contains(page, "<style") {
-			t.Fatalf("GET %s = %d, want 200 with no inline style:\n%s", path, res.StatusCode, page)
+	// The admin pages render the most markup. The error pages are pages too.
+	for _, c := range []struct {
+		path, user string
+		admin      bool
+		code       int
+	}{
+		{"/", "admin@example.com", true, http.StatusOK},
+		{"/accounts/111111111111", "admin@example.com", true, http.StatusOK},
+		{"/nope", "admin@example.com", true, http.StatusNotFound},
+		{"/accounts/222222222222", "anna@example.com", false, http.StatusForbidden},
+	} {
+		res, page := do(t, ts, "GET", c.path, c.user, c.admin, nil, false)
+		if res.StatusCode != c.code || strings.Contains(page, "style=") || strings.Contains(page, "<style") {
+			t.Fatalf("GET %s = %d, want %d with no inline style:\n%s", c.path, res.StatusCode, c.code, page)
 		}
 	}
 	// Icon links carry a version so browsers drop cached copies when the

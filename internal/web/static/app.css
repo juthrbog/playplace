@@ -918,6 +918,23 @@
   .refusal:empty {
     display: none;
   }
+  /* A note with a recovery stacks two lines: the problem in semibold, then
+     the recovery as the body. */
+  .note-text {
+    max-width: 75ch;
+  }
+  .note-title {
+    font-weight: 600;
+  }
+  .note-body {
+    margin-top: var(--space-hair);
+    font-size: 13.5px;
+    font-weight: 400;
+  }
+  /* The way back on an error page sits under the note. */
+  .way-back {
+    margin-top: var(--space-lg);
+  }
   /* In a panel with no body, such as the pending card, the refusal sits
      under the head at the row inset. */
   .panel > .refusal {

@@ -47,57 +47,60 @@ templ layout(pg page, title string) {
 // get Home, approvers also get Queue with its count, and admins get Queue
 // and Accounts, because the brand is their link home. The menu toggle comes
 // right after the brand, so the next Tab after it enters the menu. On a phone
-// the in-menu items hide behind it, and Queue and Sync stay in the bar.
+// the in-menu items hide behind it, and Queue and Sync stay in the bar. A
+// page for nobody, such as a failed sign-in, shows only the brand.
 templ shell(pg page) {
 	<header class="shell">
 		<a class="brand" href="/"><svg class="mark" aria-hidden="true" focusable="false"><use href="#i-mark"></use></svg><span class="brand-word"><b>play</b><span class="place">place</span></span></a>
-		<button type="button" class="menu-toggle" aria-expanded="false" aria-controls="shell-menu">@icon("menu")<span class="vh">Menu</span></button>
-		<div id="shell-menu" class="shell-menu">
-			<nav class="nav" aria-label="Main">
-				<ul>
-					if !pg.Viewer.Admin {
-						<li class="in-menu">
-							<a
-								class="nav-link"
-								href="/"
-								if pg.Path == "/" {
-									aria-current="page"
-								}
-							>Home</a>
-						</li>
-					}
-					if pg.Viewer.Approver {
-						<li>
-							<a class="nav-link" href="/#pending">
-								Queue
-								@queueCount(pg, false)
-							</a>
-						</li>
-					}
-					if pg.Viewer.Admin {
-						<li class="in-menu"><a class="nav-link" href="/#accounts">Accounts</a></li>
-					}
-				</ul>
-			</nav>
-			if pg.Viewer.Admin {
-				<form class="sync" hx-post="/refresh" hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
-					<button type="submit" class="btn-ghost" title="poll creations, sweep expiry, retry closes">@icon("sync")<span class="btn-word">Sync with AWS</span></button>
-				</form>
-			}
-			<a class="btn btn-chip in-menu" href="/#request">
-				@icon("plus")
-				New request
-			</a>
-			if pg.SignIn {
-				<span class="person in-menu">
-					<span class="person-email">{ pg.Viewer.Email }</span>
-					if pg.Viewer.Admin {
-						<span class="badge">admin</span>
-					}
-				</span>
-				<form class="signout in-menu" method="post" action="/auth/logout"><button type="submit" class="nav-link">Sign out</button></form>
-			}
-		</div>
+		if !pg.SignedOut {
+			<button type="button" class="menu-toggle" aria-expanded="false" aria-controls="shell-menu">@icon("menu")<span class="vh">Menu</span></button>
+			<div id="shell-menu" class="shell-menu">
+				<nav class="nav" aria-label="Main">
+					<ul>
+						if !pg.Viewer.Admin {
+							<li class="in-menu">
+								<a
+									class="nav-link"
+									href="/"
+									if pg.Path == "/" {
+										aria-current="page"
+									}
+								>Home</a>
+							</li>
+						}
+						if pg.Viewer.Approver {
+							<li>
+								<a class="nav-link" href="/#pending">
+									Queue
+									@queueCount(pg, false)
+								</a>
+							</li>
+						}
+						if pg.Viewer.Admin {
+							<li class="in-menu"><a class="nav-link" href="/#accounts">Accounts</a></li>
+						}
+					</ul>
+				</nav>
+				if pg.Viewer.Admin {
+					<form class="sync" hx-post="/refresh" hx-target="#accounts" hx-swap="outerHTML" hx-include="#show-closed">
+						<button type="submit" class="btn-ghost" title="poll creations, sweep expiry, retry closes">@icon("sync")<span class="btn-word">Sync with AWS</span></button>
+					</form>
+				}
+				<a class="btn btn-chip in-menu" href="/#request">
+					@icon("plus")
+					New request
+				</a>
+				if pg.SignIn {
+					<span class="person in-menu">
+						<span class="person-email">{ pg.Viewer.Email }</span>
+						if pg.Viewer.Admin {
+							<span class="badge">admin</span>
+						}
+					</span>
+					<form class="signout in-menu" method="post" action="/auth/logout"><button type="submit" class="nav-link">Sign out</button></form>
+				}
+			</div>
+		}
 	</header>
 }
 
@@ -651,6 +654,22 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 					</table>
 				</div>
 			}
+		</section>
+	}
+}
+
+// errorPage is a styled 400, 403 or 404 page: the title and the status
+// code, a refusal note that names the problem and the recovery, and one way
+// back. The note stacks its two lines, so the message stays the semibold
+// first line and the recovery is the body.
+templ errorPage(pg page, e errorView) {
+	@layout(pg, e.Title) {
+		<section class="panel" aria-labelledby="error-title">
+			<div class="panel-head"><h1 id="error-title">{ e.Title }</h1><span class="muted">{ fmt.Sprint(e.Code) }</span></div>
+			<div class="panel-body">
+				<div class="refusal">@icon("alert")<div class="note-text"><p class="note-title">{ e.Message }</p><p class="note-body">{ e.Recovery }</p></div></div>
+				<p class="way-back"><a class="btn btn-primary" href={ templ.SafeURL(e.Back) }>{ e.BackLabel }</a></p>
+			</div>
 		</section>
 	}
 }

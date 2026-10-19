@@ -177,33 +177,33 @@ func (a *OIDCAuth) login(w http.ResponseWriter, r *http.Request) {
 func (a *OIDCAuth) callback(w http.ResponseWriter, r *http.Request) {
 	var f flow
 	if err := a.readSigned(r, flowCookie, &f); err != nil || time.Now().After(f.Exp) {
-		http.Error(w, "sign-in expired, start again", http.StatusBadRequest)
+		a.refuse(w, r, http.StatusBadRequest, "sign-in expired, start again", signInAgain)
 		return
 	}
 	a.clear(w, r, flowCookie)
 	if r.URL.Query().Get("state") != f.State {
-		http.Error(w, "state mismatch", http.StatusBadRequest)
+		a.refuse(w, r, http.StatusBadRequest, "state mismatch", signInAgain)
 		return
 	}
 	if e := r.URL.Query().Get("error"); e != "" {
-		http.Error(w, "provider refused: "+e, http.StatusUnauthorized)
+		a.refuse(w, r, http.StatusUnauthorized, "provider refused: "+e, signInAgain)
 		return
 	}
 	tok, err := a.oauth.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(f.Verifier))
 	if err != nil {
 		a.warn("code exchange failed", err)
-		http.Error(w, "sign-in failed: the provider did not accept the code; start again", http.StatusUnauthorized)
+		a.refuse(w, r, http.StatusUnauthorized, "sign-in failed: the provider did not accept the code; start again", signInAgain)
 		return
 	}
 	raw, _ := tok.Extra("id_token").(string)
 	idt, err := a.verifier.Verify(r.Context(), raw)
 	if err != nil {
 		a.warn("id token invalid", err)
-		http.Error(w, "sign-in failed: the provider's token could not be verified; start again", http.StatusUnauthorized)
+		a.refuse(w, r, http.StatusUnauthorized, "sign-in failed: the provider's token could not be verified; start again", signInAgain)
 		return
 	}
 	if idt.Nonce != f.Nonce {
-		http.Error(w, "nonce mismatch", http.StatusUnauthorized)
+		a.refuse(w, r, http.StatusUnauthorized, "nonce mismatch", signInAgain)
 		return
 	}
 	var claims struct {
@@ -213,23 +213,37 @@ func (a *OIDCAuth) callback(w http.ResponseWriter, r *http.Request) {
 		HD       string          `json:"hd"`
 	}
 	if err := idt.Claims(&claims); err != nil || claims.Email == "" {
-		http.Error(w, "id token has no email claim", http.StatusUnauthorized)
+		a.refuse(w, r, http.StatusUnauthorized, "id token has no email claim", "Sign in with an account that has an email address.")
 		return
 	}
 	// Providers encode email_verified as bool or string; only an explicit
 	// false is a rejection.
 	if v := strings.Trim(string(claims.Verified), `"`); v == "false" {
-		http.Error(w, "email is not verified at the provider", http.StatusUnauthorized)
+		a.refuse(w, r, http.StatusUnauthorized, "email is not verified at the provider", "Verify your email at the provider, then sign in again.")
 		return
 	}
 	email := strings.ToLower(claims.Email)
 	if d := strings.ToLower(a.cfg.AllowedDomain); d != "" && !strings.HasSuffix(email, "@"+d) && !strings.EqualFold(claims.HD, d) {
-		http.Error(w, "this sign-in is limited to "+a.cfg.AllowedDomain, http.StatusForbidden)
+		a.refuse(w, r, http.StatusForbidden, "this sign-in is limited to "+a.cfg.AllowedDomain, "Sign in with an account at "+a.cfg.AllowedDomain+".")
 		return
 	}
 	s := session{Email: email, Name: claims.Name, Exp: time.Now().Add(a.cfg.SessionTTL)}
 	a.setSigned(w, r, sessionCookie, s, s.Exp)
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// signInAgain is the recovery line of a sign-in that a new attempt can fix.
+const signInAgain = "Sign in again from the start."
+
+// refuse answers a failed sign-in with the styled page for nobody: the
+// shell shows only the brand, and the way back starts a new sign-in. templ
+// escapes msg, which can hold the provider's error value.
+func (a *OIDCAuth) refuse(w http.ResponseWriter, r *http.Request, code int, msg, recovery string) {
+	pg := page{SignIn: true, SignedOut: true, Path: r.URL.Path}
+	e := errorView{Code: code, Title: "Sign-in failed", Message: msg, Recovery: recovery, Back: a.LoginPath(), BackLabel: "Sign in again"}
+	if err := writeErrorPage(w, r, pg, e); err != nil {
+		a.warn("render sign-in error", err)
+	}
 }
 
 func (a *OIDCAuth) logout(w http.ResponseWriter, r *http.Request) {

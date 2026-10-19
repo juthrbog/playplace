@@ -97,7 +97,7 @@ func (s *Server) Handler() http.Handler {
 		// Slack authenticates its own calls with a request signature. Static
 		// files are public, they are the same for everyone.
 		if r.URL.Path == "/healthz" || r.URL.Path == "/favicon.ico" || strings.HasPrefix(r.URL.Path, "/auth/") || strings.HasPrefix(r.URL.Path, "/slack/") || strings.HasPrefix(r.URL.Path, "/static/") {
-			s.mux.ServeHTTP(w, r)
+			s.route(w, r)
 			return
 		}
 		v, ok := s.auth.Authenticate(r)
@@ -110,7 +110,7 @@ func (s *Server) Handler() http.Handler {
 			http.Redirect(w, r, s.auth.LoginPath(), http.StatusFound)
 			return
 		}
-		s.mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), viewerKey{}, v)))
+		s.route(w, r.WithContext(context.WithValue(r.Context(), viewerKey{}, v)))
 	}))
 }
 
@@ -138,6 +138,9 @@ type page struct {
 	Pending []core.Request // requests the viewer may see: their own, or all for approvers
 	Limits  core.Config    // ceilings and defaults shown in the form
 	Path    string         // the request path, so the shell can mark the current page
+	// SignedOut marks a page for nobody, such as a failed sign-in. The shell
+	// then shows only the brand.
+	SignedOut bool
 }
 
 func (s *Server) pageFor(r *http.Request) page {
@@ -306,7 +309,7 @@ func (s *Server) failRequest(w http.ResponseWriter, r *http.Request, err error) 
 func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 	v := ViewerFrom(r.Context())
 	if !v.Approver {
-		s.forbid(w, r)
+		s.forbid(w, r, approversOnly)
 		return
 	}
 	if _, err := s.svc.Approve(r.Context(), requestRef(r), v.Email); err != nil {
@@ -319,7 +322,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deny(w http.ResponseWriter, r *http.Request) {
 	v := ViewerFrom(r.Context())
 	if !v.Approver {
-		s.forbid(w, r)
+		s.forbid(w, r, approversOnly)
 		return
 	}
 	reason := r.FormValue("reason")
@@ -337,7 +340,7 @@ func (s *Server) deny(w http.ResponseWriter, r *http.Request) {
 func (s *Server) editForm(w http.ResponseWriter, r *http.Request) {
 	pg := s.pageFor(r)
 	if !pg.Viewer.Admin {
-		s.forbid(w, r)
+		s.forbid(w, r, adminsEditOnly)
 		return
 	}
 	q, err := s.svc.GetRequest(r.Context(), r.PathValue("name"))
@@ -358,7 +361,7 @@ func (s *Server) editCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !canSeeRequest(pg.Viewer, q) {
-		s.forbid(w, r)
+		s.forbid(w, r, notYourRequest)
 		return
 	}
 	s.render(w, r, pendingRow(pg, q))
@@ -374,7 +377,7 @@ func canSeeRequest(v Viewer, q core.Request) bool {
 func (s *Server) editSave(w http.ResponseWriter, r *http.Request) {
 	v := ViewerFrom(r.Context())
 	if !v.Admin {
-		s.forbid(w, r)
+		s.forbid(w, r, adminsEditOnly)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -457,7 +460,7 @@ func (s *Server) withdraw(w http.ResponseWriter, r *http.Request) {
 			s.failRequest(w, r, fmt.Errorf("%w: the request for %s you loaded has changed or ended; look again", core.ErrRequestChanged, ref.Name))
 			return
 		}
-		s.forbid(w, r)
+		s.forbid(w, r, cannotWithdraw)
 		return
 	}
 	if err := s.svc.Withdraw(r.Context(), ref, v.Email); err != nil {
@@ -519,7 +522,11 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 func (s *Server) owned(w http.ResponseWriter, r *http.Request, ref string) (*core.Account, bool) {
 	a, err := s.svc.Resolve(r.Context(), ref)
 	if errors.Is(err, core.ErrNotFound) {
-		http.NotFound(w, r)
+		if r.Header.Get("HX-Request") == "true" {
+			http.NotFound(w, r)
+		} else {
+			s.accountNotFound(w, r, ref)
+		}
 		return nil, false
 	}
 	if err != nil {
@@ -527,7 +534,7 @@ func (s *Server) owned(w http.ResponseWriter, r *http.Request, ref string) (*cor
 		return nil, false
 	}
 	if !canSee(ViewerFrom(r.Context()), a) {
-		s.forbid(w, r)
+		s.forbid(w, r, notYourAccount)
 		return nil, false
 	}
 	return a, true
@@ -595,25 +602,27 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, c templ.Componen
 	}
 }
 
-// forbid answers 403 with a reason; the default says the account is not theirs.
-func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why ...string) {
-	msg := "that account belongs to someone else"
-	if len(why) > 0 {
-		msg = why[0]
-	}
-	s.log.Warn("forbidden", "path", r.URL.Path, "viewer", ViewerFrom(r.Context()).Email, "why", msg)
+// forbid answers 403 with the reason, which names the rule that refused the
+// viewer. A page visit gets the styled 403 page.
+func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why string) {
+	s.log.Warn("forbidden", "path", r.URL.Path, "viewer", ViewerFrom(r.Context()).Email, "why", why)
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("HX-Reswap", "none")
 		w.Header().Set("X-Form-Error", "1")
 		w.WriteHeader(http.StatusForbidden)
-		errorFragment("form-error", msg).Render(r.Context(), w)
+		errorFragment("form-error", why).Render(r.Context(), w)
 		return
 	}
-	http.Error(w, msg, http.StatusForbidden)
+	recovery := forbidRecovery[why]
+	if recovery == "" {
+		recovery = "Go back to Home."
+	}
+	s.errorPage(w, r, errorView{Code: http.StatusForbidden, Title: "Not allowed", Message: why, Recovery: recovery, Back: "/", BackLabel: "Go to Home"})
 }
 
 // fail returns an error the page can show. htmx requests get an out-of-band
-// fragment so the notice slot updates without replacing the table.
+// fragment so the notice slot updates without replacing the table. A page
+// visit gets the styled 400 page.
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	s.log.Warn("request failed", "path", r.URL.Path, "err", err)
 	if r.Header.Get("HX-Request") == "true" {
@@ -624,7 +633,7 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		s.render(w, r, errorFragment("form-error", err.Error()))
 		return
 	}
-	http.Error(w, err.Error(), http.StatusBadRequest)
+	s.errorPage(w, r, errorView{Code: http.StatusBadRequest, Title: "Not done", Message: err.Error(), Recovery: "Go back to Home and try again.", Back: "/", BackLabel: "Go to Home"})
 }
 
 // parseBudget reads a monthly budget. ParseFloat also accepts "NaN", "Inf",
