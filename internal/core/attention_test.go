@@ -1,6 +1,7 @@
 package core_test
 
 import (
+	"context"
 	"slices"
 	"testing"
 	"time"
@@ -51,7 +52,13 @@ func TestAttentionNamesEveryReasonInLedgerOrder(t *testing.T) {
 		{"setup-pending for 2 hours", settling("setup-pending", at(-2*time.Hour)), []core.AttentionKind{core.AttentionSettlingLong}},
 		{"restricting for 2 hours", settling("restricting", at(-2*time.Hour)), []core.AttentionKind{core.AttentionSettlingLong}},
 		{"recovering for 3 hours", settling("recovering", at(-3*time.Hour)), []core.AttentionKind{core.AttentionSettlingLong}},
-		{"retiring on a closed account for 2 hours", &core.Account{Status: core.StatusClosed, BudgetHealth: "retiring", BudgetChecked: at(-2 * time.Hour)}, []core.AttentionKind{core.AttentionSettlingLong}},
+		{"retiring on a closed account for 2 hours", &core.Account{Status: core.StatusClosed, Managed: true, BudgetPolicy: "p-x", BudgetHealth: "retiring", BudgetChecked: at(-2 * time.Hour)}, []core.AttentionKind{core.AttentionSettlingLong}},
+		{"a retirement error on a closed account", &core.Account{Status: core.StatusClosed, Managed: true, BudgetPolicy: "p-x", BudgetHealth: "error"}, []core.AttentionKind{core.AttentionBudgetError}},
+		// Retirement needs enforcement, so nothing ever clears these states.
+		{"a budget error on a closed account with no policy", &core.Account{Status: core.StatusClosed, Managed: true, BudgetHealth: "error"}, nil},
+		{"restricted on a closed account with no policy", &core.Account{Status: core.StatusClosed, Managed: true, BudgetHealth: "restricted"}, nil},
+		{"settling on a closed account with no policy", &core.Account{Status: core.StatusClosed, Managed: true, BudgetHealth: "setup-pending", BudgetChecked: at(-3 * time.Hour)}, nil},
+		{"a budget error on a closed account that is not managed", &core.Account{Status: core.StatusClosed, BudgetPolicy: "p-x", BudgetHealth: "error"}, nil},
 		{"setup-pending for less than 2 hours", settling("setup-pending", at(-2*time.Hour+time.Second)), nil},
 		{"settling with no check time", settling("restricting", ""), []core.AttentionKind{core.AttentionSettlingLong}},
 		{"settling with a damaged check time", settling("recovering", "yesterday"), []core.AttentionKind{core.AttentionSettlingLong}},
@@ -74,6 +81,34 @@ func TestAttentionNamesEveryReasonInLedgerOrder(t *testing.T) {
 				t.Fatalf("Attention = %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// Without enforcement, refresh never retires the budget of a closed account,
+// so a budget error from before the closure stays. Nobody can act on it, so
+// it needs no attention.
+func TestAClosedAccountWithoutEnforcementNeedsNoBudgetAttention(t *testing.T) {
+	h := newHarness(t)
+	h.prov.Seed(core.RemoteAccount{ProviderID: "444444444444", Name: "old-box", Status: "CLOSED", JoinedAt: t0.Add(-30 * 24 * time.Hour), Tags: map[string]string{
+		core.TagManaged: "true", core.TagOwner: "anna@example.com", core.TagExpires: t0.Add(-24 * time.Hour).Format(time.RFC3339), core.TagBudget: "50",
+		core.TagBudgetHealth: "error", core.TagClosedAt: t0.Add(-24 * time.Hour).Format(time.RFC3339),
+	}})
+	ctx := context.Background()
+	for range 2 {
+		if _, err := h.svc.Refresh(ctx); err != nil {
+			t.Fatal(err)
+		}
+		h.advance(24 * time.Hour)
+	}
+	a, err := h.svc.Resolve(ctx, "444444444444")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.BudgetHealth != "error" {
+		t.Fatalf("refresh changed the budget state to %q, so the premise of this test no longer holds", a.BudgetHealth)
+	}
+	if got := a.Attention(h.svc.Now()); len(got) != 0 {
+		t.Errorf("Attention = %v, want nothing for a state that nothing clears", got)
 	}
 }
 

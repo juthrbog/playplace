@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -104,6 +105,82 @@ func TestAFailedCostPullWaitsFiveMinutes(t *testing.T) {
 	h.advance(h.svc.Config().CostTTL - time.Second)
 	if _, err := h.svc.Costs(ctx, a.ID, 30, false); err != nil || h.prov.CostCalls != 3 {
 		t.Fatalf("a good pull must be reused: calls = %d, err = %v", h.prov.CostCalls, err)
+	}
+}
+
+// slowFirstCost holds the first cost pull until release closes. That pull
+// then fails when firstFails is set. Every later pull goes to the provider.
+type slowFirstCost struct {
+	core.Provider
+	firstFails bool
+	started    chan struct{}
+	release    chan struct{}
+
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *slowFirstCost) Costs(ctx context.Context, id string, from, to time.Time) ([]core.CostPoint, error) {
+	p.mu.Lock()
+	p.calls++
+	first := p.calls == 1
+	p.mu.Unlock()
+	if !first {
+		return p.Provider.Costs(ctx, id, from, to)
+	}
+	close(p.started)
+	<-p.release
+	if p.firstFails {
+		return nil, errors.New("ThrottlingException: rate exceeded")
+	}
+	return p.Provider.Costs(ctx, id, from, to)
+}
+
+// A poll pull starts, a forced pull (Sync, the TUI reload) starts later, and
+// the poll pull ends last. The cost state keeps the answer of the newest
+// pull, whichever pull ends last.
+func TestTheNewestCostPullWins(t *testing.T) {
+	for _, c := range []struct {
+		name               string
+		slowFails, forceOK bool
+	}{
+		{"an older failure after a newer success", true, true},
+		{"an older success after a newer failure", false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t)
+			a := h.active(t, "spender", "alex", 0)
+			p := &slowFirstCost{Provider: h.prov, firstFails: c.slowFails, started: make(chan struct{}), release: make(chan struct{})}
+			cfg := core.DefaultConfig()
+			cfg.InventoryTTL = 0
+			svc := core.NewService(p, h.note, cfg, nil)
+			svc.Now = h.svc.Now
+			ctx := context.Background()
+
+			done := make(chan error, 1)
+			go func() {
+				_, err := svc.Costs(ctx, a.ID, 30, false)
+				done <- err
+			}()
+			<-p.started
+			if !c.forceOK {
+				h.prov.CostFailures[a.ProviderID] = "AccessDeniedException: not allowed"
+			}
+			if _, err := svc.Costs(ctx, a.ID, 30, true); (err == nil) != c.forceOK {
+				t.Fatalf("the forced pull = %v", err)
+			}
+			delete(h.prov.CostFailures, a.ProviderID)
+			close(p.release)
+			if err := <-done; (err != nil) != c.slowFails {
+				t.Fatalf("the slow pull = %v", err)
+			}
+			if _, ok := svc.CostState(a.ProviderID, 30); ok != c.forceOK {
+				t.Errorf("spend known = %v, want %v as the newest pull", ok, c.forceOK)
+			}
+			if _, err := svc.Costs(ctx, a.ID, 30, false); (err == nil) != c.forceOK {
+				t.Errorf("a pull that is not forced = %v, want the result of the newest pull", err)
+			}
+		})
 	}
 }
 

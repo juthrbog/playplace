@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -205,9 +206,9 @@ func TestFailedAccountLoadIsNotAnEmptyFleet(t *testing.T) {
 		return out.String(), section
 	}
 
-	_, section := render(refusal(&core.ProviderError{Op: "list playground accounts", Err: errors.New("AccessDenied")}, ""))
+	_, section := render(listFailure(&core.ProviderError{Op: "list playground accounts", Err: errors.New("AccessDenied")}))
 	want := `<div id="accounts-error" class="refusal">` + alertIcon + `<div class="note-text"><p class="note-title">The account list is unavailable.</p>` +
-		`<p class="note-body">` + awsFailed + ` The page tries again every 15 seconds.</p></div></div>`
+		`<p class="note-body">` + listFailed + ` The page tries again every 15 seconds.</p></div></div>`
 	if !strings.Contains(section, want) {
 		t.Errorf("the panel does not name the problem, the error and the recovery in its own note:\n%s", section)
 	}
@@ -236,7 +237,7 @@ func TestExtendIsCappedForEngineersNotAdmins(t *testing.T) {
 	// annas-box joined at t0 and expires in 3 days; 100 days pushes its
 	// lifetime past the 90 day ceiling.
 	res, body := do(t, ts, "POST", "/accounts/111111111111/extend", "anna@example.com", false, url.Values{"by": {"100d"}}, true)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, "past the ceiling of 90 days") {
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "annas-box can live at most 90 days. The latest expiry is "+t0.Add(90*24*time.Hour).Format("2006-01-02 15:04")+" UTC. An admin can override the limit.") {
 		t.Fatalf("engineer extend past the ceiling should be refused with an explanation, got %d:\n%s", res.StatusCode, body)
 	}
 	if exp := prov.Tags("111111111111")[core.TagExpires]; exp != t0.Add(72*time.Hour).Format(time.RFC3339) {
@@ -634,6 +635,35 @@ func TestAccountPageShowsHistory(t *testing.T) {
 	_, body = do(t, ts, "GET", "/accounts/222222222222", "ops@example.com", true, nil, false)
 	if strings.Contains(body, "extended annas-box") {
 		t.Fatal("history must be scoped to the account")
+	}
+}
+
+// flakyCosts fails every cost pull while fail is set, as a throttle of Cost
+// Explorer does.
+type flakyCosts struct {
+	core.Provider
+	fail atomic.Bool
+}
+
+func (p *flakyCosts) Costs(ctx context.Context, id string, from, to time.Time) ([]core.CostPoint, error) {
+	if p.fail.Load() {
+		return nil, errors.New("LimitExceededException: rate exceeded")
+	}
+	return p.Provider.Costs(ctx, id, from, to)
+}
+
+// A poll pull fails once, and AWS answers again at once. A person who opens
+// the account page then gets the spend, not $0.00. The poll waits after a
+// failed pull, but opening the page is a request of a person.
+func TestAccountPagePullsSpendThatIsNotKnown(t *testing.T) {
+	fc := &flakyCosts{}
+	ts, _ := newServerOn(t, func(p *fake.Provider) core.Provider { fc.Provider = p; return fc })
+	fc.fail.Store(true)
+	do(t, ts, "GET", "/accounts", "ops@example.com", true, nil, true)
+	fc.fail.Store(false)
+	_, body := do(t, ts, "GET", "/accounts/111111111111", "ops@example.com", true, nil, false)
+	if !strings.Contains(body, "<dt>spend, 30 days</dt><dd>$45.00</dd>") {
+		t.Errorf("the account page does not show the spend that AWS reports now:\n%s", body)
 	}
 }
 

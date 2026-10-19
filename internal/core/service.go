@@ -64,11 +64,12 @@ type Service struct {
 	log      *slog.Logger
 	Now      func() time.Time
 
-	mu    sync.Mutex
-	inv   []*Account
-	recs  []Request // request records read with the inventory, same age
-	invAt time.Time
-	costs map[string]costEntry
+	mu        sync.Mutex
+	inv       []*Account
+	recs      []Request // request records read with the inventory, same age
+	invAt     time.Time
+	costs     map[string]costEntry
+	costPulls uint64 // numbers each cost pull, so only the newest pull writes
 
 	// opMu serializes refresh, placement, budget changes, close requests and
 	// request-queue mutations within this process, so the worker, web UI, Slack and
@@ -84,6 +85,7 @@ type costEntry struct {
 	okAt   time.Time // when the last good pull ran, zero if none did
 	at     time.Time // when the last pull ran
 	err    error     // why the last pull failed, nil after a good pull
+	seq    uint64    // the number of the pull that wrote the entry
 }
 
 // NewService wires a Service. A nil logger disables logging.
@@ -887,13 +889,42 @@ func (s *Service) checkLifetime(a *Account, until time.Time, override bool) erro
 	}
 	limit := start.Add(s.cfg.MaxTTL)
 	if until.After(limit) {
-		// Lifetime rounds up to the hour, so a lifetime just over the ceiling
-		// never reads as equal to it. The limit can fall on the requested
-		// day, so it shows the time too.
-		return fmt.Errorf("%s would live %s, past the ceiling of %s; the latest expiry is %s and an admin can override",
-			a.Name, Lifetime(until.Sub(start)), Lifetime(s.cfg.MaxTTL), limit.UTC().Format("2006-01-02 15:04 UTC"))
+		return LifetimeLimitError{Name: a.Name, Lifetime: until.Sub(start), Max: s.cfg.MaxTTL, Latest: limit}
 	}
 	return nil
+}
+
+// LifetimeLimitError refuses an expiry that would give an account a lifetime
+// past MaxTTL. Latest is the latest expiry that the limit allows. An
+// interface finds the refusal with errors.As and can then choose its own
+// words.
+type LifetimeLimitError struct {
+	Name     string
+	Lifetime time.Duration
+	Max      time.Duration
+	Latest   time.Time
+}
+
+// Error is the text of the CLI and the TUI. Lifetime rounds up to the hour,
+// so a lifetime just over the ceiling never reads as equal to it. The limit
+// can fall on the requested day, so the text shows the time too.
+func (e LifetimeLimitError) Error() string {
+	return fmt.Sprintf("%s would live %s, past the ceiling of %s; the latest expiry is %s and an admin can override",
+		e.Name, Lifetime(e.Lifetime), Lifetime(e.Max), e.Latest.UTC().Format("2006-01-02 15:04 UTC"))
+}
+
+// OwnerLimitError refuses a request whose owner already holds Limit open or
+// pending accounts (MaxPerOwner). An interface finds the refusal with
+// errors.As and can then choose its own words.
+type OwnerLimitError struct {
+	Owner string
+	Held  int
+	Limit int
+}
+
+// Error is the text of the CLI and the TUI.
+func (e OwnerLimitError) Error() string {
+	return fmt.Sprintf("%s already holds %d open or pending playground account(s); the limit is %d", e.Owner, e.Held, e.Limit)
 }
 
 // RequestClose records close intent as a tag and tries the close right away.
@@ -1366,7 +1397,7 @@ func (s *Service) SubmitRequest(ctx context.Context, in RequestInput, via string
 		return Request{}, err
 	}
 	if s.cfg.MaxPerOwner > 0 && held >= s.cfg.MaxPerOwner {
-		return Request{}, fmt.Errorf("%s already holds %d open or pending playground account(s); the limit is %d", in.Owner, held, s.cfg.MaxPerOwner)
+		return Request{}, OwnerLimitError{Owner: in.Owner, Held: held, Limit: s.cfg.MaxPerOwner}
 	}
 	if err := s.checkQueueRoom(ctx); err != nil {
 		return Request{}, err
@@ -1436,7 +1467,7 @@ const restoreTimeout = 30 * time.Second
 // second approver, in this process or another, finds nothing pending. If the
 // creation then fails the mark is removed and the request is pending again,
 // also when the caller stopped waiting. ref must carry the version the
-// approver saw; see pendingAt.
+// approver saw. See pendingAt.
 func (s *Service) Approve(ctx context.Context, ref RequestRef, approver string) (*Account, error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
@@ -1577,7 +1608,7 @@ func (s *Service) UpdateRequest(ctx context.Context, ref RequestRef, editor stri
 			}
 		}
 		if s.cfg.MaxPerOwner > 0 && held >= s.cfg.MaxPerOwner {
-			return Request{}, fmt.Errorf("%s already holds %d open or pending playground account(s); the limit is %d", owner, held, s.cfg.MaxPerOwner)
+			return Request{}, OwnerLimitError{Owner: owner, Held: held, Limit: s.cfg.MaxPerOwner}
 		}
 		r.Owner = owner
 	}
@@ -1766,9 +1797,13 @@ const costRetryAfter = 5 * time.Minute
 // does not pull. The web poll warms every visible account every 15 seconds,
 // so without the wait an outage costs a call per account per poll. force
 // pulls at once, also within the wait. Only a person forces a pull: Sync in
-// the web, or r and S in the TUI. So a forced pull is rare, and it gives the
-// person a fresh answer. A pull that fails because the caller's context
+// the web, an account page whose spend is not known, or r and S in the TUI.
+// So a forced pull is rare, and it gives the person a fresh answer. A pull that fails because the caller's context
 // ended says nothing about AWS, so it changes no cost state.
+//
+// Pulls of one account can overlap, for example a poll and a forced pull.
+// Each pull gets a number, and a pull writes only when no later pull wrote
+// first. So a slow pull never hides the answer of a newer one.
 func (s *Service) Costs(ctx context.Context, id string, days int, force bool) ([]CostPoint, error) {
 	a, err := s.Get(ctx, id)
 	if err != nil {
@@ -1777,33 +1812,40 @@ func (s *Service) Costs(ctx context.Context, id string, days int, force bool) ([
 	if a.ProviderID == "" {
 		return nil, nil
 	}
+	now := s.Now()
 	s.mu.Lock()
 	e, ok := s.costs[a.ProviderID]
-	s.mu.Unlock()
-	now := s.Now()
 	if ok && !force {
 		if e.err == nil && now.Sub(e.at) < s.cfg.CostTTL {
+			s.mu.Unlock()
 			return window(e.points, days, now), nil
 		}
 		if e.err != nil && now.Sub(e.at) < costRetryAfter {
+			s.mu.Unlock()
 			return nil, providerError("costs for "+a.Name, e.err)
 		}
 	}
+	s.costPulls++
+	seq := s.costPulls
+	s.mu.Unlock()
 	to := now.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
 	from := to.Add(-45 * 24 * time.Hour)
 	pts, err := s.provider.Costs(ctx, a.ProviderID, from, to)
 	if err != nil {
 		if ctx.Err() == nil {
 			s.mu.Lock()
-			e := s.costs[a.ProviderID]
-			e.at, e.err = now, err
-			s.costs[a.ProviderID] = e
+			if e := s.costs[a.ProviderID]; e.seq < seq {
+				e.seq, e.at, e.err = seq, now, err
+				s.costs[a.ProviderID] = e
+			}
 			s.mu.Unlock()
 		}
 		return nil, providerError("costs for "+a.Name, err)
 	}
 	s.mu.Lock()
-	s.costs[a.ProviderID] = costEntry{points: pts, okAt: now, at: now}
+	if s.costs[a.ProviderID].seq < seq {
+		s.costs[a.ProviderID] = costEntry{points: pts, okAt: now, at: now, seq: seq}
+	}
 	s.mu.Unlock()
 	return window(pts, days, now), nil
 }

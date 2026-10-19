@@ -86,7 +86,8 @@ type row struct {
 
 	// CostUnknown is true for an account with a provider ID whose last cost
 	// pull failed or never ran. Its spend shows as unavailable, never as $0.
-	// An account with no provider ID has no spend yet.
+	// An account with no provider ID has no spend yet. The TUI does not pull
+	// a closed account, so a closed account with no points shows no spend.
 	CostUnknown bool
 }
 
@@ -339,7 +340,9 @@ func (m model) loadWith(forceInventory, forceCosts bool) tea.Cmd {
 		for _, a := range accounts {
 			r := row{Account: a}
 			pts, known := svc.CostState(a.ProviderID, 31)
-			r.CostUnknown = a.ProviderID != "" && !known
+			// The TUI never pulls a closed account, so no failed pull makes
+			// its spend unknown.
+			r.CostUnknown = a.ProviderID != "" && a.Status != core.StatusClosed && !known
 			if known && a.ProviderID != "" {
 				r.Points = pts
 				r.MTD = core.MonthToDate(pts, now)

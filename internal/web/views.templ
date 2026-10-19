@@ -377,7 +377,7 @@ templ pendingRow(pg page, q core.Request) {
 							@busyWord("Approve", "Approving")<span class="vh">{ " " + q.Name }</span>
 						</button>
 					</form>
-					<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-prompt="Reason for denying (sent with the denied notice and kept in history)" hx-sync="this:drop" data-action="deny">
+					<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-prompt="Reason for denying, 1 to 500 characters. playplace sends it with the denied notice and keeps it in history." hx-sync="this:drop" data-action="deny">
 						@versionField(q)
 						<button type="submit">@busyWord("Deny", "Denying")<span class="vh">{ " " + q.Name }</span></button>
 					</form>
@@ -584,7 +584,7 @@ templ budgetLabel(health, errText string) {
 	<span
 		class={ "status", "budget-" + look.Tone }
 		if errText != "" {
-			title={ errText }
+			title={ storedFailure(errText) }
 		}
 	>@icon(look.Icon)<span>{ word }</span></span>
 	if look.Settling {
@@ -651,7 +651,7 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 						}
 					</dd>
 					if a.BudgetError != "" {
-						<dt>budget error</dt><dd class="error">@icon("alert")<span>{ a.BudgetError }</span></dd>
+						<dt>budget error</dt><dd class="error">@icon("alert")<span>{ storedFailure(a.BudgetError) }</span></dd>
 					}
 					<dt>spend, 30 days</dt><dd>{ fmt.Sprintf("$%.2f", total) }</dd>
 					// Every time on this page is in UTC, the same as the history

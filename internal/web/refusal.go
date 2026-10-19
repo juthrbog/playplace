@@ -1,7 +1,10 @@
 package web
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"playplace/internal/core"
 )
@@ -12,6 +15,14 @@ import (
 const (
 	awsFailed = "The call to AWS failed. Try again in a minute. If it fails again, ask an admin to read the playplace log."
 	awsSlow   = "AWS did not answer in time. Try again in a minute."
+)
+
+// The texts of a failed call to AWS in the failed panel of the account list.
+// The panel adds that the page tries again by itself, so these texts do not
+// tell the person to try again.
+const (
+	listFailed = "The call to AWS failed. If it keeps failing, ask an admin to read the playplace log."
+	listSlow   = "AWS did not answer in time."
 )
 
 // slowCodes are the AWS error codes of a throttle or a time-out. The AWS SDK
@@ -42,6 +53,8 @@ type awsCoded interface{ ErrorCode() string }
 // AWS never shows its raw text. The caller logs the raw error.
 func refusal(err error, request string) string {
 	var self core.SelfApprovalError
+	var owner core.OwnerLimitError
+	var lifetime core.LifetimeLimitError
 	var failed *core.ProviderError
 	var coded awsCoded
 	switch {
@@ -49,22 +62,57 @@ func refusal(err error, request string) string {
 		return request + " changed after you loaded the page. Read the new values, then try again."
 	case request != "" && errors.As(err, &self):
 		if self.WouldOwn {
-			return "You would own " + request + ", so you cannot approve it. Another approver must approve it."
+			return request + " names you as the owner, so you cannot approve it. Another approver must approve it."
 		}
 		return "You requested " + request + ", so you cannot approve it. Another approver must approve it."
 	case request != "" && errors.Is(err, core.ErrNotFound):
 		return request + " is no longer waiting. Someone else decided it, the owner withdrew it, or it was dropped."
-	case errors.As(err, &failed), errors.As(err, &coded):
-		// An error with an AWS code comes from AWS also when core did not
-		// mark it.
+	// The limits start with an email or a name, which keep their letters.
+	case errors.As(err, &owner):
+		held := fmt.Sprintf("%d open accounts or requests", owner.Held)
+		if owner.Held == 1 {
+			held = "1 open account or request"
+		}
+		return fmt.Sprintf("%s already holds %s. The limit is %d.", owner.Owner, held, owner.Limit)
+	case errors.As(err, &lifetime):
+		return fmt.Sprintf("%s can live at most %s. The latest expiry is %s. An admin can override the limit.",
+			lifetime.Name, core.Lifetime(lifetime.Max), lifetime.Latest.UTC().Format("2006-01-02 15:04 UTC"))
+	// An error with an AWS code comes from AWS also when core did not mark
+	// it. A time limit of playplace that ends a call reads as a slow answer.
+	case errors.As(err, &failed), errors.As(err, &coded), errors.Is(err, context.DeadlineExceeded):
 		if slow(err) {
 			return awsSlow
 		}
 		return awsFailed
 	}
-	// Core writes its refusals for people, for example the limits, the
-	// checks of a request and the rules of an extension.
+	// Core writes its refusals for people, for example the checks of a
+	// request and the rules of an extension.
 	return sentences(err.Error())
+}
+
+// listFailure is the text of the failed panel of the account list. It is
+// the text of refusal, but a failed call to AWS gets the words of the panel.
+func listFailure(err error) string {
+	switch text := refusal(err, ""); text {
+	case awsFailed:
+		return listFailed
+	case awsSlow:
+		return listSlow
+	default:
+		return text
+	}
+}
+
+// storedFailure is the text that a page shows for an error that core stored
+// in a tag or in history. A stored failure of an AWS call holds the raw SDK
+// text and its request ID, so the page shows awsFailed in its place. The
+// SDK writes "operation error" before the name of the call, and the HTTP
+// layer writes "RequestID:".
+func storedFailure(text string) string {
+	if strings.Contains(text, "operation error ") || strings.Contains(text, "RequestID:") {
+		return awsFailed
+	}
+	return text
 }
 
 // slow reports whether err is a throttle or a time-out. A time-out reports

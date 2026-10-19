@@ -63,6 +63,20 @@ func TestUnknownSpendShowsAsUnavailable(t *testing.T) {
 	}
 }
 
+// The TUI does not pull a closed account, so its row and its pane show no
+// spend. No pull failed, so the spend is not unavailable, and it is not $0.
+func TestAClosedAccountShowsNoSpend(t *testing.T) {
+	m := fixture(t, 120, 30)
+	m = step(t, m, tea.KeyPressMsg{Code: '4'})
+	if len(m.visible) != 1 || m.visible[0].Account.Name != "old-one" || m.visible[0].CostUnknown {
+		t.Fatalf("section 4 = %+v, want old-one with spend that is not unknown", m.visible)
+	}
+	out := plain(m.content())
+	if strings.Count(out, "— / $200") != 2 || strings.Contains(out, "unavailable") || strings.Contains(out, "$0 /") {
+		t.Errorf("the row and the pane must say — / $200, never unavailable or $0:\n%s", out)
+	}
+}
+
 // A narrow spend column has no room for the budget, so it says only
 // unavailable.
 func TestUnknownSpendFitsANarrowColumn(t *testing.T) {

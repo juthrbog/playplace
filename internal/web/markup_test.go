@@ -84,6 +84,12 @@ func regionIn(body string) (string, bool) {
 	return m[1], true
 }
 
+// queueAnswer reports whether an answer is the queue itself, as the answer
+// to a decision in the queue is.
+func queueAnswer(body string) bool {
+	return strings.HasPrefix(body, `<section id="pending" class="panel" aria-labelledby="pending-title">`)
+}
+
 // regionInQueue reports whether a page holds the empty live region in the
 // queue, next to the decisions.
 func regionInQueue(body string) bool {
@@ -142,5 +148,8 @@ func TestHelpersReadOneRequest(t *testing.T) {
 	_, answer := do(t, ts, "POST", "/requests/first-one/approve", "ops@example.com", true, refForm(refIn(t, home, "first-one")), true)
 	if got, ok := regionIn(answer); !ok || !strings.HasSuffix(got, "<span>Approved first-one. AWS is creating the account.</span>") {
 		t.Errorf("regionIn(answer) = %q, %v, want the approval:\n%s", got, ok, answer)
+	}
+	if !queueAnswer(answer) || queueAnswer(home) {
+		t.Errorf("queueAnswer is %v for the answer and %v for the page, want true and false", queueAnswer(answer), queueAnswer(home))
 	}
 }

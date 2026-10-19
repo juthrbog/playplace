@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,8 +26,9 @@ const checkIcon = `<svg class="i i-ok" aria-hidden="true" focusable="false"><use
 
 // The refusals of a deny reason, as people read them.
 const (
-	reasonMissing = "Write the reason for the denial. playplace cannot deny a request without one."
-	reasonTooLong = "The reason can have at most 500 characters."
+	reasonMissing    = "Write the reason for the denial. playplace cannot deny a request without one."
+	reasonTooLong    = "The reason can have at most 500 characters."
+	reasonCharacters = "The reason holds a hidden character, for example a control or text direction character. Type the reason again."
 )
 
 // The reasons that refusal gives for a request that changed or left the
@@ -227,7 +229,7 @@ func TestDecideRunsTheQueueInOrder(t *testing.T) {
 		t.Errorf("region = %q", got)
 	}
 	// The answer is the card, as for one row, with no refusal.
-	if !strings.HasPrefix(body, `<section id="pending" class="panel" aria-labelledby="pending-title">`) || len(undecidedIn(body)) != 0 {
+	if !queueAnswer(body) || len(undecidedIn(body)) != 0 {
 		t.Errorf("the answer is not the card with an empty slot:\n%s", body)
 	}
 	for _, name := range names {
@@ -312,7 +314,7 @@ func TestDecideKeepsTheOwnRuleForDenials(t *testing.T) {
 	}
 	for name, want := range map[string]string{
 		"ops-asks": "Not denied. You requested it, so another approver must decide.",
-		"for-ops":  "Not denied. You would own it, so another approver must decide.",
+		"for-ops":  "Not denied. It names you as the owner, so another approver must decide.",
 	} {
 		if got := resultIn(body, name); got != want {
 			t.Errorf("the reason for %s = %q, want %q", name, got, want)
@@ -323,8 +325,43 @@ func TestDecideKeepsTheOwnRuleForDenials(t *testing.T) {
 	}
 	// The single Approve button applies the rule as the decide route does.
 	_, body = doAs(t, d.ts, "POST", "/requests/for-ops/approve", "ops@example.com", true, true, refForm(refs[1]), true)
-	if slot := slotPart.FindStringSubmatch(body); slot == nil || slot[2] != "Not approved. You would own it, so another approver must approve it." {
-		t.Errorf("approving a request you would own:\n%s", body)
+	if slot := slotPart.FindStringSubmatch(body); slot == nil || slot[2] != "Not approved. It names you as the owner, so another approver must approve it." {
+		t.Errorf("approving a request that names you as the owner:\n%s", body)
+	}
+}
+
+// The own rule runs on the version that the viewer saw. An admin gives the
+// request to the approver after the approver loaded the page. The click
+// carries the old version, so it gets the changed text and the card with the
+// new values, as core refuses it.
+func TestDecideChecksTheOwnRuleOnTheVersionThatThePageShowed(t *testing.T) {
+	d := newDesk(t, nil, nil, nil)
+	d.ask(t, "box", "bob@example.com")
+	old := d.refs(t, "box")[0]
+	_, edit := do(t, d.ts, "GET", "/requests/box/edit", "ops@example.com", true, nil, true)
+	saved := editFormValues(t, edit, "box")
+	saved.Set("owner", "lead@example.com")
+	if res, body := do(t, d.ts, "POST", "/requests/box/edit", "ops@example.com", true, saved, true); res.Header.Get("X-Form-Error") != "" {
+		t.Fatalf("edit = %s", body)
+	}
+	for _, c := range []struct {
+		path string
+		form url.Values
+	}{
+		{"/requests/box/approve", refForm(old)},
+		{"/requests/decide?action=approve", decideForm("", old)},
+		{"/requests/decide?action=deny", decideForm("no", old)},
+	} {
+		_, body := doAs(t, d.ts, "POST", c.path, "lead@example.com", false, true, c.form, true)
+		if slot := slotPart.FindStringSubmatch(body); slot == nil || slot[2] != changedText("box") {
+			t.Errorf("%s with the old version gets %v, want the changed text:\n%s", c.path, slot, body)
+		}
+		if !strings.Contains(slipIn(body, "box"), "lead@") {
+			t.Errorf("%s does not show the card with the new owner:\n%s", c.path, body)
+		}
+	}
+	if !d.pending(t, "box") {
+		t.Error("a stale click decided box")
 	}
 }
 
@@ -348,8 +385,8 @@ func TestDecideStopsAtTheTimeBudget(t *testing.T) {
 				d.ask(t, name, name+"@example.com")
 			}
 			refs := d.refs(t, names...)
-			// Each decision takes 15 seconds, so the fourth one would start
-			// when the 45 seconds are used up.
+			// Each decision takes 15 seconds, so the 45 seconds are used up
+			// before the fourth one.
 			aws.set(15*time.Second, false)
 			res, body := d.decide(t, "lead@example.com", true, tc.action, decideForm(tc.reason, refs...), true)
 			if res.StatusCode != http.StatusOK {
@@ -370,9 +407,67 @@ func TestDecideStopsAtTheTimeBudget(t *testing.T) {
 	}
 }
 
+// slowRead makes the next read of AWS take decideBudget on the clock, as a
+// slow read of the queue does.
+type slowRead struct {
+	core.Provider
+	clock *clock
+	armed atomic.Bool
+}
+
+func (p *slowRead) wait() {
+	if p.armed.CompareAndSwap(true, false) {
+		p.clock.Add(decideBudget)
+	}
+}
+
+func (p *slowRead) OUTags(ctx context.Context) (map[string]string, error) {
+	p.wait()
+	return p.Provider.OUTags(ctx)
+}
+
+func (p *slowRead) ListPlaygroundAccounts(ctx context.Context) ([]core.RemoteAccount, error) {
+	p.wait()
+	return p.Provider.ListPlaygroundAccounts(ctx)
+}
+
+// The budget counts from the start of the post, so the read of the queue
+// before the first decision counts too. A read that uses up the budget
+// leaves every request not tried.
+func TestDecideCountsTheReadOfTheQueueInTheBudget(t *testing.T) {
+	c := &clock{now: t0}
+	slow := &slowRead{clock: c}
+	d := newDesk(t, c, func(p *fake.Provider) core.Provider { slow.Provider = p; return slow }, nil)
+	d.ask(t, "box-one", "one@example.com")
+	d.ask(t, "box-two", "two@example.com")
+	refs := d.refs(t, "box-one", "box-two")
+	slow.armed.Store(true)
+	res, body := d.decide(t, "lead@example.com", true, actionApprove, decideForm("", refs...), true)
+	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "1" {
+		t.Fatalf("decide = %d %v\n%s", res.StatusCode, res.Header, body)
+	}
+	for _, name := range []string{"box-one", "box-two"} {
+		if got := resultIn(body, name); got != notTried(actionApprove) {
+			t.Errorf("the reason for %s = %q, want the not tried text", name, got)
+		}
+		if !d.pending(t, name) {
+			t.Errorf("%s left the queue", name)
+		}
+	}
+}
+
+// A stop of the server waits for a decision post in flight: decideBudget
+// and one more approval of up to 15 seconds. A shorter wait ends the
+// process between the claim of a request and its restore.
+func TestTheStopWaitsForADecisionPost(t *testing.T) {
+	if shutdownDrain < decideBudget+15*time.Second {
+		t.Errorf("the stop waits %s, want at least %s", shutdownDrain, decideBudget+15*time.Second)
+	}
+}
+
 // After the first failed call to AWS the rest are not tried, because each
-// one would repeat the outage. The answer never shows the raw error, and
-// the log holds it.
+// one repeats the outage. The answer never shows the raw error, and the log
+// holds it.
 func TestDecideStopsAfterTheFirstAWSFailure(t *testing.T) {
 	logs := &logBuffer{}
 	c := &clock{now: t0}
@@ -414,7 +509,7 @@ func TestDecideStopsAfterTheFirstAWSFailure(t *testing.T) {
 
 // leavingCaller cancels the request of the caller at the first account
 // creation, as a browser that closes does. A creation refuses a context
-// that ended or that has a deadline.
+// that ended, or one that ends before decideRefLimit.
 type leavingCaller struct {
 	core.Provider
 
@@ -432,14 +527,14 @@ func (p *leavingCaller) RequestAccount(ctx context.Context, req core.AccountRequ
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if _, ok := ctx.Deadline(); ok {
-		return "", errors.New("the decision has a deadline")
+	if end, ok := ctx.Deadline(); ok && time.Until(end) < decideRefLimit-time.Minute {
+		return "", errors.New("the decision has a deadline shorter than decideRefLimit")
 	}
 	return p.Provider.RequestAccount(ctx, req)
 }
 
-// A decision ignores the end of the request that sent it and has no
-// deadline of its own, so a closed browser never cuts a batch.
+// A decision ignores the end of the request that sent it, and its only
+// deadline is decideRefLimit, so a closed browser never cuts a batch.
 func TestDecideOutlivesTheCaller(t *testing.T) {
 	lc := &leavingCaller{}
 	d := newDesk(t, nil, func(p *fake.Provider) core.Provider { lc.Provider = p; return lc }, nil)
@@ -468,6 +563,69 @@ func TestDecideOutlivesTheCaller(t *testing.T) {
 	}
 }
 
+// hungAWS never answers the first account creation. The call ends when its
+// context ends, as a call of the AWS SDK does. So that a test without the
+// limit fails and does not hang, the call also gives up after 5 seconds.
+type hungAWS struct {
+	core.Provider
+
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *hungAWS) RequestAccount(ctx context.Context, req core.AccountRequest) (string, error) {
+	p.mu.Lock()
+	p.calls++
+	first := p.calls == 1
+	p.mu.Unlock()
+	if !first {
+		return p.Provider.RequestAccount(ctx, req)
+	}
+	select {
+	case <-ctx.Done():
+		return "", fmt.Errorf("operation error Organizations: CreateAccount, %w", ctx.Err())
+	case <-time.After(5 * time.Second):
+		return "", errors.New("the call hung for 5 seconds")
+	}
+}
+
+// A call that AWS never answers ends after decideRefLimit. Core puts the
+// request back, and the rest are not tried. The lock of core is then free,
+// so the next decision runs.
+func TestDecideEndsACallThatAWSNeverAnswers(t *testing.T) {
+	limit := decideRefLimit
+	decideRefLimit = 200 * time.Millisecond
+	t.Cleanup(func() { decideRefLimit = limit })
+	hung := &hungAWS{}
+	d := newDesk(t, nil, func(p *fake.Provider) core.Provider { hung.Provider = p; return hung }, nil)
+	d.ask(t, "box-one", "one@example.com")
+	d.ask(t, "box-two", "two@example.com")
+	refs := d.refs(t, "box-one", "box-two")
+
+	start := time.Now()
+	res, body := d.decide(t, "lead@example.com", true, actionApprove, decideForm("", refs...), true)
+	if took := time.Since(start); took > 3*time.Second {
+		t.Errorf("the decision took %s, so the limit did not end the call", took)
+	}
+	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "1" {
+		t.Fatalf("decide = %d %v\n%s", res.StatusCode, res.Header, body)
+	}
+	for name, want := range map[string]string{"box-one": awsSlow, "box-two": notTried(actionApprove)} {
+		if got := resultIn(body, name); got != want {
+			t.Errorf("the reason for %s = %q, want %q", name, got, want)
+		}
+		if !d.pending(t, name) {
+			t.Errorf("%s left the queue", name)
+		}
+	}
+
+	decideRefLimit = limit
+	res, body = d.decide(t, "lead@example.com", true, actionApprove, decideForm("", d.refs(t, "box-two")...), true)
+	if got, _ := regionIn(body); res.StatusCode != http.StatusOK || got != checkIcon+"<span>Approved box-two. AWS is creating the account.</span>" {
+		t.Errorf("the next decision = %d, region %q", res.StatusCode, got)
+	}
+}
+
 // A form that playplace cannot take decides nothing. The htmx answer keeps
 // its status and fills the refusal slot of the card, because app.js swaps
 // such an answer. A page visit gets the styled page.
@@ -493,6 +651,10 @@ func TestDecideRefusesABadForm(t *testing.T) {
 		{"a name with no version", actionApprove, withValues(decideForm("", real), "req", "made-00"), unreadableRef},
 		{"an empty value", actionApprove, withValues(decideForm("", real), "req", ""), unreadableRef},
 		{"two spaces", actionApprove, withValues(decideForm("", real), "req", "made-00  01MADE.v1"), unreadableRef},
+		// No request in the queue has such a name, so playplace never reads
+		// it from AWS.
+		{"a name that is not valid", actionApprove, withValues(decideForm("", real), "req", "Bad_Name 01MADE.v1"), unreadableRef},
+		{"a long name", actionDeny, withValues(decideForm("why", real), "req", strings.Repeat("a", 300)+" 01MADE.v1"), unreadableRef},
 	} {
 		res, body := d.decide(t, "lead@example.com", true, c.action, c.form, true)
 		if res.StatusCode != http.StatusBadRequest || res.Header.Get("HX-Reswap") != "none" || res.Header.Get("X-Form-Error") != "1" {
@@ -510,6 +672,41 @@ func TestDecideRefusesABadForm(t *testing.T) {
 	res, body := d.decide(t, "lead@example.com", true, "withdraw", decideForm("", real), false)
 	if res.StatusCode != http.StatusBadRequest || !strings.Contains(body, `<title>Action refused · playplace</title>`) || !strings.Contains(body, note(unknownDecision, "Go back to Home and try again.")) {
 		t.Errorf("a page visit = %d, want the 400 page:\n%s", res.StatusCode, body)
+	}
+
+	// A body that does not parse as a form.
+	for _, htmx := range []bool{true, false} {
+		req := httptest.NewRequest("POST", "/requests/decide?action=approve", strings.NewReader("req=%zz"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("X-User", "lead@example.com")
+		req.Header.Set("X-Approver", "1")
+		if htmx {
+			req.Header.Set("HX-Request", "true")
+		}
+		rec := httptest.NewRecorder()
+		d.handler.ServeHTTP(rec, req)
+		body := rec.Body.String()
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("a body that does not parse (htmx %v) = %d, want 400", htmx, rec.Code)
+			continue
+		}
+		if htmx {
+			slot := slotPart.FindStringSubmatch(body)
+			if rec.Header().Get("HX-Reswap") != "none" || slot == nil || slot[1] != "pending-error" || slot[2] != unreadableForm {
+				t.Errorf("the htmx 400 lacks the refusal:\n%v\n%s", rec.Header(), body)
+			}
+		} else if !strings.Contains(body, note(unreadableForm, "Go back to Home and try again.")) {
+			t.Errorf("the page visit is not the styled 400 page:\n%s", body)
+		}
+	}
+
+	// A page visit that decides nothing of several requests names the reason
+	// of each one, because the home page does not show them.
+	gone := madeRefs(2)
+	res, body = d.decide(t, "lead@example.com", true, actionApprove, decideForm("", gone...), false)
+	want := "No requests were approved. made-00: " + goneText("made-00") + " made-01: " + goneText("made-01")
+	if res.StatusCode != http.StatusBadRequest || !strings.Contains(body, note(want, "Go back to Home and try again.")) {
+		t.Errorf("a page visit with two refusals = %d, want the 400 page with each reason:\n%s", res.StatusCode, body)
 	}
 
 	// The limits hold at their edge: 10 approvals and 50 denials go through.
@@ -615,6 +812,12 @@ func TestDenyReasonRule(t *testing.T) {
 		" \r\n\t ":                       reasonMissing,
 		strings.Repeat("é", maxReason+1): reasonTooLong,
 		strings.Repeat("a", 250) + "\n\n" + strings.Repeat("b", 250): reasonTooLong,
+		// A control character, a bidi override and a byte that is not UTF-8.
+		"\x1b[31mred":       reasonCharacters,
+		"no\x00budget":      reasonCharacters,
+		"a\u202eb":          reasonCharacters,
+		"over \u2066budget": reasonCharacters,
+		"bad \xff byte":     reasonCharacters,
 	} {
 		_, err := denyReason(raw)
 		var fe fieldError
@@ -752,7 +955,7 @@ func TestDecisionSentences(t *testing.T) {
 }
 
 // The role comes first. An engineer gets the 403 in the slot of the card,
-// also for a form that playplace would refuse.
+// also for a form that playplace refuses for an approver.
 func TestDecideIsForApprovers(t *testing.T) {
 	d := newDesk(t, nil, nil, nil)
 	d.ask(t, "real-box", "bob@example.com")

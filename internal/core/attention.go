@@ -51,8 +51,11 @@ func (a *Account) settlingTooLong(now time.Time) bool {
 // Attention lists why a person must act on the account at now, in the order
 // of the Needs attention ledger. It is empty when nothing needs a person. A
 // closed account can still need attention for its budget protection, because
-// the retirement of a budget action can fail. Its damaged tags need no
-// repair, because nothing acts on them any more.
+// the retirement of a budget action can fail. Retirement acts only on a
+// managed account with enforcement (retireBudget), and the policy tag marks
+// such an account. On any other closed account nothing clears a budget state
+// any more, so that state needs no person. The damaged tags of a closed
+// account need no repair, because nothing acts on them any more.
 func (a *Account) Attention(now time.Time) []AttentionKind {
 	var out []AttentionKind
 	if a.ClosureOverdue() {
@@ -61,16 +64,18 @@ func (a *Account) Attention(now time.Time) []AttentionKind {
 	if a.Status == StatusFailed {
 		out = append(out, AttentionFailed)
 	}
-	switch a.BudgetHealth {
-	case "restricted":
+	budget := a.Status != StatusClosed || (a.Managed && a.BudgetPolicy != "")
+	switch {
+	case !budget:
+	case a.BudgetHealth == "restricted":
 		out = append(out, AttentionRestricted)
-	case "error":
+	case a.BudgetHealth == "error":
 		out = append(out, AttentionBudgetError)
 	}
 	if a.Status != StatusClosed && a.RepairError() != nil {
 		out = append(out, AttentionRepair)
 	}
-	if a.settlingTooLong(now) {
+	if budget && a.settlingTooLong(now) {
 		out = append(out, AttentionSettlingLong)
 	}
 	if a.Status == StatusUnavailable {

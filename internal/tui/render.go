@@ -252,8 +252,16 @@ func budgetText(a *core.Account) string {
 
 // spendCell shows "$412 / $500" with a graded bar when there is room.
 // Unknown spend shows as "unavailable / $500" with no bar, or as
-// "unavailable" alone when the budget does not fit.
+// "unavailable" alone when the budget does not fit. A closed account that
+// the TUI did not pull shows a muted "— / $500".
 func (m model) spendCell(r row, width int, base lipgloss.Style) string {
+	if notPulled(r) {
+		txt := "— / " + budgetText(r.Account)
+		if ansi.StringWidth(txt) > width {
+			txt = "—"
+		}
+		return base.Foreground(m.th.muted).Render(pad(txt, width))
+	}
 	if r.CostUnknown {
 		txt := "unavailable / " + budgetText(r.Account)
 		if ansi.StringWidth(txt) > width {
@@ -504,11 +512,22 @@ func (m model) detailBlock(r row, width int) []string {
 	return lines
 }
 
+// notPulled reports whether the row is a closed account with no spend. The
+// TUI does not pull a closed account, so it shows no spend, neither $0 nor
+// unavailable.
+func notPulled(r row) bool {
+	return r.Account.Status == core.StatusClosed && len(r.Points) == 0
+}
+
 // spendLine is "spend  $x / $y  NN%  bar", or "spend  unavailable / $y"
-// when the spend is not known.
+// when the spend is not known, or a muted "spend  — / $y" for a closed
+// account that the TUI did not pull.
 func (m model) spendLine(r row, width int) string {
 	th := m.th
 	a := r.Account
+	if notPulled(r) {
+		return th.label.Render(pad("spend", 9)) + lipgloss.NewStyle().Foreground(th.muted).Render("— / "+budgetText(a))
+	}
 	if r.CostUnknown {
 		return th.label.Render(pad("spend", 9)) + th.value.Render("unavailable / "+budgetText(a))
 	}

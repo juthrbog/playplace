@@ -259,10 +259,12 @@ func TestSlackButtonsAreBoundToThePostedVersion(t *testing.T) {
 	if _, err := svc.UpdateRequest(context.Background(), q.Ref(), "ops@example.com", core.RequestEdit{BudgetUSD: 400}); err != nil {
 		t.Fatal(err)
 	}
-	if text := click("approve", posted[0]); text != "Not approved. slacked changed after you loaded the page. Read the new values, then try again." {
+	// The message in Slack never shows the new values, so the reply points
+	// to the web UI.
+	if text := click("approve", posted[0]); text != "Not approved. slacked changed after playplace posted this message. Open playplace to read the new values." {
 		t.Fatalf("stale Slack approve = %q", text)
 	}
-	if text := click("deny", posted[0]); text != "Not denied. slacked changed after you loaded the page. Read the new values, then try again." {
+	if text := click("deny", posted[0]); text != "Not denied. slacked changed after playplace posted this message. Open playplace to read the new values." {
 		t.Fatalf("stale Slack deny = %q", text)
 	}
 	if text := click("deny", "slacked"); !strings.Contains(text, "older playplace") {

@@ -3,17 +3,21 @@ package web
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"playplace/internal/core"
 	"playplace/internal/provider/fake"
@@ -51,7 +55,7 @@ func TestRefusalText(t *testing.T) {
 	}{
 		{"changed", changed, "box", changedText},
 		{"requested", self("anna@example.com"), "box", "You requested box, so you cannot approve it. Another approver must approve it."},
-		{"would own", self("bob@example.com"), "box", "You would own box, so you cannot approve it. Another approver must approve it."},
+		{"the owner", self("bob@example.com"), "box", "box names you as the owner, so you cannot approve it. Another approver must approve it."},
 		{"gone", gone, "box", goneText},
 		{"an account not found", fmt.Errorf("%w: 123456789012", core.ErrNotFound), "", "Not found: 123456789012."},
 		{"aws", failed(aws), "box", awsFailed},
@@ -63,6 +67,9 @@ func TestRefusalText(t *testing.T) {
 		{"another code", failed(apiError{"AccessDeniedException"}), "", awsFailed},
 		{"deadline", failed(fmt.Errorf("send: %w", context.DeadlineExceeded)), "", awsSlow},
 		{"network time-out", failed(fmt.Errorf("send: %w", timeoutError{})), "", awsSlow},
+		// A time limit of playplace can end a call where core does not mark
+		// the error.
+		{"a deadline that core did not mark", fmt.Errorf("claim request: %w", context.DeadlineExceeded), "box", awsSlow},
 		{"an AWS error that core did not mark", fmt.Errorf("tag x: %w", apiError{"AccessDeniedException"}), "", awsFailed},
 		{"a throttle that core did not mark", apiError{"ThrottlingException"}, "", awsSlow},
 		// The checks run in order: a failed call that wraps a sentinel reads
@@ -70,10 +77,18 @@ func TestRefusalText(t *testing.T) {
 		{"aws that wraps gone", failed(gone), "box", goneText},
 		{"aws that wraps a change", failed(changed), "box", changedText},
 		{"aws that wraps a self-approval", failed(self("anna@example.com")), "box", "You requested box, so you cannot approve it. Another approver must approve it."},
+		{"aws that wraps a limit", failed(core.OwnerLimitError{Owner: "anna@example.com", Held: 1, Limit: 1}), "", "anna@example.com already holds 1 open account or request. The limit is 1."},
 		// Without a request name, a sentinel keeps the words of core.
 		{"gone with no name", gone, "", "Not found: no pending request named box."},
-		{"a core refusal", errors.New("box would live 100 days, past the ceiling of 90 days; the latest expiry is 2026-12-14 12:00 UTC and an admin can override"), "",
-			"Box would live 100 days, past the ceiling of 90 days. The latest expiry is 2026-12-14 12:00 UTC and an admin can override."},
+		// The limits keep the letters of the name and the email.
+		{"the lifetime limit", core.LifetimeLimitError{Name: "box", Lifetime: 100 * 24 * time.Hour, Max: 90 * 24 * time.Hour, Latest: time.Date(2026, 12, 14, 12, 0, 0, 0, time.UTC)}, "",
+			"box can live at most 90 days. The latest expiry is 2026-12-14 12:00 UTC. An admin can override the limit."},
+		{"the per-owner limit", core.OwnerLimitError{Owner: "anna@example.com", Held: 1, Limit: 1}, "",
+			"anna@example.com already holds 1 open account or request. The limit is 1."},
+		{"the per-owner limit of 3", fmt.Errorf("edit box: %w", core.OwnerLimitError{Owner: "anna@example.com", Held: 3, Limit: 3}), "",
+			"anna@example.com already holds 3 open accounts or requests. The limit is 3."},
+		{"a core refusal", errors.New("lifetime 100 days exceeds the maximum of 90 days; an admin can override"), "",
+			"Lifetime 100 days exceeds the maximum of 90 days. An admin can override."},
 		{"a field", fieldError{"budget", errors.New("budget must be a positive number")}, "", "Budget must be a positive number."},
 		{"joined refusals", errors.Join(errors.New("account x is SUSPENDED in the organization root"), errors.New("closure of y unconfirmed; charges may continue")), "",
 			"Account x is SUSPENDED in the organization root. Closure of y unconfirmed. Charges may continue."},
@@ -248,7 +263,8 @@ func TestNoPageShowsAnAWSRequestID(t *testing.T) {
 	// A request to act on, loaded while AWS still answers.
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"bobs-box"}}, true)
 	_, home := do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
-	ref := refForm(refIn(t, home, "bobs-box"))
+	bobs := refIn(t, home, "bobs-box")
+	ref := refForm(bobs)
 	with := func(extra url.Values) url.Values {
 		form := url.Values{}
 		for k, v := range ref {
@@ -272,6 +288,9 @@ func TestNoPageShowsAnAWSRequestID(t *testing.T) {
 		{"POST", "/requests/bobs-box/approve", ref, true, false, true},
 		{"POST", "/requests/bobs-box/approve", ref, false, false, true},
 		{"POST", "/requests/bobs-box/deny", with(url.Values{"reason": {"no"}}), true, false, true},
+		{"POST", "/requests/decide?action=approve", decideForm("", bobs), true, false, true},
+		{"POST", "/requests/decide?action=deny", decideForm("no", bobs), true, false, true},
+		{"POST", "/requests/decide?action=deny", decideForm("no", bobs), false, false, true},
 		{"POST", "/requests/bobs-box/withdraw", ref, true, false, true},
 		{"GET", "/requests/bobs-box/edit", nil, true, false, false},
 		{"POST", "/requests/bobs-box/edit", with(url.Values{"owner": {"bob@example.com"}, "budget": {"70"}}), true, false, true},
@@ -298,7 +317,9 @@ func TestNoPageShowsAnAWSRequestID(t *testing.T) {
 			if holdsRequestID(body) {
 				t.Errorf("%s %s (htmx %v, %s fail) shows the raw AWS error:\n%s", c.method, c.path, c.htmx, mode.name, shown)
 			}
-			if (mode.name == "reads" || c.writes) && !strings.Contains(body, awsFailed) {
+			// The failed panel of the account list has its own words, with the
+			// same start (listFailed).
+			if (mode.name == "reads" || c.writes) && !strings.Contains(body, awsFailed) && !strings.Contains(body, listFailed) {
 				t.Errorf("%s %s (htmx %v, %s fail) does not say that the call to AWS failed:\n%s", c.method, c.path, c.htmx, mode.name, shown)
 			}
 		}
@@ -306,6 +327,60 @@ func TestNoPageShowsAnAWSRequestID(t *testing.T) {
 	for _, path := range []string{"/", "/accounts", "/requests/bobs-box/approve", "/refresh", "/accounts/111111111111/extend"} {
 		if !logs.warned(path) {
 			t.Errorf("the log has no warning for %s with the raw error:\n%s", path, logs.String())
+		}
+	}
+}
+
+// Core stores the raw text of a failed budget call in the budget error tag,
+// cut to 150 bytes, and in the history details. No page shows it, to the
+// owner or to an admin. A stored error of core keeps its words.
+func TestNoPageShowsAStoredAWSError(t *testing.T) {
+	raw := "describe budget: " + outageText
+	tags := map[string]string{
+		core.TagManaged: "true", core.TagOwner: "anna@example.com", core.TagExpires: t0.Add(72 * time.Hour).Format(time.RFC3339), core.TagBudget: "50",
+		core.TagBudgetHealth: "error", core.TagBudgetChecked: t0.Format(time.RFC3339), core.TagBudgetError: base64.RawURLEncoding.EncodeToString([]byte(raw[:150])),
+	}
+	d := newDesk(t, nil, func(p *fake.Provider) core.Provider {
+		p.Seed(core.RemoteAccount{ProviderID: "111111111111", Name: "annas-box", Email: "a@example.com", JoinedAt: t0, Tags: tags})
+		return p
+	}, nil)
+	if err := d.hist.Record(context.Background(), core.AuditEvent{JourneyID: "account:111111111111", At: t0, Event: "budget-protection", Account: "annas-box", Owner: "anna@example.com",
+		Actor: core.ActorSystem, Message: "Budget protection: error", Details: map[string]string{"action_id": "", "error": raw}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		path, user string
+		admin      bool
+	}{
+		{"/accounts/111111111111", "anna@example.com", false},
+		{"/accounts/111111111111", "ops@example.com", true},
+		{"/", "anna@example.com", false},
+		{"/", "ops@example.com", true},
+	} {
+		_, body := do(t, d.ts, "GET", c.path, c.user, c.admin, nil, false)
+		if !strings.Contains(body, "annas-box") {
+			t.Fatalf("GET %s as %s does not show the account:\n%s", c.path, c.user, body)
+		}
+		if holdsRequestID(body) {
+			t.Errorf("GET %s as %s shows the stored AWS error:\n%s", c.path, c.user, body)
+		}
+		if !strings.Contains(body, awsFailed) {
+			t.Errorf("GET %s as %s does not say that the call to AWS failed:\n%s", c.path, c.user, body)
+		}
+	}
+	_, page := do(t, d.ts, "GET", "/accounts/111111111111", "ops@example.com", true, nil, false)
+	if !strings.Contains(page, `<dt>budget error</dt><dd class="error">`+alertIcon+`<span>`+awsFailed+`</span></dd>`) || !strings.Contains(page, html.EscapeString(`"error": "`+awsFailed+`"`)) {
+		t.Errorf("the account page does not show the failure text in the budget error and in the history:\n%s", page)
+	}
+
+	for text, want := range map[string]string{
+		raw[:150]: awsFailed,
+		"https response error StatusCode: 403, RequestID: 5d1b":                                               awsFailed,
+		"budget enforcement configuration removed or changed; restore it before changing existing protection": "budget enforcement configuration removed or changed; restore it before changing existing protection",
+		"": "",
+	} {
+		if got := storedFailure(text); got != want {
+			t.Errorf("storedFailure(%q) = %q, want %q", text, got, want)
 		}
 	}
 }
@@ -333,5 +408,24 @@ func TestSlackRepliesWithTheSafeText(t *testing.T) {
 
 	if text := slackClick(t, ts, sl, stub, "approve", "missing 01ABC.v1"); text != "Not approved. missing is no longer waiting. Someone else decided it, the owner withdrew it, or it was dropped." {
 		t.Errorf("Slack approve of a request that is gone = %q", text)
+	}
+
+	// The clicker lead@example.com asked for one request and owns another.
+	// Slack refuses both approvals with the words of the web UI.
+	for _, q := range []struct{ name, by, owner string }{{"leads-box", "lead@example.com", "dana@example.com"}, {"for-lead", "ops@example.com", "lead@example.com"}} {
+		if res, body := do(t, ts, "POST", "/requests", q.by, true, url.Values{"name": {q.name}, "owner": {q.owner}}, true); res.Header.Get("X-Form-Error") != "" {
+			t.Fatalf("submit %s = %s", q.name, body)
+		}
+	}
+	stub.mu.Lock()
+	own := slices.Clone(stub.posted[1:])
+	stub.mu.Unlock()
+	if len(own) != 2 {
+		t.Fatalf("posted = %v, want the two requests of lead", own)
+	}
+	for i, want := range []string{"Not approved. You requested it, so another approver must approve it.", "Not approved. It names you as the owner, so another approver must approve it."} {
+		if text := slackClick(t, ts, sl, stub, "approve", own[i]); text != want {
+			t.Errorf("Slack approve of an own request = %q, want %q", text, want)
+		}
 	}
 }

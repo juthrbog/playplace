@@ -119,6 +119,12 @@ func (s *Server) Handler() http.Handler {
 	}))
 }
 
+// shutdownDrain is how long a stop waits for the answers in flight. A
+// decision post can run for decideBudget and one more approval. Shutdown
+// returns as soon as the last answer is out, so an idle server still stops
+// at once.
+const shutdownDrain = decideBudget + 15*time.Second
+
 // ListenAndServe runs until ctx is cancelled, then drains connections.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	srv := &http.Server{Addr: addr, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
@@ -128,7 +134,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	case err := <-errc:
 		return err
 	case <-ctx.Done():
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdown, cancel := context.WithTimeout(context.Background(), shutdownDrain)
 		defer cancel()
 		srv.Shutdown(shutdown)
 		return ctx.Err()
@@ -516,7 +522,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	var msg string
 	if err != nil {
 		s.log.Warn("accounts", "path", r.URL.Path, "err", err)
-		msg = refusal(err, "")
+		msg = listFailure(err)
 	}
 	s.render(w, r, indexPage(pg, rows, msg, s.pollHash(r.Context(), pg, rows, msg)))
 }
@@ -540,7 +546,7 @@ func (s *Server) table(w http.ResponseWriter, r *http.Request) {
 	var errMsg string
 	if err != nil {
 		s.log.Warn("accounts poll", "path", r.URL.Path, "err", err)
-		rows, errMsg = nil, refusal(err, "")
+		rows, errMsg = nil, listFailure(err)
 	}
 	// The answer changes with the data, so a cache must ask every time.
 	w.Header().Set("Cache-Control", "private, no-cache")
@@ -629,8 +635,12 @@ func (s *Server) show(w http.ResponseWriter, r *http.Request) {
 	}
 	var costs []core.CostPoint
 	if a.ProviderID != "" {
+		// Opening the page is a request of a person, so spend that is not
+		// known is pulled at once, also within the wait after a failed poll
+		// pull. Only people force a pull, and the poll never does.
+		_, known := s.svc.CostState(a.ProviderID, 30)
 		var err error
-		costs, err = s.svc.Costs(r.Context(), a.ID, 30, false)
+		costs, err = s.svc.Costs(r.Context(), a.ID, 30, !known)
 		if err != nil {
 			s.log.Warn("costs", "account", a.Name, "err", err)
 		}

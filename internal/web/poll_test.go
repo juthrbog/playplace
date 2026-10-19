@@ -217,7 +217,9 @@ func TestFailedPollShowsTheUnavailablePanel(t *testing.T) {
 	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" || res.Header.Get("HX-Reswap") != "" || strings.Contains(body, `id="form-error"`) {
 		t.Fatalf("a failed poll is a refusal: %d %v\n%s", res.StatusCode, res.Header, body)
 	}
-	for _, want := range []string{`<div id="accounts-error" class="refusal">`, `<p class="note-title">The account list is unavailable.</p>`, `<p class="note-body">` + awsFailed + ` The page tries again every 15 seconds.</p>`} {
+	// The page tries again by itself, so the panel never tells the person to
+	// try again.
+	for _, want := range []string{`<div id="accounts-error" class="refusal">`, `<p class="note-title">The account list is unavailable.</p>`, `<p class="note-body">The call to AWS failed. If it keeps failing, ask an admin to read the playplace log. The page tries again every 15 seconds.</p>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the failed panel lacks %s:\n%s", want, body)
 		}

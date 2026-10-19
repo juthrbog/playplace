@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -104,10 +105,20 @@ func (s *Slack) interact(w http.ResponseWriter, r *http.Request) {
 	act := payload.Actions[0]
 	path := r.URL.Path
 	// refused replies with the text of refusal for err, after the outcome.
-	// The log holds the raw error.
+	// The log holds the raw error. A message in Slack never changes, so a
+	// changed request gets a reply that points to the web UI. An own request
+	// gets the words of the web UI.
 	refused := func(ctx context.Context, outcome string, ref core.RequestRef, err error) {
 		s.log.Warn("slack action failed", "path", path, "action", act.ActionID, "request", ref.Name, "err", err)
-		s.respond(ctx, payload.ResponseURL, outcome+" "+refusal(err, ref.Name), true)
+		text := outcome + " " + refusal(err, ref.Name)
+		var self core.SelfApprovalError
+		switch {
+		case errors.Is(err, core.ErrRequestChanged):
+			text = outcome + " " + ref.Name + " changed after playplace posted this message. Open playplace to read the new values."
+		case errors.As(err, &self):
+			text = ownRequest(act.ActionID, self.WouldOwn)
+		}
+		s.respond(ctx, payload.ResponseURL, text, true)
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

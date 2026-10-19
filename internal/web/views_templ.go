@@ -1458,7 +1458,7 @@ func pendingRow(pg page, q core.Request) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 116, "\" hx-target=\"#pending\" hx-swap=\"morph\" hx-include=\"#show-closed\" hx-prompt=\"Reason for denying (sent with the denied notice and kept in history)\" hx-sync=\"this:drop\" data-action=\"deny\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 116, "\" hx-target=\"#pending\" hx-swap=\"morph\" hx-include=\"#show-closed\" hx-prompt=\"Reason for denying, 1 to 500 characters. playplace sends it with the denied notice and keeps it in history.\" hx-sync=\"this:drop\" data-action=\"deny\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2622,9 +2622,9 @@ func budgetLabel(health, errText string) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var115 string
-			templ_7745c5c3_Var115, templ_7745c5c3_Err = templ.ResolveAttributeValue(errText)
+			templ_7745c5c3_Var115, templ_7745c5c3_Err = templ.ResolveAttributeValue(storedFailure(errText))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `views.templ`, Line: 587, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `views.templ`, Line: 587, Col: 33}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var115)
 			if templ_7745c5c3_Err != nil {
@@ -3036,9 +3036,9 @@ func accountPage(pg page, a *core.Account, costs []core.CostPoint, total float64
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var137 string
-				templ_7745c5c3_Var137, templ_7745c5c3_Err = templ.JoinStringErrs(a.BudgetError)
+				templ_7745c5c3_Var137, templ_7745c5c3_Err = templ.JoinStringErrs(storedFailure(a.BudgetError))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `views.templ`, Line: 654, Col: 80}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `views.templ`, Line: 654, Col: 95}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var137))
 				if templ_7745c5c3_Err != nil {

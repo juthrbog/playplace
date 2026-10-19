@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"playplace/internal/core"
@@ -34,13 +35,19 @@ type Slack struct {
 	Client     *http.Client
 }
 
+// slackText escapes the three characters that Slack reads as markup in the
+// text of a message. A notice holds text that people wrote, such as the
+// reason of a denial. Without the escape, <!channel> in it notifies the
+// whole channel. Slack shows the escaped characters as they were written.
+var slackText = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
 func (s Slack) Notify(ctx context.Context, m core.Message) error {
 	client := s.Client
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
 	body, _ := json.Marshal(map[string]string{
-		"text": fmt.Sprintf("*%s*\n%s\nOwner: %s", m.Subject, m.Body, m.Owner),
+		"text": fmt.Sprintf("*%s*\n%s\nOwner: %s", slackText.Replace(m.Subject), slackText.Replace(m.Body), slackText.Replace(m.Owner)),
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.WebhookURL, bytes.NewReader(body))
 	if err != nil {

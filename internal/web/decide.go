@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/a-h/templ"
@@ -37,6 +38,13 @@ const (
 	maxReason       = 500
 )
 
+// decideRefLimit ends a decision on one request when AWS never answers a
+// call. A normal approval takes 2 to 6 seconds, so only a hung call reaches
+// the limit. The AWS SDK sets no time limit on an answer, and core holds
+// its lock for the whole decision. Without the limit, one hung call stops
+// every other decision and the refresh pass. Tests make it short.
+var decideRefLimit = 2 * time.Minute
+
 // The refusals of a decision form. A decision page sends none of them. They
 // answer a form that a script or an old page built.
 const (
@@ -51,8 +59,9 @@ const (
 // into Slack and into history, so a denial needs one. refusal writes each
 // one as sentences.
 var (
-	errNoReason   = errors.New("write the reason for the denial. playplace cannot deny a request without one")
-	errLongReason = fmt.Errorf("the reason can have at most %d characters", maxReason)
+	errNoReason         = errors.New("write the reason for the denial. playplace cannot deny a request without one")
+	errLongReason       = fmt.Errorf("the reason can have at most %d characters", maxReason)
+	errReasonCharacters = errors.New("the reason holds a hidden character, for example a control or text direction character. Type the reason again")
 )
 
 // decisionKind is the result of a decision on one request.
@@ -63,7 +72,7 @@ const (
 	decidedDenied                        // the request left the queue
 	decisionGone                         // the request no longer waits
 	decisionChanged                      // the request changed after the page showed it
-	decisionOwn                          // the viewer requested it or would own it
+	decisionOwn                          // the viewer requested it, or it names the viewer as the owner
 	decisionNotTried                     // playplace stopped before the request
 	decisionFailed                       // a call to AWS failed
 	decisionRefused                      // core refused it for another reason
@@ -139,8 +148,11 @@ func (s *Server) decideAll(w http.ResponseWriter, r *http.Request) {
 	var refs []core.RequestRef
 	seen := map[string]bool{}
 	for _, v := range r.PostForm["req"] {
+		// Every request in the queue has a valid name, because core checks
+		// the name when a request arrives. A name that is not valid is never
+		// read from AWS, so a forged form costs no calls.
 		ref, ok := parseRefValue(v)
-		if !ok {
+		if !ok || core.ValidateName(ref.Name) != nil {
 			s.refuseForm(w, r, http.StatusBadRequest, unreadableRef)
 			return
 		}
@@ -207,7 +219,9 @@ func (s *Server) refuseForm(w http.ResponseWriter, r *http.Request, code int, wh
 
 // denyReason reads the reason of a denial. It folds every run of spaces and
 // line breaks into one space, so the notice and Slack show one line. The
-// reason must then hold 1 to maxReason characters, counted as runes.
+// reason must then hold 1 to maxReason characters, counted as runes. It must
+// be valid UTF-8 with no control characters and no bidi controls. A bidi
+// control can change the order of the words in the notice and in history.
 func denyReason(raw string) (string, error) {
 	reason := strings.Join(strings.Fields(raw), " ")
 	switch n := utf8.RuneCountInString(reason); {
@@ -215,6 +229,8 @@ func denyReason(raw string) (string, error) {
 		return "", fieldError{"reason", errNoReason}
 	case n > maxReason:
 		return "", fieldError{"reason", errLongReason}
+	case !utf8.ValidString(reason) || strings.ContainsFunc(reason, func(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r) }):
+		return "", fieldError{"reason", errReasonCharacters}
 	}
 	return reason, nil
 }
@@ -222,13 +238,18 @@ func denyReason(raw string) (string, error) {
 // decide makes the decision action on each ref, oldest request first, and
 // answers with every result. One result never stops the rest, with two
 // exceptions. After the first failed call to AWS, the rest are not tried,
-// because each one would repeat the outage with a forced inventory. After
+// because each one repeats the outage with a forced inventory. After
 // decideBudget, the rest are not tried, so the answer reaches the browser
-// before a proxy cuts it. A decision that started always runs to its end.
-// Its context ignores the cancellation of the request and has no deadline
-// of its own, because core restores a failed approval with that context.
-// The AWS SDK has its own time-outs.
+// before a proxy cuts it. The budget counts from the start of the post.
+//
+// The context of a decision ignores the cancellation of the request, so a
+// browser that goes away never cuts a decision. A cut call can write the
+// claim in AWS while core sees an error, and then nothing puts the request
+// back. decideRefLimit ends only a call that AWS never answers. A deadline
+// error is a failed call to AWS, so the rest are then not tried. Core
+// restores a failed approval with a context of its own.
 func (s *Server) decide(w http.ResponseWriter, r *http.Request, action string, refs []core.RequestRef, reason string) {
+	start := s.svc.Now()
 	pg := s.pageFor(r)
 	// The queue lists the oldest request first. A ref that the queue does
 	// not list goes last, in the order of the form.
@@ -245,7 +266,6 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request, action string, r
 	refs = slices.Clone(refs)
 	slices.SortStableFunc(refs, func(a, b core.RequestRef) int { return cmp.Compare(place(a), place(b)) })
 	ctx := context.WithoutCancel(r.Context())
-	start := s.svc.Now()
 	stopped := false
 	results := make([]decision, 0, len(refs))
 	for _, ref := range refs {
@@ -256,7 +276,9 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request, action string, r
 		if stopped {
 			d = decision{Ref: ref, Kind: decisionNotTried, Why: notTried(action)}
 		} else {
-			d = s.decideRef(ctx, r, pg, action, ref, reason)
+			rctx, cancel := context.WithTimeout(ctx, decideRefLimit)
+			d = s.decideRef(rctx, r, pg, action, ref, reason)
+			cancel()
 			stopped = d.Kind == decisionFailed
 		}
 		s.log.Info("decision", "action", action, "name", ref.Name, "version", ref.Version, "result", d.Kind.String(), "by", pg.Viewer.Email)
@@ -269,6 +291,11 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request, action string, r
 // approver, so canApprove refuses only through CheckApprover. The rule
 // holds for a denial too. The queue of pg comes through the cache, so a
 // request that it does not list is read live.
+//
+// The rule runs here only on the version that the viewer saw. A request of
+// another version changed after the page showed it, so core refuses it as
+// changed, and the viewer gets the new values. Core Approve applies the rule
+// again to the live record.
 func (s *Server) decideRef(ctx context.Context, r *http.Request, pg page, action string, ref core.RequestRef, reason string) decision {
 	var q core.Request
 	var err error
@@ -277,10 +304,12 @@ func (s *Server) decideRef(ctx context.Context, r *http.Request, pg page, action
 	} else {
 		q, err = s.svc.GetRequest(ctx, ref.Name)
 	}
-	if err == nil {
+	if err == nil && q.Version() == ref.Version {
 		if self := core.CheckApprover(q, pg.Viewer.Email, pg.Limits.AllowSelfApproval); self != nil {
 			return undecided(action, ref, self)
 		}
+	}
+	if err == nil {
 		if action == actionApprove {
 			_, err = s.svc.Approve(ctx, ref, pg.Viewer.Email)
 		} else {
@@ -312,7 +341,7 @@ func undecided(action string, ref core.RequestRef, err error) decision {
 		d.Kind, d.Why = decisionOwn, ownRequest(action, self.WouldOwn)
 	case errors.Is(err, core.ErrNotFound):
 		d.Kind = decisionGone
-	case errors.As(err, &failed), errors.As(err, &coded):
+	case errors.As(err, &failed), errors.As(err, &coded), errors.Is(err, context.DeadlineExceeded):
 		d.Kind = decisionFailed
 	default:
 		d.Kind = decisionRefused
@@ -320,13 +349,13 @@ func undecided(action string, ref core.RequestRef, err error) decision {
 	return d
 }
 
-// ownRequest is the reason of a ref that the viewer requested or would own.
-// The page shows no buttons for such a request, so only a forged post gets
-// it.
+// ownRequest is the reason of a ref that the viewer requested or that names
+// the viewer as the owner. The page shows no buttons for such a request, so
+// only a forged post gets it in the web. Slack sends it for a click.
 func ownRequest(action string, wouldOwn bool) string {
 	who := "You requested it"
 	if wouldOwn {
-		who = "You would own it"
+		who = "It names you as the owner"
 	}
 	if action == actionDeny {
 		return "Not denied. " + who + ", so another approver must decide."
@@ -347,8 +376,8 @@ func notTried(action string) string {
 // region says what happened. The card lists each request that was not
 // decided in its refusal slot. A failed account list then shows as the
 // failed panel, so the results still reach the page. When none went
-// through, the answer is a refusal: one request gets its reason in the slot
-// and the hidden copy, and several get the list in the card.
+// through, the answer is a refusal. One request gets its reason in the slot
+// and the hidden copy. Several get the list in the card.
 func (s *Server) answerDecisions(w http.ResponseWriter, r *http.Request, action string, results []decision) {
 	var left []decision
 	stale := false
@@ -360,7 +389,7 @@ func (s *Server) answerDecisions(w http.ResponseWriter, r *http.Request, action 
 	}
 	said := decisionSentence(action, results)
 	if len(left) == len(results) {
-		s.refuseDecisions(w, r, left, stale, said)
+		s.refuseDecisions(w, r, action, left, stale, said)
 		return
 	}
 	pg := s.pageFor(r)
@@ -369,7 +398,7 @@ func (s *Server) answerDecisions(w http.ResponseWriter, r *http.Request, action 
 	var errMsg string
 	if err != nil {
 		s.log.Warn("accounts", "path", r.URL.Path, "err", err)
-		rows, errMsg = nil, refusal(err, "")
+		rows, errMsg = nil, listFailure(err)
 	}
 	s.writeAccounts(w, r, pg, rows, errMsg, s.pollHash(r.Context(), pg, rows, errMsg), true, noticeFragment("check", said))
 }
@@ -377,17 +406,26 @@ func (s *Server) answerDecisions(w http.ResponseWriter, r *http.Request, action 
 // refuseDecisions answers a decision post that decided nothing. A request
 // that changed or left the queue renders the card again, so the viewer sees
 // what waits now. The card lands first, and the refusal then fills its
-// slot.
-func (s *Server) refuseDecisions(w http.ResponseWriter, r *http.Request, left []decision, stale bool, said string) {
+// slot. A page visit gets the styled page with the reason of each request,
+// because the home page cannot show them.
+func (s *Server) refuseDecisions(w http.ResponseWriter, r *http.Request, action string, left []decision, stale bool, said string) {
 	if stale {
 		s.svc.Invalidate()
 	}
 	if r.Header.Get("HX-Request") != "true" {
-		msg, recovery := said, "Go back to Home to see the queue."
-		if len(left) == 1 {
-			msg, recovery = left[0].Why, "Go back to Home and try again."
+		msg := left[0].Why
+		if len(left) > 1 {
+			verb := "approved"
+			if action == actionDeny {
+				verb = "denied"
+			}
+			parts := []string{"No requests were " + verb + "."}
+			for _, d := range left {
+				parts = append(parts, d.Ref.Name+": "+d.Why)
+			}
+			msg = strings.Join(parts, " ")
 		}
-		s.errorPage(w, r, errorView{Code: http.StatusBadRequest, Title: "Action refused", Message: msg, Recovery: recovery, Back: "/", BackLabel: "Go to Home"})
+		s.errorPage(w, r, errorView{Code: http.StatusBadRequest, Title: "Action refused", Message: msg, Recovery: "Go back to Home and try again.", Back: "/", BackLabel: "Go to Home"})
 		return
 	}
 	w.Header().Set("HX-Reswap", "none")

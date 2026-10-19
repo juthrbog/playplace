@@ -904,9 +904,12 @@ issuer or preset are an error.`,
 			}
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
-			errc := make(chan error, 2)
+			errc := make(chan error, 1)
 			if !noWorker {
-				go func() { errc <- worker.New(a.svc, interval, a.log).Run(ctx) }()
+				// Run returns only when ctx ends. serve then waits for the web
+				// server, which first finishes the answers in flight, such as a
+				// decision post.
+				go func() { _ = worker.New(a.svc, interval, a.log).Run(ctx) }()
 			}
 			var sl *web.Slack
 			if slack.botToken != "" || slack.signingSecret != "" {
