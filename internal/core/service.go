@@ -1657,7 +1657,7 @@ func (s *Service) Withdraw(ctx context.Context, ref RequestRef, by string) error
 	return nil
 }
 
-// expireRequests drops pending requests nobody acted on within RequestTTL,
+// expireRequests drops pending requests nobody acted on by their DropsAt,
 // and approved records whose creation failed or is no longer known to the
 // provider. It reports each failed creation of an approved record once,
 // also when nobody waited for it.
@@ -1702,7 +1702,7 @@ func (s *Service) expireRequests(ctx context.Context, sum *Summary) error {
 			}
 			continue
 		}
-		if now.Sub(r.RequestedAt) > s.cfg.RequestTTL {
+		if now.After(r.DropsAt(s.cfg.RequestTTL)) {
 			keys = append(keys, r.Key())
 			expired = append(expired, r)
 		}

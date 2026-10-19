@@ -136,6 +136,11 @@ func Dollars(v float64) string {
 // ExpiresAt is when the account would expire if approved now.
 func (r Request) ExpiresAt(now time.Time) time.Time { return now.Add(r.TTL) }
 
+// DropsAt is the last moment the request waits for a decision, given the
+// request ttl (Config.RequestTTL). The first refresh after it drops the
+// request. Every rule and view of that moment uses it.
+func (r Request) DropsAt(ttl time.Duration) time.Time { return r.RequestedAt.Add(ttl) }
+
 // Validate checks every stored field against the tag rules.
 func (r Request) Validate() error {
 	if err := ValidateName(r.Name); err != nil {
