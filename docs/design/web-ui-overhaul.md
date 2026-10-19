@@ -255,8 +255,10 @@ researched in the same depth, and it loses for this project:
 
 The plan:
 
-- Upgrade htmx to 2.0.11 with the idiomorph extension, or to 4.0 when it
-  leaves the npm `next` tag. Both give morph swaps.
+- Phase 1 upgraded htmx to 2.0.11 and added the idiomorph 0.8.0 core file.
+  A short extension in `app.js` gives the morph swaps. Move to htmx 4 when
+  it leaves the npm `next` tag. htmx 4 has its own morph swap, which then
+  replaces the extension.
 - One hand-written stylesheet in `internal/web/static`, with cascade layers
   and the tokens above. No CSS build step.
 - Move every inline style into that file. Then the CSP drops
@@ -430,6 +432,13 @@ sections above hold the details.
   See Backend work for the new capabilities.
 - **Approver fleet view.** Approvers get no fleet view. The fleet and Needs
   attention are admin views.
+- **htmx.** The maintainer decided this on 2026-10-18. The UI uses htmx
+  2.0.11 with the idiomorph 0.8.0 core file and a morph extension in
+  `app.js`. It does not use `idiomorph-ext.min.js`. That file builds swap
+  options with the `Function` constructor, which the CSP blocks. It also
+  puts the whole element of an `innerHTML` out-of-band part inside its
+  target, so the live region then holds a second region. The UI moves to
+  htmx 4 after htmx 4 becomes the npm `latest` release.
 
 ## Open questions
 

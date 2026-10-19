@@ -535,6 +535,17 @@ inline style, inline script or inline event handler. Page behaviour lives in
 `internal/web/static/app.css`. The fonts are self-hosted woff2 files under
 `internal/web/static/fonts`.
 
+`app.js` holds the htmx morph extension. The extension uses idiomorph to
+merge each answer into the page, so focus, scroll and open forms stay. Every
+page has one live region (the `#notice` element at the top of `<main>`,
+with `aria-live="polite"`). Each action writes a short result message into
+it. A refusal fills its slot under the form or in the pending card, and
+writes a hidden copy of the same text into the region. While a request runs, its button sets
+`aria-busy` and shows its verb in progress, for example Approving. The home
+page polls `GET /accounts` every 15 seconds. The poll sends the
+`X-Poll-Hash` header with the hash of what the page shows. If nothing
+changed, the server answers 204 No Content and the page stays as it is.
+
 The server needs management-account credentials, because AWS only allows
 CreateAccount and CloseAccount from there. Run it in the management account
 under a role limited to Organizations, Budgets, Cost Explorer, the two
