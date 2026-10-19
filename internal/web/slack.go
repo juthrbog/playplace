@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"playplace/internal/core"
@@ -33,6 +34,10 @@ type Slack struct {
 
 	svc *core.Service
 	log *slog.Logger
+	// decisions counts the clicks that still decide. A click answers Slack
+	// at once and decides after the answer, so the stop of the HTTP server
+	// does not wait for it. wait does.
+	decisions sync.WaitGroup
 }
 
 func (s *Slack) client() *http.Client {
@@ -120,7 +125,7 @@ func (s *Slack) interact(w http.ResponseWriter, r *http.Request) {
 		}
 		s.respond(ctx, payload.ResponseURL, text, true)
 	}
-	go func() {
+	s.decisions.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		email, err := s.userEmail(ctx, payload.User.ID)
@@ -152,7 +157,22 @@ func (s *Slack) interact(w http.ResponseWriter, r *http.Request) {
 			}
 			s.respond(ctx, payload.ResponseURL, fmt.Sprintf(":no_entry: *%s* denied `%s`.", email, ref.Name), false)
 		}
+	})
+}
+
+// wait waits until every click that decides has ended, or until ctx ends.
+// The caller stops the HTTP server first, so no new click starts a decision
+// during the wait.
+func (s *Slack) wait(ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		s.decisions.Wait()
+		close(done)
 	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
 }
 
 // verify checks Slack's v0 request signature and rejects replays older than 5 minutes.

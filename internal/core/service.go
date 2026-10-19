@@ -894,10 +894,9 @@ func (s *Service) checkLifetime(a *Account, until time.Time, override bool) erro
 	return nil
 }
 
-// LifetimeLimitError refuses an expiry that would give an account a lifetime
-// past MaxTTL. Latest is the latest expiry that the limit allows. An
-// interface finds the refusal with errors.As and can then choose its own
-// words.
+// LifetimeLimitError refuses an expiry that gives an account a lifetime past
+// MaxTTL. Latest is the latest expiry that the limit allows. An interface
+// finds the refusal with errors.As and can then choose its own words.
 type LifetimeLimitError struct {
 	Name     string
 	Lifetime time.Duration
@@ -1798,8 +1797,9 @@ const costRetryAfter = 5 * time.Minute
 // so without the wait an outage costs a call per account per poll. force
 // pulls at once, also within the wait. Only a person forces a pull: Sync in
 // the web, an account page whose spend is not known, or r and S in the TUI.
-// So a forced pull is rare, and it gives the person a fresh answer. A pull that fails because the caller's context
-// ended says nothing about AWS, so it changes no cost state.
+// So a forced pull is rare, and it gives the person a fresh answer. A pull
+// that fails because the caller's context ended says nothing about AWS, so
+// it changes no cost state.
 //
 // Pulls of one account can overlap, for example a poll and a forced pull.
 // Each pull gets a number, and a pull writes only when no later pull wrote

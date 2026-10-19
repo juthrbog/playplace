@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -114,11 +115,14 @@ func (s *Server) decideOne(w http.ResponseWriter, r *http.Request, action string
 	var reason string
 	if action == actionDeny {
 		raw := r.FormValue("reason")
-		if raw == "" {
-			raw = r.Header.Get("HX-Prompt")
-		}
 		var err error
-		if reason, err = denyReason(raw); err != nil {
+		if raw == "" {
+			raw, err = promptAnswer(r.Header)
+		}
+		if err == nil {
+			reason, err = denyReason(raw)
+		}
+		if err != nil {
 			s.failRequest(w, r, err)
 			return
 		}
@@ -215,6 +219,28 @@ func (s *Server) refuseForm(w http.ResponseWriter, r *http.Request, code int, wh
 	if err := errorFragment("pending-error", why).Render(r.Context(), w); err != nil {
 		s.log.Error("render", "path", r.URL.Path, "err", err)
 	}
+}
+
+// promptAnswer reads the answer of an htmx prompt from the HX-Prompt header.
+// A header holds bytes, so htmx sends an answer with no character above
+// U+00FF as Latin-1, one byte for each character. Each byte is then the
+// rune of the same value. htmx sends any other answer as encodeURIComponent
+// writes it, and marks it with the HX-Prompt-URI-AutoEncoded header. An
+// escape that does not decode gets the refusal of a hidden character.
+func promptAnswer(h http.Header) (string, error) {
+	v := h.Get("HX-Prompt")
+	if h.Get("HX-Prompt-URI-AutoEncoded") == "true" {
+		answer, err := url.PathUnescape(v)
+		if err != nil {
+			return "", fieldError{"reason", errReasonCharacters}
+		}
+		return answer, nil
+	}
+	var b strings.Builder
+	for i := range len(v) {
+		b.WriteRune(rune(v[i]))
+	}
+	return b.String(), nil
 }
 
 // denyReason reads the reason of a denial. It folds every run of spaces and

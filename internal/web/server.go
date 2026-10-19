@@ -125,7 +125,10 @@ func (s *Server) Handler() http.Handler {
 // at once.
 const shutdownDrain = decideBudget + 15*time.Second
 
-// ListenAndServe runs until ctx is cancelled, then drains connections.
+// ListenAndServe runs until ctx is cancelled, then drains connections. A
+// Slack click decides after its answer, so the stop then waits for those
+// decisions too, in the same drain. Shutdown returns nil only when every
+// handler has returned, so no click starts a decision during that wait.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	srv := &http.Server{Addr: addr, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 1)
@@ -136,7 +139,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	case <-ctx.Done():
 		shutdown, cancel := context.WithTimeout(context.Background(), shutdownDrain)
 		defer cancel()
-		srv.Shutdown(shutdown)
+		if srv.Shutdown(shutdown) == nil && s.slack != nil {
+			s.slack.wait(shutdown)
+		}
 		return ctx.Err()
 	}
 }

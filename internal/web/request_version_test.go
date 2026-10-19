@@ -218,15 +218,7 @@ func slackServerOn(t *testing.T, wrap func(*fake.Provider) core.Provider, log *s
 // the reply posted to the response URL.
 func slackClick(t *testing.T, ts *httptest.Server, sl *Slack, stub *slackStub, action, value string) string {
 	t.Helper()
-	payload, _ := json.Marshal(map[string]any{"type": "block_actions", "response_url": "https://hooks.example/r",
-		"user": map[string]string{"id": "U1"}, "actions": []map[string]string{{"action_id": action, "value": value}}})
-	body := []byte("payload=" + url.QueryEscape(string(payload)))
-	stamp := strconv.FormatInt(time.Now().Unix(), 10)
-	req, _ := http.NewRequest("POST", ts.URL+"/slack/interact", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("X-Slack-Request-Timestamp", stamp)
-	req.Header.Set("X-Slack-Signature", sl.sign(stamp, body))
-	res, err := http.DefaultClient.Do(req)
+	res, err := http.DefaultClient.Do(slackClickRequest(ts.URL, sl, action, value))
 	if err != nil {
 		t.Fatalf("interact: %v", err)
 	}
@@ -241,6 +233,20 @@ func slackClick(t *testing.T, ts *httptest.Server, sl *Slack, stub *slackStub, a
 		t.Fatal("no Slack response")
 		return ""
 	}
+}
+
+// slackClickRequest is a signed button click as lead@example.com on the
+// server at base.
+func slackClickRequest(base string, sl *Slack, action, value string) *http.Request {
+	payload, _ := json.Marshal(map[string]any{"type": "block_actions", "response_url": "https://hooks.example/r",
+		"user": map[string]string{"id": "U1"}, "actions": []map[string]string{{"action_id": action, "value": value}}})
+	body := []byte("payload=" + url.QueryEscape(string(payload)))
+	stamp := strconv.FormatInt(time.Now().Unix(), 10)
+	req, _ := http.NewRequest("POST", base+"/slack/interact", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Slack-Request-Timestamp", stamp)
+	req.Header.Set("X-Slack-Signature", sl.sign(stamp, body))
+	return req
 }
 
 func TestSlackButtonsAreBoundToThePostedVersion(t *testing.T) {

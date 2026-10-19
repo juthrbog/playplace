@@ -7,6 +7,15 @@ minute. Run it on one small host in the management account (ECS, App Runner,
 or a VM) behind HTTPS, with an instance or task role that carries
 `aws/playplace-policy.json`.
 
+When `serve` stops, it waits up to 60 seconds for the decisions in flight,
+from the web UI and from Slack. A cut decision can leave a request claimed
+with no account. So give `serve` at least 60 seconds to stop. On ECS, set
+`stopTimeout` in the container definition to 60 or more, because the default
+is 30 seconds. In Kubernetes, set `terminationGracePeriodSeconds` to 60 or
+more, because the default is also 30 seconds. With systemd, keep
+`TimeoutStopSec` at 60 seconds or more. App Runner has no setting for this
+time, so a stop there can cut a decision.
+
 AWS tags have no compare-and-swap across processes, so playplace supports one
 writer. The `serve` process is that writer: its worker refreshes the fleet,
 and its web UI and Slack actions change requests and accounts. While it runs:

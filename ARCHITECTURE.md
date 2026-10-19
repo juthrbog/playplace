@@ -568,13 +568,14 @@ holds AWS request IDs. Core returns the error of every provider call in a
 TUI do not change. The web UI and the Slack replies say "The call to AWS
 failed. Try again in a minute. If it fails again, ask an admin to read the
 playplace log." For a throttle or a time-out they say "AWS did not answer in
-time. Try again in a minute." The server log holds the raw error with the
-path, at the warn level. A stale request, a self-approval, a request that is
-no longer waiting, and the per-owner and lifetime limits get sentences of
-their own. Other refusals of core keep their words, written as sentences.
-Core also stores the raw error of a failed budget call, in the budget error
-tag and in the history details. A page shows the same failure text in its
-place.
+time. Try again in a minute." The failed panel of the account list leaves
+out "Try again in a minute", because the page tries again by itself. The
+server log holds the raw error with the path, at the warn level. A stale
+request, a self-approval, a request that is no longer waiting, and the
+per-owner and lifetime limits get sentences of their own. Other refusals of
+core keep their words, written as sentences. Core also stores the raw error
+of a failed budget call, in the budget error tag and in the history details.
+A page shows the same failure text in its place.
 
 Approve and Deny in the web UI go through one decide function. `POST
 /requests/decide?action=approve` or `?action=deny` takes a list of requests.
@@ -612,10 +613,11 @@ cuts an answer at 60 seconds. So before each request, the function checks a
 budget of 45 seconds, counted from the start of the post. After the budget,
 or after the first failed call to AWS, it does not try the rest. Any other
 refusal of one request never stops the others. When the server stops, it
-waits up to 60 seconds for the answers in flight, so a stop does not cut a
-decision post. Give the server at least 60 seconds to stop, for example
-with `terminationGracePeriodSeconds` in Kubernetes or `TimeoutStopSec` in
-systemd.
+waits up to 60 seconds for the answers in flight. A Slack click answers
+Slack at once and decides after the answer, so the stop also waits for those
+decisions, in the same 60 seconds. So a stop does not cut a decision. Give
+the server at least 60 seconds to stop. [The deployment
+guide](deploy/README.md) names the setting for ECS, Kubernetes and systemd.
 
 The region says how many requests went through. The refusal slot of the
 pending card lists each request that did not, with the reason. If the

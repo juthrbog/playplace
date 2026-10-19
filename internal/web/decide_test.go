@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -465,6 +467,107 @@ func TestTheStopWaitsForADecisionPost(t *testing.T) {
 	}
 }
 
+// heldApproval holds each account creation until release closes, as a slow
+// call to AWS does. started receives a value when a creation begins.
+type heldApproval struct {
+	core.Provider
+	started chan struct{}
+	release chan struct{}
+}
+
+func (p *heldApproval) RequestAccount(ctx context.Context, req core.AccountRequest) (string, error) {
+	select {
+	case p.started <- struct{}{}:
+	default:
+	}
+	<-p.release
+	return p.Provider.RequestAccount(ctx, req)
+}
+
+// A Slack click answers Slack at once and decides after the answer, so the
+// stop of the HTTP server does not wait for it. The stop of the server must
+// still wait for the approval. A cut approval can leave a request claimed
+// with no account.
+func TestTheStopWaitsForASlackApproval(t *testing.T) {
+	held := &heldApproval{Provider: fake.New(), started: make(chan struct{}, 1), release: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(held.release) })
+	t.Cleanup(release)
+	cfg := core.DefaultConfig()
+	cfg.InventoryTTL = 0
+	svc := core.NewService(held, nil, cfg, nil)
+	q, err := svc.SubmitRequest(context.Background(), core.RequestInput{Name: "held-box", Owner: "anna@example.com"}, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub := &slackStub{responses: make(chan string, 1)}
+	sl := &Slack{SigningSecret: "s3cret", Client: &http.Client{Transport: stub}, IsApprover: func(string) bool { return true }}
+	srv := New(svc, slog.New(slog.DiscardHandler), headerAuth{}, sl, nil)
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stopped := make(chan error, 1)
+	go func() { stopped <- srv.ListenAndServe(ctx, addr) }()
+	base := "http://" + addr
+	// An open connection with no request counts as busy for 5 seconds when
+	// the server stops, so each call has its own.
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	for start := time.Now(); ; {
+		if res, err := client.Get(base + "/healthz"); err == nil {
+			_ = res.Body.Close()
+			break
+		}
+		if time.Since(start) > 10*time.Second {
+			t.Fatal("the server did not start")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	res, err := client.Do(slackClickRequest(base, sl, "approve", refValue(q.Ref())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("interact = %d", res.StatusCode)
+	}
+	select {
+	case <-held.started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the click did not start the approval")
+	}
+	cancel()
+	select {
+	case err := <-stopped:
+		t.Fatalf("the server stopped with a Slack approval in flight: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	release()
+	select {
+	case text := <-stub.responses:
+		if !strings.Contains(text, "approved `held-box`") {
+			t.Errorf("the Slack reply = %q", text)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no Slack reply")
+	}
+	select {
+	case err := <-stopped:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("the stop = %v, want context.Canceled", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the server did not stop after the approval")
+	}
+}
+
 // After the first failed call to AWS the rest are not tried, because each
 // one repeats the outage. The answer never shows the raw error, and the log
 // holds it.
@@ -907,6 +1010,110 @@ func TestDenialsNeedAReason(t *testing.T) {
 	}
 	if reasons["deny-one"] != "no budget left" || reasons["deny-two"] != "too many boxes" {
 		t.Errorf("history reasons = %v", reasons)
+	}
+}
+
+// htmx sends the answer of a prompt as Latin-1 bytes when every character
+// fits in one byte. It sends any other answer as encodeURIComponent writes
+// it, with a second header. Both read back as the approver typed them.
+func TestPromptAnswerReadsWhatHtmxSends(t *testing.T) {
+	for _, c := range []struct {
+		value   string
+		encoded bool
+		want    string
+	}{
+		{"no budget", false, "no budget"},
+		{"caf\xe9 \xfcber se\xf1or Stra\xdfe", false, "café über señor Straße"},
+		// A header without the mark is never unescaped.
+		{"100%25 full", false, "100%25 full"},
+		{"%D0%BD%D0%B5%D1%82%20%F0%9F%93%A6", true, "нет 📦"},
+		// encodeURIComponent writes a space as %20, so a plus stays a plus.
+		{"a+b%20c", true, "a+b c"},
+	} {
+		h := http.Header{}
+		h.Set("HX-Prompt", c.value)
+		if c.encoded {
+			h.Set("HX-Prompt-URI-AutoEncoded", "true")
+		}
+		if got, err := promptAnswer(h); err != nil || got != c.want {
+			t.Errorf("promptAnswer(%q, encoded %v) = %q, %v, want %q", c.value, c.encoded, got, err, c.want)
+		}
+	}
+	for _, bad := range []string{"%zz", "cut %E2%8"} {
+		h := http.Header{}
+		h.Set("HX-Prompt", bad)
+		h.Set("HX-Prompt-URI-AutoEncoded", "true")
+		_, err := promptAnswer(h)
+		var fe fieldError
+		if !errors.As(err, &fe) || fe.field != "reason" || refusal(err, "") != reasonCharacters {
+			t.Errorf("promptAnswer(%q) = %v, want the reason field refused with %q", bad, err, reasonCharacters)
+		}
+	}
+}
+
+// The Deny button of a row sends its reason in the prompt header. A reason
+// with accents and a reason with other scripts reach history as the
+// approver typed them. A bad escape is refused and denies nothing.
+func TestDenyReadsThePromptAsHtmxSendsIt(t *testing.T) {
+	d := newDesk(t, nil, nil, nil)
+	d.ask(t, "latin-box", "bob@example.com")
+	d.ask(t, "other-box", "carl@example.com")
+	d.ask(t, "broken-box", "dana@example.com")
+	refs := d.refs(t, "latin-box", "other-box", "broken-box")
+	deny := func(ref core.RequestRef, value string, encoded bool) (*http.Response, string) {
+		t.Helper()
+		req, err := http.NewRequest("POST", d.ts.URL+"/requests/"+ref.Name+"/deny", strings.NewReader(refForm(ref).Encode()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("X-User", "lead@example.com")
+		req.Header.Set("X-Approver", "1")
+		req.Header.Set("HX-Request", "true")
+		req.Header.Set("HX-Prompt", value)
+		if encoded {
+			req.Header.Set("HX-Prompt-URI-AutoEncoded", "true")
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res, string(body)
+	}
+	if res, body := deny(refs[0], "Gr\xfc\xdfe, se\xf1or. No caf\xe9 budget", false); res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
+		t.Fatalf("deny with Latin-1 bytes = %d %v:\n%s", res.StatusCode, res.Header, body)
+	}
+	if res, body := deny(refs[1], "%D0%BD%D0%B5%D1%82%20%F0%9F%93%A6", true); res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
+		t.Fatalf("deny with an encoded reason = %d %v:\n%s", res.StatusCode, res.Header, body)
+	}
+	// A bad escape and an escape that is not UTF-8 get the field refusal.
+	for _, bad := range []string{"%zz", "%E2%82"} {
+		res, body := deny(refs[2], bad, true)
+		if res.Header.Get("X-Form-Error") != "1" || res.Header.Get(invalidFieldHeader) != "reason" {
+			t.Errorf("deny with %q = %v, want the reason field refused", bad, res.Header)
+		}
+		if slot := slotPart.FindStringSubmatch(body); slot == nil || slot[2] != reasonCharacters {
+			t.Errorf("deny with %q: want %q in the slot:\n%s", bad, reasonCharacters, body)
+		}
+	}
+	if !d.pending(t, "broken-box") {
+		t.Fatal("a refused prompt denied the request")
+	}
+	denied, err := d.hist.Query(context.Background(), audit.Filter{Event: "denied"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reasons := map[string]string{}
+	for _, e := range denied {
+		reasons[e.Account] = e.Details["reason"]
+	}
+	if reasons["latin-box"] != "Grüße, señor. No café budget" || reasons["other-box"] != "нет 📦" {
+		t.Errorf("history reasons = %q", reasons)
 	}
 }
 
