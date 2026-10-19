@@ -150,7 +150,7 @@ func TestActionsAnswerInTheRegion(t *testing.T) {
 		msg  string
 	}{
 		{"/requests", url.Values{"name": {"from-the-form"}}, "Sent the request for from-the-form."},
-		{"/requests/to-approve/approve", refForm(refIn(t, home, "to-approve")), "Approved to-approve."},
+		{"/requests/to-approve/approve", refForm(refIn(t, home, "to-approve")), "Approved to-approve. AWS is creating the account."},
 		{"/requests/to-deny/deny", deny, "Denied to-deny."},
 		{"/requests/to-withdraw/withdraw", refForm(refIn(t, home, "to-withdraw")), "Withdrew the request for to-withdraw."},
 		{"/requests/to-edit/edit", saved, "Saved to-edit."},
@@ -339,12 +339,13 @@ func TestEmptyRegionHidesTheVhWay(t *testing.T) {
 }
 
 // htmx does not swap a 4xx answer, so app.js takes the out-of-band parts of
-// a 403 that asks for no main swap. The answer keeps its status.
+// a 403, and of the 400 and 413 of a refused decision form, when the answer
+// asks for no main swap. The answer keeps its status.
 func TestForbiddenAnswersReachThePage(t *testing.T) {
 	js := staticText(t, "app.js")
 	_, listener, _ := strings.Cut(js, `document.addEventListener("htmx:beforeSwap"`)
 	listener, _, _ = strings.Cut(listener, "\n});")
-	for _, want := range []string{"status === 403", `getResponseHeader("HX-Reswap") === "none"`, "shouldSwap = true", "isError = false"} {
+	for _, want := range []string{"status === 400", "status === 403", "status === 413", `getResponseHeader("HX-Reswap") === "none"`, "shouldSwap = true", "isError = false"} {
 		if !strings.Contains(listener, want) {
 			t.Errorf("the beforeSwap listener lacks %s", want)
 		}

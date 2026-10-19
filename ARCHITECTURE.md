@@ -570,6 +570,39 @@ path, at the warn level. A stale request, a self-approval, and a request that
 is no longer waiting get sentences of their own. Other refusals of core keep
 their words, written as sentences.
 
+Approve and Deny in the web UI go through one decide function. `POST
+/requests/decide?action=approve` or `?action=deny` takes a list of requests.
+Each `req` field holds a request name and its version, in the same form as
+the value of a Slack button. The buttons of one row, `POST
+/requests/{name}/approve` and `/deny`, call the same function with one
+request. The checks run in order: the role of the viewer, then the form,
+then the reason of a denial, then core. The function reads the form only
+through a cap of 256 KB, and a larger body gets 413. A form with an unknown
+action or with no request gets 400 and decides nothing. So does a form with
+more than 10 approvals or 50 denials, or with a request that does not parse.
+The function drops a second request with the same name. It decides the
+requests in queue order, oldest first. In the web UI, nobody can approve or
+deny a request that they asked for or would own, unless
+`--allow-self-approval` is set.
+
+A denial in the web UI needs a reason of 1 to 500 characters. The reason
+goes into the notice, Slack and history, so playplace folds its line breaks
+and runs of spaces into single spaces.
+
+A decision on one request always runs to its end, also when the browser
+goes away. It has no deadline of its own, because core restores a failed
+approval with the same context. Each approval runs a forced inventory and
+CreateAccount, and a common proxy cuts an answer at 60 seconds. So before
+each request, the function checks a budget of 45 seconds. After the budget,
+or after the first failed call to AWS, it does not try the rest. Any other
+refusal of one request never stops the others.
+
+The region says how many requests went through. The refusal slot of the
+pending card lists each request that did not, with the reason. If the
+account list fails after the decisions, the answer still holds every
+result. The server log has one line at the info level for each request,
+with the action, the name, the version and the result.
+
 The server needs management-account credentials, because AWS only allows
 CreateAccount and CloseAccount from there. Run it in the management account
 under a role limited to Organizations, Budgets, Cost Explorer, the two

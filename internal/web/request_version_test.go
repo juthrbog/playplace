@@ -85,6 +85,8 @@ func TestStaleDenyAndWithdrawFromThePageAreRefused(t *testing.T) {
 		return err == nil
 	}
 
+	// The reason rule runs before core, so the stale deny sends a reason.
+	approverSaw.Set("reason", "no budget left")
 	res, body := doAs(t, ts, "POST", "/requests/tweak/deny", "lead@example.com", false, true, approverSaw, true)
 	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, tweakChanged) || !pending() {
 		t.Fatalf("stale deny should be refused and keep the request: %v\n%s", res.Header, body)

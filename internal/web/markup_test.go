@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"html"
 	"net/url"
 	"regexp"
 	"strings"
@@ -45,6 +46,32 @@ func refIn(t *testing.T, body, name string) core.RequestRef {
 // path of the post names the request, and the form carries the version.
 func refForm(ref core.RequestRef) url.Values {
 	return url.Values{"version": {ref.Version}}
+}
+
+// undecidedItem is one request that a decision on several requests did not
+// decide: its name and the reason.
+var undecidedItem = regexp.MustCompile(`<li>([a-z0-9-]+): (.*?)</li>`)
+
+// undecidedIn returns the names of the requests that an answer to a
+// decision on several requests did not decide, in the order of the answer.
+func undecidedIn(body string) []string {
+	var names []string
+	for _, m := range undecidedItem.FindAllStringSubmatch(body, -1) {
+		names = append(names, m[1])
+	}
+	return names
+}
+
+// resultIn returns the reason that an answer to a decision on several
+// requests gives for the request name. It returns "" when the answer gives
+// no reason for name, for example because the decision went through.
+func resultIn(body, name string) string {
+	for _, m := range undecidedItem.FindAllStringSubmatch(body, -1) {
+		if m[1] == name {
+			return html.UnescapeString(m[2])
+		}
+	}
+	return ""
 }
 
 // regionIn returns what an answer writes into the live region #notice, and
@@ -113,7 +140,7 @@ func TestHelpersReadOneRequest(t *testing.T) {
 		t.Errorf("the account page holds the region in a queue:\n%s", account)
 	}
 	_, answer := do(t, ts, "POST", "/requests/first-one/approve", "ops@example.com", true, refForm(refIn(t, home, "first-one")), true)
-	if got, ok := regionIn(answer); !ok || !strings.HasSuffix(got, "<span>Approved first-one.</span>") {
+	if got, ok := regionIn(answer); !ok || !strings.HasSuffix(got, "<span>Approved first-one. AWS is creating the account.</span>") {
 		t.Errorf("regionIn(answer) = %q, %v, want the approval:\n%s", got, ok, answer)
 	}
 }

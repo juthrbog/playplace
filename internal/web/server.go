@@ -55,6 +55,7 @@ func New(svc *core.Service, log *slog.Logger, auth Authenticator, slack *Slack, 
 	s.mux.HandleFunc("GET /{$}", s.index)
 	s.mux.HandleFunc("GET /accounts", s.table)
 	s.mux.HandleFunc("POST /requests", s.submit)
+	s.mux.HandleFunc("POST /requests/decide", s.decideAll)
 	s.mux.HandleFunc("POST /requests/{name}/approve", s.approve)
 	s.mux.HandleFunc("POST /requests/{name}/deny", s.deny)
 	s.mux.HandleFunc("POST /requests/{name}/withdraw", s.withdraw)
@@ -151,6 +152,9 @@ type page struct {
 	// RegionInCard marks the home page, which holds the live region in the
 	// pending card. The layout then leaves out its own.
 	RegionInCard bool
+	// Undecided are the requests of a decision post that it did not decide,
+	// with the reasons. The pending card lists them in its refusal slot.
+	Undecided []decision
 }
 
 // regionInCard is pg for the home page layout.
@@ -291,7 +295,7 @@ func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMs
 func (s *Server) writeAccounts(w http.ResponseWriter, r *http.Request, pg page, rows []accountRow, errMsg, hash string, fromCard bool, after ...templ.Component) {
 	main := accountsAnswer(pg, rows, errMsg, hash)
 	if fromCard {
-		main = cardAnswer(pg, rows, hash)
+		main = cardAnswer(pg, rows, errMsg, hash)
 	}
 	s.render(w, r, templ.Join(append([]templ.Component{main}, after...)...))
 }
@@ -370,36 +374,6 @@ func (s *Server) failRequest(w http.ResponseWriter, r *http.Request, err error) 
 		s.render(w, r, pendingUpdate(s.pageFor(r)))
 	}
 	s.render(w, r, errorFragment("pending-error", refusal(err, r.PathValue("name"))))
-}
-
-func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
-	v := ViewerFrom(r.Context())
-	if !v.Approver {
-		s.forbid(w, r, approversOnly)
-		return
-	}
-	if _, err := s.svc.Approve(r.Context(), requestRef(r), v.Email); err != nil {
-		s.failRequest(w, r, err)
-		return
-	}
-	s.pendingAndTable(w, r, true, "Approved "+r.PathValue("name")+".")
-}
-
-func (s *Server) deny(w http.ResponseWriter, r *http.Request) {
-	v := ViewerFrom(r.Context())
-	if !v.Approver {
-		s.forbid(w, r, approversOnly)
-		return
-	}
-	reason := r.FormValue("reason")
-	if reason == "" {
-		reason = r.Header.Get("HX-Prompt")
-	}
-	if err := s.svc.Deny(r.Context(), requestRef(r), v.Email, reason); err != nil {
-		s.failRequest(w, r, err)
-		return
-	}
-	s.pendingAndTable(w, r, true, "Denied "+r.PathValue("name")+".")
 }
 
 // editForm swaps a pending row for an inline form. Admins only.
@@ -712,7 +686,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, c templ.Componen
 }
 
 // forbid answers 403 with the reason, which names the rule that refused the
-// viewer. Every /requests/{name}/... route acts from the pending card, so its
+// viewer. Every route under /requests/ acts from the pending card, so its
 // refusal fills the slot of the card. A page visit gets the styled 403 page.
 func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why string) {
 	s.log.Warn("forbidden", "path", r.URL.Path, "viewer", ViewerFrom(r.Context()).Email, "why", why)

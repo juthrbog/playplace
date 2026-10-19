@@ -12,8 +12,9 @@ waiting: who asked, for whom, how long, how much, and why.
   new account counts toward the account limit of the organization until 90
   days after it closes. If AWS cannot create the account, playplace sends a
   *creation failed* notice.
-- **Deny** asks you for a reason, which the *denied* notice and the history
-  show.
+- **Deny** asks you for a reason. playplace does not deny a request without
+  one, and the reason can have at most 500 characters. The *denied* notice
+  and the history show the reason on one line.
 - **Edit** (admins only) changes the owner, days, budget, or purpose before
   approving. playplace saves only the fields you change. A lifetime that is
   not a whole number of days shows as part of a day, for example 1.5, with
@@ -23,7 +24,8 @@ waiting: who asked, for whom, how long, how much, and why.
   too.
 
 You cannot approve a request you made or one that would give you the
-account. Someone else must.
+account. Someone else must. The web UI does not let you deny such a request
+either, but you can withdraw it.
 
 Each button acts on the request as your page showed it. Someone can edit the
 request after your page loads. The request can also end, and someone can

@@ -444,7 +444,7 @@ func TestRequestApprovalFlow(t *testing.T) {
 	}
 	// Bob cannot approve his own request even if he were an approver.
 	_, body = doAs(t, ts, "GET", "/", "bob@example.com", false, true, nil, false)
-	if _, body := doAs(t, ts, "POST", "/requests/bobs-box/approve", "bob@example.com", false, true, refForm(refIn(t, body, "bobs-box")), true); !strings.Contains(body, "cannot approve it") {
+	if _, body := doAs(t, ts, "POST", "/requests/bobs-box/approve", "bob@example.com", false, true, refForm(refIn(t, body, "bobs-box")), true); !strings.Contains(body, "Not approved. You requested it, so another approver must approve it.") {
 		t.Fatalf("self-approval should be refused:\n%s", body)
 	}
 	// A configured approver (not admin) sees the queue and approves.

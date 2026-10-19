@@ -173,9 +173,11 @@ templ accountsAnswer(pg page, rows []accountRow, errMsg, hash string) {
 // main swap, because htmx finds the morph extension from the form that
 // sent the request. An out-of-band part runs first and can take that form
 // out of the page. The accounts section and the count ride out of band.
-templ cardAnswer(pg page, rows []accountRow, hash string) {
+// errMsg is the refusal text of an account list that failed after the
+// decision, so the section shows its failed panel.
+templ cardAnswer(pg page, rows []accountRow, errMsg, hash string) {
 	@pendingCard(pg, false)
-	@accountsPanel(pg, rows, "", hash, true)
+	@accountsPanel(pg, rows, errMsg, hash, true)
 	if pg.Viewer.Approver && !pg.PendingFailed {
 		@queueCount(pg, true)
 	}
@@ -309,8 +311,13 @@ templ pendingCard(pg page, oob bool) {
 		</div>
 		@region()
 		// A refused decision on a row shows here, beside the rows, and not in
-		// the New request form.
-		<div id="pending-error" class="refusal"></div>
+		// the New request form. After a decision on several requests, the
+		// slot lists each one that the decision did not decide.
+		<div id="pending-error" class="refusal">
+			if len(pg.Undecided) > 0 {
+				@undecidedNote(pg.Undecided)
+			}
+		</div>
 		if pg.PendingFailed {
 			<p class="empty">The pending requests are unavailable. The page tries again every 15 seconds.</p>
 		} else if len(pg.Pending) == 0 {
@@ -328,6 +335,18 @@ templ pendingCard(pg page, oob bool) {
 			</div>
 		}
 	</section>
+}
+
+// undecidedNote fills the refusal slot of the pending card after a decision
+// on several requests. Each item names a request that the decision did not
+// decide, and the reason.
+templ undecidedNote(left []decision) {
+	@icon("alert")
+	<ul class="note-list">
+		for _, d := range left {
+			<li>{ d.Ref.Name + ": " + d.Why }</li>
+		}
+	</ul>
 }
 
 // pendingRow is one request in the queue. Each action button carries the
