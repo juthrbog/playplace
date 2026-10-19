@@ -134,14 +134,14 @@ func TestNoAuthBand(t *testing.T) {
 func TestNoticeLivesInMain(t *testing.T) {
 	ts, _ := newServer(t)
 	_, body := do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
-	// The notice is empty, with nothing inside, so the stylesheet can hide
-	// it with :empty.
-	notice := strings.Index(body, `<p id="notice" class="notice"></p>`)
+	// The notice is the live region. It is empty, with nothing inside, so
+	// the stylesheet can hide it with :empty.
+	notice := strings.Index(body, `<p id="notice" class="notice" role="status" aria-live="polite"></p>`)
 	if notice < 0 || notice < strings.Index(body, "<main>") || notice < strings.Index(body, "</header>") {
 		t.Fatalf("the empty notice should sit in main, after the shell:\n%s", body)
 	}
 	_, body = do(t, ts, "POST", "/refresh", "ops@example.com", true, url.Values{}, true)
-	if !strings.Contains(body, `<p id="notice" class="notice" hx-swap-oob="true">`) || !strings.Contains(body, "synced") {
+	if !strings.Contains(body, `<p id="notice" hx-swap-oob="innerHTML">`) || !strings.Contains(body, "synced") {
 		t.Fatalf("sync should fill the notice:\n%s", body)
 	}
 }

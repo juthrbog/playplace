@@ -43,7 +43,7 @@ func TestStaleApproveFromThePageIsRefused(t *testing.T) {
 	// The refusal sits in the pending card, beside the row, not under New
 	// request. htmx swaps in order, so the card comes before the message
 	// that fills its slot.
-	card, slot := strings.Index(body, `id="pending"`), strings.Index(body, `id="pending-error" class="refusal" hx-swap-oob="true"`)
+	card, slot := strings.Index(body, `id="pending"`), strings.Index(body, `<div id="pending-error" hx-swap-oob="innerHTML">`)
 	if strings.Contains(body, `id="form-error"`) || card < 0 || slot < card {
 		t.Fatalf("the refusal should fill the pending card's slot after the card:\n%s", body)
 	}

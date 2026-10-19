@@ -36,7 +36,10 @@ templ layout(pg page, title string) {
 				<div class="noauth" role="note">@icon("alert")<span>Sign-in is off. Every visitor is an admin.</span></div>
 			}
 			<main>
-				<p id="notice" class="notice"></p>
+				// The page's one live region. The node stays from page load and
+				// htmx writes into it, so screen readers keep listening to it.
+				// Nothing sits inside it at rest.
+				<p id="notice" class="notice" role="status" aria-live="polite"></p>
 				{ children... }
 			</main>
 		</body>
@@ -658,7 +661,7 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 					<p class="empty">{ history.Notice }</p>
 				}
 				if history.Error != "" {
-					<div class="panel-body"><p class="error page-error" role="alert">@icon("alert")<span>{ history.Error }</span></p></div>
+					<div class="panel-body"><p class="error page-error">@icon("alert")<span>{ history.Error }</span></p></div>
 				} else if len(history.Page.Events) == 0 && !history.Page.Incomplete {
 					<p class="empty">Nothing recorded yet for this journey.</p>
 				} else if len(history.Page.Events) > 0 {
@@ -689,7 +692,7 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 			</section>
 		}
 		if history.Enabled && history.Page.Incomplete {
-			<p class="banner-incomplete" role="alert">@icon("alert")<span>History is incomplete: some stored records could not be read.</span></p>
+			<p class="banner-incomplete">@icon("alert")<span>History is incomplete: some stored records could not be read.</span></p>
 		}
 		if history.NextURL != "" {
 			<p><a class="link" href={ templ.SafeURL(history.NextURL) }>Next history page</a></p>
@@ -730,13 +733,20 @@ templ errorPage(pg page, e errorView) {
 	}
 }
 
-templ noticeFragment(msg string) {
-	<p id="notice" class="notice" hx-swap-oob="true">@icon("sync")<span>{ msg }</span></p>
+// noticeFragment writes a message into the live region. htmx swaps only what
+// is inside, so the region node keeps its role. Sync says what it found with
+// its own icon. The result of an action gets the check in shelf ink, the
+// color of the healthy state.
+templ noticeFragment(iconName, msg string) {
+	<p id="notice" hx-swap-oob="innerHTML"><svg class={ "i", templ.KV("i-ok", iconName == "check") } aria-hidden="true" focusable="false"><use href={ "#i-" + iconName }></use></svg><span>{ msg }</span></p>
 }
 
 // errorFragment fills the refusal slot with this id: form-error under a form,
 // or pending-error in the pending card. It names what went wrong beside the
-// thing it is about, with an alert icon.
+// thing it is about, with an alert icon. The live region gets the same text
+// as a hidden copy, so a screen reader hears it once and nobody sees it
+// twice.
 templ errorFragment(id, msg string) {
-	<div id={ id } class="refusal" hx-swap-oob="true">@icon("alert")<span>{ msg }</span></div>
+	<div id={ id } hx-swap-oob="innerHTML">@icon("alert")<span>{ msg }</span></div>
+	<p id="notice" hx-swap-oob="innerHTML"><span class="vh">{ msg }</span></p>
 }

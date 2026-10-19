@@ -239,15 +239,16 @@ func (s *Server) rows(ctx context.Context, v Viewer, showAll bool, force bool) (
 
 // pendingAndTable re-renders the table and the pending section for htmx
 // responses. fromCard is true for a decision made in the pending card, which
-// gets the card as its main swap.
-func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request, fromCard bool) {
+// gets the card as its main swap. result is the message for the live region,
+// which says what the action did.
+func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request, fromCard bool, result string) {
 	pg := s.pageFor(r)
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	s.writeAccounts(w, r, pg, rows, "", s.pollHash(r.Context(), pg, rows, ""), fromCard)
+	s.writeAccounts(w, r, pg, rows, "", s.pollHash(r.Context(), pg, rows, ""), fromCard, noticeFragment("check", result))
 }
 
 // pollHashHeader carries the poll hash of the page. app.js sends it on the
@@ -298,7 +299,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	if val := r.FormValue("ttl"); val != "" {
 		d, err := parseDuration(val)
 		if err != nil {
-			s.fail(w, r, err)
+			s.fail(w, r, fieldError{"ttl", err})
 			return
 		}
 		in.TTL = d
@@ -306,7 +307,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	if val := r.FormValue("budget"); val != "" {
 		b, err := parseBudget(val)
 		if err != nil {
-			s.fail(w, r, err)
+			s.fail(w, r, fieldError{"budget", err})
 			return
 		}
 		in.BudgetUSD = b
@@ -321,7 +322,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 			s.log.Warn("slack post", "err", err)
 		}
 	}
-	s.pendingAndTable(w, r, false)
+	s.pendingAndTable(w, r, false, "Sent the request for "+q.Name+".")
 }
 
 // requestRef is the request a form acts on: the name from the path and the
@@ -342,6 +343,7 @@ func (s *Server) failRequest(w http.ResponseWriter, r *http.Request, err error) 
 	s.log.Warn("request failed", "path", r.URL.Path, "err", err)
 	w.Header().Set("HX-Reswap", "none")
 	w.Header().Set("X-Form-Error", "1")
+	markField(w, err, "pending-error")
 	if errors.Is(err, core.ErrRequestChanged) || errors.Is(err, core.ErrNotFound) {
 		// Core drops the cache when it refuses a version. withdraw looks the
 		// request up before core sees the version, so a request that is gone
@@ -364,7 +366,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r, true)
+	s.pendingAndTable(w, r, true, "Approved "+r.PathValue("name")+".")
 }
 
 func (s *Server) deny(w http.ResponseWriter, r *http.Request) {
@@ -381,7 +383,7 @@ func (s *Server) deny(w http.ResponseWriter, r *http.Request) {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r, true)
+	s.pendingAndTable(w, r, true, "Denied "+r.PathValue("name")+".")
 }
 
 // editForm swaps a pending row for an inline form. Admins only.
@@ -449,7 +451,7 @@ func (s *Server) editSave(w http.ResponseWriter, r *http.Request) {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r, true)
+	s.pendingAndTable(w, r, true, "Saved "+q.Name+".")
 }
 
 // RequestEditFromForm reads owner, days, budget, purpose, and override from
@@ -467,14 +469,14 @@ func RequestEditFromForm(r *http.Request, from core.Request) (core.RequestEdit, 
 	if val := r.FormValue("ttl"); val != "" && val != dayValue(from.TTL) {
 		d, err := parseDuration(val)
 		if err != nil {
-			return e, err
+			return e, fieldError{"ttl", err}
 		}
 		e.TTL = d
 	}
 	if val := r.FormValue("budget"); val != "" && val != budgetValue(from.BudgetUSD) {
 		b, err := parseBudget(val)
 		if err != nil {
-			return e, err
+			return e, fieldError{"budget", err}
 		}
 		e.BudgetUSD = b
 	}
@@ -515,7 +517,7 @@ func (s *Server) withdraw(w http.ResponseWriter, r *http.Request) {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r, true)
+	s.pendingAndTable(w, r, true, "Withdrew the request for "+ref.Name+".")
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
@@ -581,15 +583,17 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	if !sum.Empty() {
 		msg = "synced: " + sum.String()
 	}
-	s.writeAccounts(w, r, pg, rows, "", s.pollHash(r.Context(), pg, rows, ""), false, noticeFragment(msg))
+	s.writeAccounts(w, r, pg, rows, "", s.pollHash(r.Context(), pg, rows, ""), false, noticeFragment("sync", msg))
 }
 
 // owned resolves an account the viewer may act on, or writes the error.
 func (s *Server) owned(w http.ResponseWriter, r *http.Request, ref string) (*core.Account, bool) {
 	a, err := s.svc.Resolve(r.Context(), ref)
 	if errors.Is(err, core.ErrNotFound) {
+		// htmx does not swap a 404, so an action on an account that is
+		// gone gets a refusal the page shows.
 		if r.Header.Get("HX-Request") == "true" {
-			http.NotFound(w, r)
+			s.fail(w, r, err)
 		} else {
 			s.accountNotFound(w, r, ref)
 		}
@@ -642,11 +646,12 @@ func (s *Server) extend(w http.ResponseWriter, r *http.Request) {
 	}
 	// Admins may push an account past the lifetime ceiling; engineers may not.
 	v := ViewerFrom(r.Context())
-	if _, err := s.svc.Extend(r.Context(), a.ID, a.ExpiresAt.Add(d), v.Email, v.Admin); err != nil {
+	extended, err := s.svc.Extend(r.Context(), a.ID, a.ExpiresAt.Add(d), v.Email, v.Admin)
+	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r, false)
+	s.pendingAndTable(w, r, false, "Extended "+a.Name+" to "+extended.ExpiresAt.UTC().Format("Jan 2 15:04 MST")+".")
 }
 
 func (s *Server) close(w http.ResponseWriter, r *http.Request) {
@@ -658,7 +663,7 @@ func (s *Server) close(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r, false)
+	s.pendingAndTable(w, r, false, "Requested closure of "+a.Name+".")
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, c templ.Component) {
@@ -673,10 +678,15 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, c templ.Componen
 func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why string) {
 	s.log.Warn("forbidden", "path", r.URL.Path, "viewer", ViewerFrom(r.Context()).Email, "why", why)
 	if r.Header.Get("HX-Request") == "true" {
+		// app.js swaps the out-of-band parts of a 403 only with HX-Reswap:
+		// none, so the slot and the live region show the refusal.
 		w.Header().Set("HX-Reswap", "none")
 		w.Header().Set("X-Form-Error", "1")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusForbidden)
-		errorFragment("form-error", why).Render(r.Context(), w)
+		if err := errorFragment("form-error", why).Render(r.Context(), w); err != nil {
+			s.log.Error("render", "path", r.URL.Path, "err", err)
+		}
 		return
 	}
 	recovery := forbidRecovery[why]
@@ -686,9 +696,9 @@ func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why string) {
 	s.errorPage(w, r, errorView{Code: http.StatusForbidden, Title: "Not allowed", Message: why, Recovery: recovery, Back: "/", BackLabel: "Go to Home"})
 }
 
-// fail returns an error the page can show. htmx requests get an out-of-band
-// fragment so the notice slot updates without replacing the table. A page
-// visit gets the styled 400 page.
+// fail returns an error the page can show. htmx requests get out-of-band
+// parts, so the refusal slot and the live region update without replacing
+// the table. A page visit gets the styled 400 page.
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	s.log.Warn("request failed", "path", r.URL.Path, "err", err)
 	if r.Header.Get("HX-Request") == "true" {
@@ -696,10 +706,38 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		// the form not to reset its fields.
 		w.Header().Set("HX-Reswap", "none")
 		w.Header().Set("X-Form-Error", "1")
+		markField(w, err, "form-error")
 		s.render(w, r, errorFragment("form-error", err.Error()))
 		return
 	}
 	s.errorPage(w, r, errorView{Code: http.StatusBadRequest, Title: "Not done", Message: err.Error(), Recovery: "Go back to Home and try again.", Back: "/", BackLabel: "Go to Home"})
+}
+
+// The headers of a refused field. app.js marks the input with aria-invalid
+// and ties it to the slot that holds the refusal with aria-describedby.
+const (
+	invalidFieldHeader = "X-Invalid-Field"
+	invalidSlotHeader  = "X-Invalid-Slot"
+)
+
+// fieldError is a refusal of one form field. Only the numbers that the web
+// layer parses itself carry a field. Core refusals name no field.
+type fieldError struct {
+	field string
+	err   error
+}
+
+func (e fieldError) Error() string { return e.err.Error() }
+func (e fieldError) Unwrap() error { return e.err }
+
+// markField names the refused field and its slot when err is about one
+// field. Any other refusal leaves both headers out.
+func markField(w http.ResponseWriter, err error, slot string) {
+	var fe fieldError
+	if errors.As(err, &fe) {
+		w.Header().Set(invalidFieldHeader, fe.field)
+		w.Header().Set(invalidSlotHeader, slot)
+	}
 }
 
 // parseBudget reads a monthly budget. ParseFloat also accepts "NaN", "Inf",

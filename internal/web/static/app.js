@@ -7,7 +7,7 @@
 document.documentElement.classList.add("js");
 
 // After a form with data-reset-on-success submits through htmx and the
-// server did not flag a validation error, clear it and its error slot.
+// server did not flag a validation error, clear it.
 document.addEventListener("htmx:afterRequest", function (ev) {
   var form = ev.target && ev.target.closest && ev.target.closest("form[data-reset-on-success]");
   if (!form || !ev.detail.successful) {
@@ -17,9 +17,37 @@ document.addEventListener("htmx:afterRequest", function (ev) {
     return;
   }
   form.reset();
-  var err = document.getElementById("form-error");
-  if (err) {
-    err.textContent = "";
+});
+
+// After an action, the refusal slot under a form and the marked fields show
+// only what the last answer said. A refusal fills its own slot and can name
+// the field it is about. That field gets aria-invalid and points to the
+// slot, so a screen reader reads the refusal with the field. The poll and
+// other GETs leave both alone.
+document.addEventListener("htmx:afterRequest", function (ev) {
+  var d = ev.detail;
+  if (!d.successful || !d.xhr || !d.requestConfig || d.requestConfig.verb === "get") {
+    return;
+  }
+  var marked = document.querySelectorAll("[aria-invalid=true]");
+  for (var i = 0; i < marked.length; i++) {
+    marked[i].removeAttribute("aria-invalid");
+    marked[i].removeAttribute("aria-describedby");
+  }
+  if (!d.xhr.getResponseHeader("X-Form-Error")) {
+    var err = document.getElementById("form-error");
+    if (err) {
+      err.textContent = "";
+    }
+    return;
+  }
+  var field = d.xhr.getResponseHeader("X-Invalid-Field");
+  var slot = d.xhr.getResponseHeader("X-Invalid-Slot");
+  var form = d.requestConfig.elt;
+  var input = field && slot && form && form.elements ? form.elements.namedItem(field) : null;
+  if (input && input.setAttribute) {
+    input.setAttribute("aria-invalid", "true");
+    input.setAttribute("aria-describedby", slot);
   }
 });
 
@@ -58,6 +86,15 @@ document.addEventListener("keydown", function (ev) {
 var swapSource = null;
 document.addEventListener("htmx:beforeSwap", function (ev) {
   swapSource = (ev.detail.requestConfig && ev.detail.requestConfig.elt) || null;
+  // htmx does not swap a 4xx answer. A 403 refusal carries HX-Reswap: none
+  // and only out-of-band parts, the slot and the region, so the page can
+  // take them. It is then not an error, and htmx logs nothing. X-Form-Error
+  // still keeps the form as the viewer filled it.
+  var xhr = ev.detail.xhr;
+  if (xhr && xhr.status === 403 && xhr.getResponseHeader("HX-Reswap") === "none") {
+    ev.detail.shouldSwap = true;
+    ev.detail.isError = false;
+  }
 });
 
 // keepNode reports whether a morph leaves this node as it is. An open edit

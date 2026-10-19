@@ -17,7 +17,7 @@ func (s *Server) budget(w http.ResponseWriter, r *http.Request) {
 	}
 	amount, err := parseBudget(r.FormValue("budget"))
 	if err != nil {
-		s.fail(w, r, err)
+		s.fail(w, r, fieldError{"budget", err})
 		return
 	}
 	if _, err := s.svc.SetBudget(r.Context(), a.ID, amount, v.Email, r.FormValue("reason"), r.FormValue("override") == "on"); err != nil {

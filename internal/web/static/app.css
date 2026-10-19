@@ -246,10 +246,12 @@
     outline-offset: 1px;
   }
   /* An invalid field gets a red-ink border. :user-invalid starts only after
-     the user edits the field, so an empty form stays calm. It comes after
-     the focus rule, so a field keeps its red-ink border inside the violet
-     ring while the user fixes it. */
-  input:user-invalid:not([type=checkbox]):not([type=radio]) {
+     the user edits the field, so an empty form stays calm. aria-invalid is
+     a field that the server refused. It comes after the focus rule, so a
+     field keeps its red-ink border inside the violet ring while the user
+     fixes it. */
+  input:user-invalid:not([type=checkbox]):not([type=radio]),
+  input[aria-invalid=true]:not([type=checkbox]):not([type=radio]) {
     border-color: var(--red-ink);
   }
   ::placeholder {
@@ -510,8 +512,26 @@
   .notice .i {
     color: var(--ink-2);
   }
-  .notice:empty {
-    display: none;
+  /* The check of a result is shelf ink, the healthy green. The Sync icon
+     stays pencil grey. */
+  .notice .i-ok {
+    color: var(--shelf-ink);
+  }
+  /* The notice is the page's one live region, so it never leaves the
+     accessibility tree. Empty, or holding only the hidden copy of a
+     refusal, it is hidden the .vh way. Some screen readers stop following a
+     region that starts with display: none. */
+  .notice:empty,
+  .notice:has(> .vh:only-child) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
   }
   /* Panels are paper on the ground, closed by a panel rule. A table in a
      panel runs to its edges, and its outer cells line up with the head. */
