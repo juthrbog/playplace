@@ -11,7 +11,8 @@ import (
 
 // layout is the frame of every page. The htmx config turns off eval and the
 // indicator style element that htmx adds to the head, because the CSP blocks
-// both.
+// both. idiomorph loads after htmx and before app.js, because app.js defines
+// the morph extension that calls both.
 templ layout(pg page, title string) {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -25,6 +26,7 @@ templ layout(pg page, title string) {
 			<link rel="stylesheet" href={ asset("app.css") }/>
 			<meta name="htmx-config" content='{"allowEval":false,"selfRequestsOnly":true,"includeIndicatorStyles":false}'/>
 			<script src={ asset("htmx.min.js") }></script>
+			<script src={ asset("idiomorph.min.js") }></script>
 			<script src={ asset("app.js") }></script>
 		</head>
 		<body>

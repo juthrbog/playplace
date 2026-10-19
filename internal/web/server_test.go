@@ -257,6 +257,11 @@ func TestPagesShipTheirOwnScriptsUnderACSP(t *testing.T) {
 	if !strings.Contains(body, `src="/static/app.js?v=`) || !strings.Contains(body, `<link rel="stylesheet" href="/static/app.css?v=`) {
 		t.Fatalf("the page script and the stylesheet should be versioned:\n%s", body)
 	}
+	// app.js defines the morph extension, so htmx and idiomorph load first.
+	hx, im, app := strings.Index(body, `src="/static/htmx.min.js?v=`), strings.Index(body, `src="/static/idiomorph.min.js?v=`), strings.Index(body, `src="/static/app.js?v=`)
+	if im < 0 || hx >= im || im >= app {
+		t.Fatalf("scripts should load in the order htmx, idiomorph, app.js (at %d, %d, %d):\n%s", hx, im, app, body)
+	}
 	if got := res.Header.Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self'") || !strings.Contains(got, "style-src 'self'") || !strings.Contains(got, "font-src 'self'") || strings.Contains(got, "unsafe-eval") || strings.Contains(got, "unsafe-inline") {
 		t.Fatalf("csp = %q", got)
 	}
@@ -289,6 +294,10 @@ func TestPagesShipTheirOwnScriptsUnderACSP(t *testing.T) {
 	res, body = do(t, ts, "GET", "/static/htmx.min.js", "", false, nil, false)
 	if res.StatusCode != http.StatusOK || !strings.HasPrefix(body, "var htmx=") {
 		t.Fatalf("htmx should be served from the binary, got %d", res.StatusCode)
+	}
+	res, body = do(t, ts, "GET", "/static/idiomorph.min.js", "", false, nil, false)
+	if res.StatusCode != http.StatusOK || !strings.HasPrefix(body, "var Idiomorph=") {
+		t.Fatalf("idiomorph should be served from the binary, got %d", res.StatusCode)
 	}
 	if res, _ := do(t, ts, "GET", "/static/app.js", "", false, nil, false); res.StatusCode != http.StatusOK {
 		t.Fatalf("app.js = %d", res.StatusCode)

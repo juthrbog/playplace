@@ -527,7 +527,7 @@ development only and prints a warning. Any other sign-in flag without an
 issuer makes `serve` refuse to start, so a lost issuer setting cannot open the
 UI to everyone.
 
-The UI ships its own copy of htmx and serves every page with a
+The UI ships its own copy of htmx and idiomorph and serves every page with a
 Content-Security-Policy that allows scripts, styles and fonts only from
 itself, so nothing is loaded from a third-party host. The policy allows no
 inline style, inline script or inline event handler. Page behaviour lives in
