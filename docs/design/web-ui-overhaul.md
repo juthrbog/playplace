@@ -439,10 +439,13 @@ sections above hold the details.
   puts the whole element of an `innerHTML` out-of-band part inside its
   target, so the live region then holds a second region. The UI moves to
   htmx 4 after htmx 4 becomes the npm `latest` release.
+- **Night card stock.** The maintainer decided this on 2026-10-19, after the
+  night screenshot round of phase 1. The night values stay as they are.
+  Night card stock is only 1.1:1 on paper (1.2:1 by day), but it is 1.2:1 on
+  the ground (1.1:1 by day). Phase 2 looks at it again when it builds the
+  desk and the date-due column.
 
 ## Open questions
 
 - Whether the ready notice counts as a minimal provisioning outcome that
   approvers can see. Until the maintainer decides, approvers do not see it.
-- Night card stock is only 1.1:1 on paper (1.2:1 by day). The maintainer
-  looks at it again in the screenshot round at the end of phase 1.

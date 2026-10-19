@@ -365,9 +365,12 @@ is correct.
 research, the reasons and the list of resolved disagreements.
 [ARCHITECTURE.md](ARCHITECTURE.md) is the architecture document.
 
-The Go templates do not use these tokens yet. Phase 1 of the overhaul builds
-the stylesheet from this file. After phase 1, a new `impeccable document`
-scan of the real stylesheet updates this file.
+Phase 1 of the overhaul built the stylesheet `internal/web/static/app.css`
+from this file, and the Go templates use its classes. A Go test keeps the
+day and night colors of the stylesheet equal to the colors in this file. An
+`impeccable document` scan of the real stylesheet updated this file in
+phase 1. This file marks a component that a later phase builds as "not built
+yet".
 
 ## Overview
 
@@ -417,8 +420,8 @@ stamp pad with violet and red ink, set on paper and ground.
 ### Tertiary
 - **Stamp-Pad Violet** (#5A3E9B): due-date stamps, the APPROVED stamp, the Approve and Extend buttons, the focus ring, text selection, the caret, and settling icons (work in progress, not a failure).
 - **Pressed Violet** (#4A3184): the Approve button hover.
-- **Overdue Red** (#C8323C): fault icons and bars only. The over-budget meter, the failed and restricted icons.
-- **Red Ink** (#A8262F): every red word. The OVERDUE stamp, a due date in its last 3 days, error text, the invalid field border, the stale row frame, and the Deny button.
+- **Overdue Red** (#C8323C): fault icons and bars only. The spend meter from 95%, the failed and restricted icons.
+- **Red Ink** (#A8262F): every red word. The OVERDUE stamp, a due date in its last 3 days, error text, the invalid field border, the stale row frame, and the Deny button. The refusal note border uses it too.
 - **Deep Red Ink** (#8E1F27): the Deny button hover.
 
 ### Neutral
@@ -430,7 +433,7 @@ stamp pad with violet and red ink, set on paper and ground.
 - **Reading-Room Ground** (#F2F1EC): the page behind the panels.
 - **Paper** (#FFFFFF): panels, tables, text fields, and the text on violet, pressed violet, red-ink and deep red-ink fills in both palettes. By day it is also the text on deep shelf.
 - **Paper Tint** (#F8F6F0): table heads, day-group heads, row hover, plain button hover, unread notices, and the dialog footer.
-- **Warm Paper** (#FBF8F1): the search field on the shell and the incomplete-history banner.
+- **Warm Paper** (#FBF8F1): the search field on the shell, the "Sign-in is off" note under the shell, and the incomplete-history banner.
 
 ### Night desk
 
@@ -505,8 +508,8 @@ stamp on a selected row reads weak at night, the first fallback is the
 screen blend for stamps at night. It gives 5.8:1 with no token change. The
 second fallback is night violet #AE9CE8. Night card stock is only 1.1:1 on
 paper (1.2:1 by day), so the desk and the date-due column stand out less at
-night. The maintainer looks at the night card stock again in the screenshot
-round at the end of phase 1.
+night. On 2026-10-19 the maintainer kept the night card stock as it is.
+Phase 2 looks at it again when it builds the desk and the date-due column.
 
 ### Named Rules
 
@@ -551,20 +554,25 @@ Both faces are under the SIL Open Font License. The server embeds them as
 The desktop page is a shell bar over a left-aligned grid of panels. The
 shell wraps when it runs out of room. It holds, in order, the brand, the
 navigation, the search field pushed to the right (at most 360 px), Sync with
-AWS, New request, the signed-in person, and Sign out. Shell controls are
-34 px tall, with 10 px top and bottom padding and a 24 px side gutter.
+AWS, New request, the signed-in person, and Sign out. The search field is
+not built yet, so Sync with AWS starts the right side, or New request when
+there is no Sync. Shell controls are 34 px tall, with 10 px top and bottom
+padding and a 24 px side gutter.
 
 The main area has 16 px top padding, 24 px side gutters, 32 px bottom
 padding, a 16 px gap between panels, and a maximum width of 1600 px. On the
 admin home, the "Needs attention" ledger (300 to 384 px) sits beside the
-approval desk, and the fleet table runs full width below them.
+approval desk, and the fleet table runs full width below them. The ledger
+and the desk are not built yet. Until then, the New request panel, the
+pending card and the fleet table stack in one column.
 
 Panels have a 48 px head with 10 px by 16 px padding, and a 16 px inset for
 rows. The fleet table has a minimum width of 1120 px inside a horizontal
 scroll container, because the fleet stays a desktop task. Cells use 9 px by
 14 px padding in the comfortable density and 4 px top and bottom in the
-compact density. Rows do not wrap, and cells center their content
-vertically.
+compact density. The compact density is not built yet. Rows do not wrap,
+and cells center their content vertically. Only a cell that holds free
+text, such as a purpose, an email in the queue or an error, wraps.
 
 The spacing scale is 2, 4, 8, 12, 16, 24 and 32 px. Gaps inside a row use
 6 to 10 px.
@@ -613,7 +621,7 @@ badges and flags are 3 px. Buttons, fields, nav links and keycaps are 4 px.
 The segmented control group is 5 px, so its 4 px items nest inside it.
 Inline notes are 6 px. Panels, the loan card and the dialog are 8 px. The
 count pill is 9 px, which makes it a full pill at 18 px. The avatar and the
-live dot are circles.
+live dot are circles. The avatar and the live dot are not built yet.
 
 Borders are 1 px. Stamps use a 1.5 px border in their own ink, and the large
 stamp uses 2 px. Dashed lines carry meaning: separators on card stock, a
@@ -632,23 +640,23 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 ### Buttons
 - **Shape:** gently squared (4px), 34 px tall, 13 px side padding, an icon and a word with a 7 px gap.
 - **Approve:** violet with paper text. The only violet button. Extend uses it too, with the stamp icon.
-- **Primary:** card stock with ink text. Inside a panel it gets a card-rule border. New request, Send request and the AWS access portal link use it.
-- **Plain:** paper with ink text and a control-rule border. Deny on a row, Return, Cancel and pager buttons use it.
+- **Primary:** card stock with ink text. Inside a panel it gets a card-rule border. New request, Request, Save, Save budget, the way back on an error page and the AWS access portal link (not built yet) use it.
+- **Plain:** paper with ink text and a control-rule border. Deny on a row, Return, Cancel and pager buttons use it. Return and the pager buttons are not built yet.
 - **Ghost:** transparent on the shell, with card text and a shelf-rule border. Only Sync with AWS uses it.
-- **Deny:** red ink with paper text. It appears only as the final button in a dialog that denies a request or returns an account. Red marks the step that cannot be undone, not the button that opens the dialog.
+- **Deny (not built yet):** red ink with paper text. It appears only as the final button in a dialog that denies a request or returns an account. Red marks the step that cannot be undone, not the button that opens the dialog.
 - **Hover / Focus:** a hover changes the fill (pressed violet, selected card, paper tint, deep shelf or deep red ink). The plain button also turns its border to ink. Focus is a 2 px violet ring with a 2 px offset. On the shell the ring is card stock.
-- **Disabled and busy:** a disabled button has a soft-rule fill, pencil-grey text and a dashed control-rule border. A busy button keeps its size, sets `aria-busy`, and changes its word to a verb in progress: Approving, Sending, Denying, Syncing.
-- **Sizes:** 30 px with 11 px padding in toolbars and pagers. 44 px on the phone. The phone Approve and Deny buttons are 52 px with a 16 px label.
+- **Disabled and busy:** a disabled button has a soft-rule fill, pencil-grey text and a dashed control-rule border. A busy button keeps its size, sets `aria-busy`, and changes its word to a verb in progress: Approving, Sending, Denying, Syncing, Withdrawing or Saving. The word and its verb share one grid cell, and the verb has no width, so the button keeps the width of its word. A busy button keeps its colors and is never disabled. The +7d, Close, Edit and Cancel buttons set only `aria-busy` and keep their word.
+- **Sizes:** 30 px with 11 px padding in toolbars and pagers (not built yet). 44 px on the phone. The phone Approve and Deny buttons are 52 px with a 16 px label (not built yet).
 
 ### Chips
 - **Count pill:** card stock with ink text, 12 px bold, beside Queue and Notices in the shell. A visually hidden word says what the number counts.
 - **Role badge:** the word "admin" in card text with a shelf-rule border, set as a 12 px word stamp (0.09em tracking) but not turned.
-- **Flag:** ink with card text, 12 px semibold, for "limits overridden". A changed value in a stale request uses a red-ink flag.
+- **Flag:** ink with card text, 12 px semibold, for "limits overridden". A changed value in a stale request uses a red-ink flag (not built yet).
 - **Your request:** a dashed control-rule chip in pencil grey that replaces the Approve and Deny buttons on a person's own request.
 
 ### Cards / Containers
 - **Corner Style:** 8px for panels and the loan card, 6px for inline notes.
-- **Background:** paper for panels. Card stock for the approval desk and the loan card.
+- **Background:** paper for panels. Card stock for the approval desk and the loan card, which are not built yet.
 - **Shadow Strategy:** none. See Elevation & Depth.
 - **Border:** 1 px panel rule on paper, 1 px card rule on card stock.
 - **Internal Padding:** 16 px side inset. The panel head is 48 px tall.
@@ -656,16 +664,16 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 ### Inputs / Fields
 - **Style:** paper, a 1 px control-rule border, 4px corners, 34 px tall, 10 px side padding. The label sits above in 13.5 px semibold. Help text sits below in 12 px pencil grey. Placeholders are pencil grey.
 - **Focus:** a violet border and a 2 px violet ring with a 1 px offset. The caret is violet.
-- **Error / Disabled:** an invalid field gets a red-ink border and a 12 px semibold red-ink message with an alert icon below it, tied with `aria-describedby`. A disabled field gets the soft-rule fill and a dashed border.
-- **On card stock:** plain buttons, fields, selects and segmented controls use a pencil-grey border, because the control rule is only 2.7:1 on card stock.
+- **Error / Disabled:** an invalid field gets a red-ink border and a 12 px semibold red-ink message with an alert icon below it, tied with `aria-describedby`. The message below the field is not built yet. Until then, a field that the server refused gets `aria-invalid`, and `aria-describedby` ties it to the refusal note (see Feedback). A disabled field gets the soft-rule fill and a dashed border.
+- **On card stock:** plain buttons, fields, selects and segmented controls use a pencil-grey border, because the control rule is only 2.6:1 on card stock.
 - **Checkboxes and radios:** native, 16 px, with a violet `accent-color`.
-- **Selects:** native, 30 px in toolbars and 34 px in forms.
-- **Segmented control:** a single choice in one 5 px group with a control-rule border and dividers. Items are 30 px tall (44 px on the phone) in 13.5 px. The current item is ink with paper text. A filter that changes the URL uses links with `aria-current`. A choice inside a form uses radio inputs in a `<fieldset>`.
+- **Selects (not built yet):** native, 30 px in toolbars and 34 px in forms.
+- **Segmented control (not built yet):** a single choice in one 5 px group with a control-rule border and dividers. Items are 30 px tall (44 px on the phone) in 13.5 px. The current item is ink with paper text. A filter that changes the URL uses links with `aria-current`. A choice inside a form uses radio inputs in a `<fieldset>`.
 
 ### Navigation
 - **Style:** the shell holds the brand (the mark and "playplace" at 19 px, "play" bold in card stock and "place" regular in paper), then nav links in 14 px medium card text with 6 px by 11 px padding.
 - **States:** hover and the current page get the deep shelf fill with paper text. The current page sets `aria-current="page"`. Focus is the card-stock ring.
-- **By role:** engineers see Home, History and Notices. Approvers also see Queue with its count. Admins see Queue, Accounts, History and Notices, and the brand is their link home. Admins also see Sync with AWS and the role badge.
+- **By role:** engineers see Home, History and Notices. Approvers also see Queue with its count. Admins see Queue, Accounts, History and Notices, and the brand is their link home. Admins also see Sync with AWS and the role badge. A page with no signed-in viewer, such as a failed sign-in, shows only the brand.
 - **Until phase 5:** the shell that phase 1 builds leaves out the History and Notices links and the Notices count pill. Phase 5 adds them when it builds those pages.
 - **Mobile:** a 44 px menu button opens the navigation, New request and Sign out.
 
@@ -677,10 +685,10 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 
 ### Date stamp
 
-The signature component. A due date is a violet rubber stamp in Courier
-Prime 700 capitals, with a 1.5 px border in its own ink, 3 px corners, and a
-turn of 1 to 2 degrees. The format is "OCT 27 2026": the month in capitals,
-the day with no leading zero, and the year.
+The signature component. It is not built yet. A due date is a violet rubber
+stamp in Courier Prime 700 capitals, with a 1.5 px border in its own ink,
+3 px corners, and a turn of 1 to 2 degrees. The format is "OCT 27 2026": the
+month in capitals, the day with no leading zero, and the year.
 
 - **Sizes:** 15 px in tables, slips and lists. 22 px for the one due date at the top of an account page or a loan card.
 - **Last 3 days:** the stamp changes to red ink.
@@ -693,7 +701,7 @@ the day with no leading zero, and the year.
 Decisions and outcomes are word stamps: Public Sans 700 capitals at 12 px
 with 0.09em tracking, the same border, corners and turn as a date stamp. The
 markup holds the word in lowercase and CSS sets the capitals, so a screen
-reader does not spell the word out.
+reader does not spell the word out. Word stamps are not built yet.
 
 - **APPROVED:** violet, on the request and in lifecycle history.
 - **DENIED:** ink, with the required reason beside it.
@@ -733,20 +741,20 @@ A status is an icon and a word, never color alone. Icons are 16 px. A
 qualifier such as "getting ready" or "overdue" follows in 12 px pencil grey.
 
 - **Normal** (no one needs to act): pending (slip, ink), active (check, shelf ink), closed (shut door, pencil grey). Budget: ready (check, shelf ink), alerts-only (bell), alerts-disabled (bell off), retired (minus), and not checked (dashed circle), all pencil grey.
-- **Settling** (progress, not failure): creating (clock arc, violet), closing (box, ink), and active while getting ready (check, shelf ink). Budget: setup-pending (clock), restricting (lock), recovering (open lock) and retiring (minus), all violet, with the words "settling protection".
-- **Needs attention** (someone must act): failed (crossed circle, red), unavailable (ban, ink), closing and overdue (box, red), expiring (hourglass, violet). Budget: restricted (lock, red), error (alert, red), and settling for over 2 hours (clock, red).
+- **Settling** (progress, not failure): creating (clock arc, violet), closing (box, ink), and active while getting ready (check, shelf ink, not built yet). Budget: setup-pending (clock), restricting (lock), recovering (open lock) and retiring (minus), all violet, with the words "settling protection".
+- **Needs attention** (someone must act): failed (crossed circle, red), unavailable (ban, ink), closing and overdue (box, red), expiring (hourglass, violet). Budget: restricted (lock, red), error (alert, red), and settling for over 2 hours (clock, red, not built yet).
 
 ### Spend meter
 
 Spend sits above a thin bar. The inline meter is 96 by 4 px with 2 px
 corners on a soft-rule track. The account page, the loan card and the phone
-use a full-width 6 px meter.
+use a full-width 6 px meter. The full-width meter is not built yet.
 
 - **Below 75 percent:** shelf ink fill and no label.
 - **From 75 percent:** ink fill and an "NN% used" label in 12 px semibold ink.
 - **From 95 percent:** red fill, an alert icon and the "NN% used" label in red ink.
 - **Over budget:** a full red bar and the words "over budget" with an alert icon.
-- **Unknown:** a failed cost pull shows the word "unavailable" and no bar, never $0.00.
+- **Unknown (not built yet):** a failed cost pull shows the word "unavailable" and no bar, never $0.00. Until then, a cost that did not load shows as $0.00.
 
 The label sits 8 px to the right of the inline meter, so a table row stays
 one line. Under a full-width meter, the label sits below it. The server
@@ -755,29 +763,40 @@ because the CSP does not allow inline `style` attributes.
 
 ### Approval desk
 
-The desk is a card-stock panel. Each request is a slip, separated from the
-next by a dashed card rule. A slip shows a checkbox, the request name in 14 px
-bold with its purpose and requester, the lifetime and the budget as 16 px
-facts, the request version, and the actions. A slip under the pointer is
-card hover, a selected slip is selected card, and the focused slip gets a
-2 px violet frame. The focused slip opens in place with every deciding fact.
+The desk is a card-stock panel. It is not built yet. Each request is a slip,
+separated from the next by a dashed card rule. A slip shows a checkbox, the
+request name in 14 px bold with its purpose and requester, the lifetime and
+the budget as 16 px facts, the request version, and the actions. A slip under
+the pointer is card hover, a selected slip is selected card, and the focused
+slip gets a 2 px violet frame. The focused slip opens in place with every
+deciding fact.
 
 The bulk bar is sticky at the top of the desk: 48 px, card stock with a
 card-rule top border, and selected card when anything is selected. Its result
-message is the page's one `aria-live="polite"` region.
+message is the page's one `aria-live="polite"` region. Phase 2 builds the bar
+and moves the region into it. Until then, the home page holds the region in
+the pending card, under its heading. Every other page holds it at the top of
+the main area. Every action on the home page that changes a request or an
+account writes a short result message into it, and so does Sync. The message
+shows as a note with a check in shelf ink. A Sync result has the sync icon in
+pencil grey. A refusal stays visible in its slot, and the region gets a
+visually hidden copy of the same text. The region is visually hidden while it
+is empty or holds only that copy. Off the home page, a refused Sync has no
+slot, so the region shows the refusal.
 
 ### Tables
-- **Head:** paper tint, 12 px semibold pencil-grey labels, 34 px tall, with panel rules above and below. A sortable head is a button. The sorted column turns ink and shows an arrow for its direction, and the `<th>` sets `aria-sort`.
-- **Rows:** a soft-rule line under each row. Hover is paper tint. A selected row is card stock with its due cell in selected card. A focused row has a 2 px violet frame. A stale or refused row has a 1 px dashed red-ink frame and shows the new values in place.
-- **Date due column:** always on card stock with a card-rule line under each cell, in every row state.
+- **Head:** paper tint, 12 px semibold pencil-grey labels, 34 px tall, with panel rules above and below. A sortable head is a button. The sorted column turns ink and shows an arrow for its direction, and the `<th>` sets `aria-sort`. Sortable heads are not built yet.
+- **Rows:** a soft-rule line under each row. Hover is paper tint. A selected row is card stock with its due cell in selected card. A focused row has a 2 px violet frame. A stale or refused row has a 1 px dashed red-ink frame and shows the new values in place. Row selection and both frames are not built yet. Until then, a refused action on a pending row shows its refusal in the pending card, under its heading.
+- **Date due column (not built yet):** always on card stock with a card-rule line under each cell, in every row state.
 - **Account links:** 14 px semibold ink, underlined in the panel rule color with a 3 px offset, violet on hover.
 - **Mono values:** account IDs and versions in Courier Prime at the size of the text around them.
 
 ### Feedback
-- **Inline note:** paper with a panel-rule border, 6px corners, a 16 px icon, a semibold first line and a 13.5 px body. A refusal uses a red-ink border and an alert icon and names the recovery. An empty desk uses card stock.
-- **Dialog:** a native `<dialog>` on paper with a 1 px ink border, 8px corners and a maximum width of 640 px. The head and the footer are separated by panel rules, and the footer is paper tint. Only three tasks use it: the deny reason, the bulk approval summary, and the consequences of Return.
-- **Live update:** an 8 px shelf ink dot and "Updated 12 seconds ago" in the footer. `app.js` resets the Updated time after each successful poll, also when nothing changed. The dot hides for one 90 ms step only when new data arrives, with no fade. Under `prefers-reduced-motion` it does not blink.
-- **Keycap:** 12 px semibold pencil grey on paper, with a panel-rule border that is 2 px at the bottom.
+- **Inline note:** paper with a panel-rule border, 6px corners, a 16 px icon, a semibold first line and a 13.5 px body. A refusal uses a red-ink border and an alert icon and names the recovery. In a slot under a form or in the pending card, a refusal has only the semibold first line. On an error page and in an unavailable accounts panel, the problem in semibold sits above a body with the recovery. An empty desk uses card stock.
+- **Error page:** a styled page with the title "Action refused" (400), "Not allowed" (403), "Page not found" or "Account not found" (404), or "Sign-in failed". The panel head holds the title, then the status code in pencil grey. Under it, a refusal note names the problem and the recovery, and one primary button leads back. A refused action on a page gets no error page, and its refusal shows on that page.
+- **Dialog (not built yet):** a native `<dialog>` on paper with a 1 px ink border, 8px corners and a maximum width of 640 px. The head and the footer are separated by panel rules, and the footer is paper tint. Only three tasks use it: the deny reason, the bulk approval summary, and the consequences of Return.
+- **Live update (not built yet):** an 8 px shelf ink dot and "Updated 12 seconds ago" in the footer. `app.js` resets the Updated time after each successful poll, also when nothing changed. The dot hides for one 90 ms step only when new data arrives, with no fade. Under `prefers-reduced-motion` it does not blink. The home page already polls every 15 seconds, and the server answers 204 when nothing changed.
+- **Keycap (not built yet):** 12 px semibold pencil grey on paper, with a panel-rule border that is 2 px at the bottom.
 
 ### Icons
 

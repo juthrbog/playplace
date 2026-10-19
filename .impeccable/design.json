@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-11T23:21:39+00:00",
+  "generatedAt": "2026-10-19T14:45:37+00:00",
   "title": "Design System: playplace",
   "extensions": {
     "colorMeta": {
@@ -19,7 +19,7 @@
           "#C9FBEB"
         ],
         "night": "#16302A",
-        "nightStatus": "proposal"
+        "nightStatus": "decided"
       },
       "shelf-deep": {
         "role": "primary",
@@ -36,7 +36,7 @@
           "#CEFAEB"
         ],
         "night": "#21443B",
-        "nightStatus": "proposal"
+        "nightStatus": "decided"
       },
       "shelf-rule": {
         "role": "primary",
@@ -51,7 +51,26 @@
           "#97AAA2",
           "#BACFC6",
           "#DFF4EB"
-        ]
+        ],
+        "night": "#6A8C80",
+        "nightStatus": "decided"
+      },
+      "shelf-ink": {
+        "role": "primary",
+        "displayName": "Shelf Ink",
+        "canonical": "#2F5D50",
+        "tonalRamp": [
+          "#000F0A",
+          "#012D23",
+          "#1D4C3F",
+          "#3E6C5E",
+          "#5F8E7F",
+          "#81B1A2",
+          "#A5D6C6",
+          "#C9FBEB"
+        ],
+        "night": "#7AB8A6",
+        "nightStatus": "decided"
       },
       "card": {
         "role": "secondary",
@@ -68,7 +87,7 @@
           "#F8EED7"
         ],
         "night": "#2C2A22",
-        "nightStatus": "proposal"
+        "nightStatus": "decided"
       },
       "card-hover": {
         "role": "secondary",
@@ -83,7 +102,9 @@
           "#AEA48C",
           "#D2C9AF",
           "#F8EED4"
-        ]
+        ],
+        "night": "#332F27",
+        "nightStatus": "decided"
       },
       "card-sel": {
         "role": "secondary",
@@ -100,7 +121,7 @@
           "#FBEECE"
         ],
         "night": "#3A3729",
-        "nightStatus": "proposal"
+        "nightStatus": "decided"
       },
       "card-rule": {
         "role": "secondary",
@@ -117,7 +138,7 @@
           "#FCEDCB"
         ],
         "night": "#4A4536",
-        "nightStatus": "proposal"
+        "nightStatus": "decided"
       },
       "violet": {
         "role": "tertiary",
@@ -134,7 +155,7 @@
           "#EFECFE"
         ],
         "night": "#A996E6",
-        "nightStatus": "proposal"
+        "nightStatus": "decided"
       },
       "violet-deep": {
         "role": "tertiary",
@@ -149,7 +170,9 @@
           "#A994F0",
           "#CBBFFE",
           "#EFECFF"
-        ]
+        ],
+        "night": "#9682D9",
+        "nightStatus": "decided"
       },
       "red": {
         "role": "tertiary",
@@ -166,7 +189,7 @@
           "#FEE9E7"
         ],
         "night": "#F07A80",
-        "nightStatus": "proposal"
+        "nightStatus": "decided"
       },
       "red-ink": {
         "role": "tertiary",
@@ -183,7 +206,7 @@
           "#FFE8E7"
         ],
         "night": "#F59BA0",
-        "nightStatus": "proposal"
+        "nightStatus": "decided"
       },
       "red-deep": {
         "role": "tertiary",
@@ -198,7 +221,9 @@
           "#F37C7A",
           "#FDB3AF",
           "#FFE9E7"
-        ]
+        ],
+        "night": "#E3868C",
+        "nightStatus": "decided"
       },
       "ink": {
         "role": "neutral",
@@ -215,7 +240,7 @@
           "#F1EEE9"
         ],
         "night": "#ECE7DA",
-        "nightStatus": "proposal"
+        "nightStatus": "decided"
       },
       "ink-2": {
         "role": "neutral",
@@ -232,7 +257,7 @@
           "#F3EEE5"
         ],
         "night": "#B3AD9F",
-        "nightStatus": "proposal"
+        "nightStatus": "decided"
       },
       "control-rule": {
         "role": "neutral",
@@ -247,7 +272,9 @@
           "#A9A59A",
           "#CDC9BE",
           "#F3EEE3"
-        ]
+        ],
+        "night": "#7A756A",
+        "nightStatus": "decided"
       },
       "rule": {
         "role": "neutral",
@@ -264,7 +291,7 @@
           "#F3EEE1"
         ],
         "night": "#353B37",
-        "nightStatus": "proposal"
+        "nightStatus": "decided"
       },
       "rule-soft": {
         "role": "neutral",
@@ -281,7 +308,7 @@
           "#F2EEE4"
         ],
         "night": "#272D29",
-        "nightStatus": "proposal"
+        "nightStatus": "decided"
       },
       "ground": {
         "role": "neutral",
@@ -298,7 +325,7 @@
           "#EFEEEA"
         ],
         "night": "#121614",
-        "nightStatus": "proposal"
+        "nightStatus": "decided"
       },
       "paper": {
         "role": "neutral",
@@ -315,7 +342,7 @@
           "#EEEEEE"
         ],
         "night": "#1B201D",
-        "nightStatus": "proposal"
+        "nightStatus": "decided"
       },
       "paper-tint": {
         "role": "neutral",
@@ -330,7 +357,9 @@
           "#A7A59F",
           "#CBC9C3",
           "#F0EEE8"
-        ]
+        ],
+        "night": "#212622",
+        "nightStatus": "decided"
       },
       "paper-warm": {
         "role": "neutral",
@@ -345,7 +374,9 @@
           "#A8A59E",
           "#CCC9C2",
           "#F1EEE7"
-        ]
+        ],
+        "night": "#25231D",
+        "nightStatus": "decided"
       }
     },
     "typographyMeta": {
@@ -417,7 +448,9 @@
     "shadows": [],
     "scrim": {
       "value": "rgba(34,32,28,.45)",
-      "purpose": "Behind the dialog. The only raised surface."
+      "purpose": "Behind the dialog. The only raised surface.",
+      "night": "rgba(0,0,0,.55)",
+      "nightStatus": "decided"
     },
     "motion": [
       {
@@ -455,8 +488,8 @@
       "name": "Primary button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Card stock with ink text. New request, Send request, and the AWS access portal link.",
-      "html": "<div class=\"ds-panel\"><button class=\"ds-btn ds-btn-primary\" type=\"button\"><svg class=\"ds-i\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 5v14M5 12h14\"/></svg>Send request</button></div>",
+      "description": "Card stock with ink text. New request, Request, Save, Save budget, the way back on an error page, and the AWS access portal link.",
+      "html": "<div class=\"ds-panel\"><button class=\"ds-btn ds-btn-primary\" type=\"button\">Request</button></div>",
       "css": ".ds-i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}.ds-btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:4px;border:1px solid transparent;font:600 13.5px/1 \"Public Sans\",system-ui,sans-serif;text-decoration:none;cursor:pointer;white-space:nowrap}.ds-btn:focus-visible{outline:2px solid #5A3E9B;outline-offset:2px}.ds-btn:disabled{background:#E7E3D9;color:#55514A;border-color:#8E8A80;border-style:dashed;cursor:not-allowed}.ds-btn[aria-busy=\"true\"]{cursor:progress}.ds-panel{background:#FFFFFF;border:1px solid #D6D1C4;border-radius:8px;padding:16px}.ds-btn-primary{background:#EDE3CC;color:#22201C}.ds-panel .ds-btn-primary{border-color:#CDBF9E}.ds-btn-primary:hover{background:#E2D5B6}"
     },
     {
@@ -473,7 +506,7 @@
       "refersTo": "button-ghost",
       "description": "Transparent on shelf green. Only Sync with AWS uses it.",
       "html": "<div class=\"ds-shelf\"><button class=\"ds-btn ds-btn-ghost\" type=\"button\"><svg class=\"ds-i\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M19.5 11a7.5 7.5 0 0 0-13.4-4.2L4.5 8.5M4.5 4v4.5H9M4.5 13a7.5 7.5 0 0 0 13.4 4.2l1.6-1.7M19.5 20v-4.5H15\"/></svg>Sync with AWS</button></div>",
-      "css": ".ds-i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}.ds-btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:4px;border:1px solid transparent;font:600 13.5px/1 \"Public Sans\",system-ui,sans-serif;text-decoration:none;cursor:pointer;white-space:nowrap}.ds-btn:focus-visible{outline:2px solid #5A3E9B;outline-offset:2px}.ds-btn:disabled{background:#E7E3D9;color:#55514A;border-color:#8E8A80;border-style:dashed;cursor:not-allowed}.ds-btn[aria-busy=\"true\"]{cursor:progress}.ds-shelf{background:#2F5D50;padding:10px 24px}.ds-btn-ghost{background:transparent;color:#EDE3CC;border-color:#A9BDB4}.ds-btn-ghost:hover{background:#264D42;color:#FFFFFF;border-color:#EDE3CC}.ds-btn-ghost:focus-visible{outline-color:#EDE3CC}"
+      "css": ".ds-i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}.ds-btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:4px;border:1px solid transparent;font:600 13.5px/1 \"Public Sans\",system-ui,sans-serif;text-decoration:none;cursor:pointer;white-space:nowrap}.ds-btn:focus-visible{outline:2px solid #5A3E9B;outline-offset:2px}.ds-btn:disabled{background:#E7E3D9;color:#55514A;border-color:#8E8A80;border-style:dashed;cursor:not-allowed}.ds-btn[aria-busy=\"true\"]{cursor:progress}.ds-shelf{background:#2F5D50;padding:10px 24px}.ds-btn-ghost{background:transparent;color:#EDE3CC;border-color:#A9BDB4}.ds-btn-ghost:hover{background:#264D42;color:#FFFFFF;border-color:#A9BDB4}.ds-btn-ghost:focus-visible{outline-color:#EDE3CC}"
     },
     {
       "name": "Text field",
@@ -489,7 +522,7 @@
       "refersTo": "nav-link",
       "description": "Card-colored links on shelf green, deep shelf for hover and the current page, count pills.",
       "html": "<nav class=\"ds-nav\" aria-label=\"Main\"><a href=\"#\" aria-current=\"page\">Queue<span class=\"ds-count\">3<span class=\"ds-vh\"> pending requests</span></span></a><a href=\"#\">Accounts</a><a href=\"#\">History</a><a href=\"#\">Notices<span class=\"ds-count\">4<span class=\"ds-vh\"> unread</span></span></a></nav>",
-      "css": ".ds-nav{display:flex;flex-wrap:wrap;gap:2px;background:#2F5D50;padding:10px 24px;font:500 14px/1.45 \"Public Sans\",system-ui,sans-serif}.ds-nav a{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:4px;color:#EDE3CC;text-decoration:none}.ds-nav a:hover,.ds-nav a[aria-current]{background:#264D42;color:#FFFFFF}.ds-nav a:focus-visible{outline:2px solid #EDE3CC;outline-offset:2px}.ds-count{background:#EDE3CC;color:#22201C;font-size:12px;font-weight:700;border-radius:9px;padding:0 6px;line-height:18px}.ds-vh{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}"
+      "css": ".ds-nav{display:flex;flex-wrap:wrap;gap:4px;background:#2F5D50;padding:10px 24px;font:500 14px/1.45 \"Public Sans\",system-ui,sans-serif}.ds-nav a{display:flex;align-items:center;gap:6px;padding:6px 11px;border-radius:4px;color:#EDE3CC;text-decoration:none}.ds-nav a:hover,.ds-nav a[aria-current]{background:#264D42;color:#FFFFFF}.ds-nav a:focus-visible{outline:2px solid #EDE3CC;outline-offset:2px}.ds-count{background:#EDE3CC;color:#22201C;font-size:12px;font-weight:700;border-radius:9px;padding:0 6px;line-height:18px}.ds-vh{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}"
     },
     {
       "name": "Status label",
@@ -538,7 +571,7 @@
     "rules": [
       {
         "name": "The Shelf Owns the Shell Rule",
-        "body": "Shelf green fills the shell and nothing else. In the content area it appears only as a healthy icon, the meter fill, the CLOSED stamp and the live dot. No content button is green.",
+        "body": "Shelf green fills the shell and nothing else. In the content area, green appears only as shelf ink: a healthy icon, the meter fill, the CLOSED stamp and the live dot. No content button is green.",
         "section": "Colors"
       },
       {
