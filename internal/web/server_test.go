@@ -101,17 +101,6 @@ func do(t *testing.T, ts *httptest.Server, method, path, user string, admin bool
 	return doAs(t, ts, method, path, user, admin, false, form, htmx)
 }
 
-// versionIn reads the request version a page rendered into the forms of a
-// pending row, which is what a browser submits with the click.
-func versionIn(t *testing.T, body, name string) url.Values {
-	t.Helper()
-	m := regexp.MustCompile(`(?s)id="req-` + regexp.QuoteMeta(name) + `".*?name="version" value="([^"]+)"`).FindStringSubmatch(body)
-	if m == nil {
-		t.Fatalf("no version for %s in:\n%s", name, body)
-	}
-	return url.Values{"version": {m[1]}}
-}
-
 func TestUnauthenticatedIsSentToLogin(t *testing.T) {
 	ts, _ := newServer(t)
 	res, _ := do(t, ts, "GET", "/", "", false, nil, false)
@@ -448,7 +437,7 @@ func TestRequestApprovalFlow(t *testing.T) {
 	}
 	// Bob cannot approve his own request even if he were an approver.
 	_, body = doAs(t, ts, "GET", "/", "bob@example.com", false, true, nil, false)
-	if _, body := doAs(t, ts, "POST", "/requests/bobs-box/approve", "bob@example.com", false, true, versionIn(t, body, "bobs-box"), true); !strings.Contains(body, "cannot approve it") {
+	if _, body := doAs(t, ts, "POST", "/requests/bobs-box/approve", "bob@example.com", false, true, refForm(refIn(t, body, "bobs-box")), true); !strings.Contains(body, "cannot approve it") {
 		t.Fatalf("self-approval should be refused:\n%s", body)
 	}
 	// A configured approver (not admin) sees the queue and approves.
@@ -459,7 +448,7 @@ func TestRequestApprovalFlow(t *testing.T) {
 	if strings.Contains(body, "Sync with AWS") {
 		t.Fatal("an approver who is not admin must not get the sync button")
 	}
-	res, _ = doAs(t, ts, "POST", "/requests/bobs-box/approve", "lead@example.com", false, true, versionIn(t, body, "bobs-box"), true)
+	res, _ = doAs(t, ts, "POST", "/requests/bobs-box/approve", "lead@example.com", false, true, refForm(refIn(t, body, "bobs-box")), true)
 	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
 		t.Fatalf("approve = %d", res.StatusCode)
 	}
@@ -478,7 +467,7 @@ func TestRequestApprovalFlow(t *testing.T) {
 	// Deny path with a reason from the htmx prompt header; withdraw by requester.
 	do(t, ts, "POST", "/requests", "carl@example.com", false, url.Values{"name": {"carls-box"}}, true)
 	_, body = doAs(t, ts, "GET", "/", "lead@example.com", false, true, nil, false)
-	req, _ := http.NewRequest("POST", ts.URL+"/requests/carls-box/deny", strings.NewReader(versionIn(t, body, "carls-box").Encode()))
+	req, _ := http.NewRequest("POST", ts.URL+"/requests/carls-box/deny", strings.NewReader(refForm(refIn(t, body, "carls-box")).Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User", "lead@example.com")
 	req.Header.Set("X-Approver", "1")
@@ -492,7 +481,7 @@ func TestRequestApprovalFlow(t *testing.T) {
 	}
 	do(t, ts, "POST", "/requests", "carl@example.com", false, url.Values{"name": {"carls-two"}}, true)
 	_, body = do(t, ts, "GET", "/", "carl@example.com", false, nil, false)
-	carls := versionIn(t, body, "carls-two")
+	carls := refForm(refIn(t, body, "carls-two"))
 	if res, _ := do(t, ts, "POST", "/requests/carls-two/withdraw", "anna@example.com", false, carls, true); res.StatusCode != http.StatusForbidden {
 		t.Fatal("only the requester or an admin may withdraw")
 	}
@@ -529,7 +518,7 @@ func TestSelfApprovalSettingShowsTheButton(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(body, "/requests/solo/approve") || strings.Contains(body, ">Your request<") {
 		t.Fatalf("with self-approval on, the requester should see Approve:\n%s", body)
 	}
-	if res, _ := do(t, ts, "POST", "/requests/solo/approve", "", false, versionIn(t, body, "solo"), true); res.StatusCode != http.StatusOK {
+	if res, _ := do(t, ts, "POST", "/requests/solo/approve", "", false, refForm(refIn(t, body, "solo")), true); res.StatusCode != http.StatusOK {
 		t.Fatalf("approve = %d", res.StatusCode)
 	}
 	if q, _ := svc.PendingRequests(context.Background()); len(q) != 0 {
@@ -594,7 +583,7 @@ func TestAdminEditsPendingRequestInline(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(body, `value="bob@example.com"`) || !strings.Contains(body, `value="5"`) || !strings.Contains(body, `value="old"`) {
 		t.Fatalf("edit form should be prefilled:\n%s", body)
 	}
-	form := versionIn(t, body, "tweak")
+	form := refForm(refIn(t, body, "tweak"))
 	form.Set("owner", "bob@example.com")
 	form.Set("ttl", "12")
 	form.Set("budget", "40")
@@ -614,7 +603,7 @@ func TestAdminEditsPendingRequestInline(t *testing.T) {
 	}
 	// Over the ceiling without override is an error that keeps the form.
 	_, body = do(t, ts, "GET", "/requests/tweak/edit", "ops@example.com", true, nil, true)
-	over := versionIn(t, body, "tweak")
+	over := refForm(refIn(t, body, "tweak"))
 	over.Set("budget", "900")
 	res, body = do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, over, true)
 	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "exceeds the maximum") {
@@ -844,7 +833,7 @@ func TestWithdrawButtonIgnoresEmailCase(t *testing.T) {
 	if !strings.Contains(body, "/requests/case-box/withdraw") {
 		t.Fatalf("withdraw button should show regardless of email case:\n%s", body)
 	}
-	if res, _ := do(t, ts, "POST", "/requests/case-box/withdraw", "bob@example.com", false, versionIn(t, body, "case-box"), true); res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
+	if res, _ := do(t, ts, "POST", "/requests/case-box/withdraw", "bob@example.com", false, refForm(refIn(t, body, "case-box")), true); res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
 		t.Fatalf("withdraw = %d", res.StatusCode)
 	}
 }
@@ -858,7 +847,7 @@ func TestEditRejectsBadNumbersAndKeepsOverride(t *testing.T) {
 	}
 	_, page := doAs(t, ts, "GET", "/requests/over/edit", "root@example.com", true, true, nil, true)
 	edit := func(v url.Values) url.Values {
-		v.Set("version", versionIn(t, page, "over").Get("version"))
+		v.Set("version", refIn(t, page, "over").Version)
 		return v
 	}
 	// A bad budget is an error, not a silently unchanged field.

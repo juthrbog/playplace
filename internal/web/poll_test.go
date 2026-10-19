@@ -149,7 +149,7 @@ func TestActionAnswersCarryTheNextPollHash(t *testing.T) {
 		{"extend", "/accounts/111111111111/extend", "/accounts", "anna@example.com", false, false, url.Values{}},
 		{"extend, closed shown", "/accounts/111111111111/extend", "/accounts?all=1", "anna@example.com", false, false, url.Values{"all": {"1"}}},
 		{"close", "/accounts/111111111111/close", "/accounts", "anna@example.com", false, false, url.Values{}},
-		{"approve", "/requests/bobs-box/approve", "/accounts", "lead@example.com", false, true, versionIn(t, home, "bobs-box")},
+		{"approve", "/requests/bobs-box/approve", "/accounts", "lead@example.com", false, true, refForm(refIn(t, home, "bobs-box"))},
 		{"sync", "/refresh", "/accounts", "ops@example.com", true, true, url.Values{}},
 	} {
 		res, body := doAs(t, ts, "POST", tc.path, tc.who, tc.admin, tc.approver, tc.form, true)

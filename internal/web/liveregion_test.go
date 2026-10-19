@@ -21,10 +21,6 @@ const emptyRegion = `<p id="notice" class="notice" role="status" aria-live="poli
 // region comes first.
 const regionStart = `<main>` + emptyRegion
 
-// cardRegion is the live region of the home page: in the pending card, under
-// its head and above the refusal slot of the card.
-var cardRegion = regexp.MustCompile(`<section id="pending" class="panel" aria-labelledby="pending-title">(?:<!--.*?-->)?<div class="panel-head">.*?</div>` + regexp.QuoteMeta(emptyRegion) + `<div id="pending-error" class="refusal"></div>`)
-
 var (
 	otherLiveRoles = regexp.MustCompile(`role="(alert|log|timer|marquee)"`)
 	// regionPart is what an htmx answer writes into the live region.
@@ -89,7 +85,7 @@ func TestOnePoliteLiveRegionPerPage(t *testing.T) {
 			t.Errorf("%s: the page lacks %q:\n%s", tc.name, tc.holds, tc.body)
 			continue
 		}
-		if tc.home && (strings.Contains(tc.body, regionStart) || !cardRegion.MatchString(tc.body)) {
+		if tc.home && (strings.Contains(tc.body, regionStart) || !regionInQueue(tc.body)) {
 			t.Errorf("%s: the empty live region is not in the pending card, under its head:\n%s", tc.name, tc.body)
 		}
 		if !tc.home && !strings.Contains(tc.body, regionStart) {
@@ -114,7 +110,7 @@ func TestMessagesWriteIntoTheRegionNode(t *testing.T) {
 	ts, _ := newServer(t)
 	_, sync := do(t, ts, "POST", "/refresh", "ops@example.com", true, url.Values{}, true)
 	syncIcon := `<svg class="i" aria-hidden="true" focusable="false"><use href="#i-sync"></use></svg>`
-	if m := regionPart.FindStringSubmatch(sync); m == nil || !strings.HasPrefix(m[1], syncIcon+"<span>Synced with AWS") {
+	if got, ok := regionIn(sync); !ok || !strings.HasPrefix(got, syncIcon+"<span>Synced with AWS") {
 		t.Errorf("the Sync answer does not write its message with the sync icon into the region:\n%s", sync)
 	}
 	_, refused := do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"Bad Name"}}, true)
@@ -144,7 +140,7 @@ func TestActionsAnswerInTheRegion(t *testing.T) {
 	_, edit := do(t, ts, "GET", "/requests/to-edit/edit", "ops@example.com", true, nil, true)
 	saved := editFormValues(t, edit, "to-edit")
 	saved.Set("budget", "77")
-	deny := versionIn(t, home, "to-deny")
+	deny := refForm(refIn(t, home, "to-deny"))
 	deny.Set("reason", "not now")
 
 	check := `<svg class="i i-ok" aria-hidden="true" focusable="false"><use href="#i-check"></use></svg>`
@@ -154,9 +150,9 @@ func TestActionsAnswerInTheRegion(t *testing.T) {
 		msg  string
 	}{
 		{"/requests", url.Values{"name": {"from-the-form"}}, "Sent the request for from-the-form."},
-		{"/requests/to-approve/approve", versionIn(t, home, "to-approve"), "Approved to-approve."},
+		{"/requests/to-approve/approve", refForm(refIn(t, home, "to-approve")), "Approved to-approve."},
 		{"/requests/to-deny/deny", deny, "Denied to-deny."},
-		{"/requests/to-withdraw/withdraw", versionIn(t, home, "to-withdraw"), "Withdrew the request for to-withdraw."},
+		{"/requests/to-withdraw/withdraw", refForm(refIn(t, home, "to-withdraw")), "Withdrew the request for to-withdraw."},
 		{"/requests/to-edit/edit", saved, "Saved to-edit."},
 		// The seed expires 72 hours after t0, and +7d moves it a week on.
 		{"/accounts/111111111111/extend", url.Values{"by": {"7d"}}, "Extended annas-box to Sep 25 12:00 UTC."},
@@ -169,7 +165,7 @@ func TestActionsAnswerInTheRegion(t *testing.T) {
 		if n := len(regionPart.FindAllString(body, -1)); n != 1 {
 			t.Errorf("%s: the answer writes the region %d times, want once", tc.path, n)
 		}
-		if m := regionPart.FindStringSubmatch(body); m == nil || m[1] != check+"<span>"+tc.msg+"</span>" {
+		if got, ok := regionIn(body); !ok || got != check+"<span>"+tc.msg+"</span>" {
 			t.Errorf("%s: the region does not say %q with the check:\n%s", tc.path, tc.msg, body)
 		}
 	}
@@ -185,7 +181,7 @@ func TestRefusalsAlsoReachTheRegion(t *testing.T) {
 	ts, _ := newServer(t)
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"stale-one"}}, true)
 	_, page := doAs(t, ts, "GET", "/", "lead@example.com", false, true, nil, false)
-	seen := versionIn(t, page, "stale-one")
+	seen := refForm(refIn(t, page, "stale-one"))
 	if res, body := do(t, ts, "POST", "/requests/stale-one/withdraw", "bob@example.com", false, seen, true); res.Header.Get("X-Form-Error") != "" {
 		t.Fatalf("withdraw = %s", body)
 	}

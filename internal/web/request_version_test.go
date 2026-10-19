@@ -26,10 +26,10 @@ func TestStaleApproveFromThePageIsRefused(t *testing.T) {
 	ts, prov := newServer(t)
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"tweak"}, "budget": {"20"}}, true)
 	_, page := doAs(t, ts, "GET", "/", "lead@example.com", false, true, nil, false)
-	seen := versionIn(t, page, "tweak")
+	seen := refForm(refIn(t, page, "tweak"))
 
 	_, form := do(t, ts, "GET", "/requests/tweak/edit", "ops@example.com", true, nil, true)
-	edit := versionIn(t, form, "tweak")
+	edit := refForm(refIn(t, form, "tweak"))
 	edit.Set("owner", "bob@example.com")
 	edit.Set("budget", "400")
 	if res, body := do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, edit, true); res.Header.Get("X-Form-Error") != "" {
@@ -51,7 +51,7 @@ func TestStaleApproveFromThePageIsRefused(t *testing.T) {
 		t.Fatal("a stale approve created an account")
 	}
 	// The refreshed card carries the new version, and that click works.
-	res, _ = doAs(t, ts, "POST", "/requests/tweak/approve", "lead@example.com", false, true, versionIn(t, body, "tweak"), true)
+	res, _ = doAs(t, ts, "POST", "/requests/tweak/approve", "lead@example.com", false, true, refForm(refIn(t, body, "tweak")), true)
 	if res.Header.Get("X-Form-Error") != "" {
 		t.Fatal("approving the refreshed row should work")
 	}
@@ -66,12 +66,12 @@ func TestStaleDenyAndWithdrawFromThePageAreRefused(t *testing.T) {
 	ts, prov := newServer(t)
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"tweak"}, "budget": {"20"}}, true)
 	_, page := doAs(t, ts, "GET", "/", "lead@example.com", false, true, nil, false)
-	approverSaw := versionIn(t, page, "tweak")
+	approverSaw := refForm(refIn(t, page, "tweak"))
 	_, page = do(t, ts, "GET", "/", "bob@example.com", false, nil, false)
-	requesterSaw := versionIn(t, page, "tweak")
+	requesterSaw := refForm(refIn(t, page, "tweak"))
 
 	_, form := do(t, ts, "GET", "/requests/tweak/edit", "ops@example.com", true, nil, true)
-	edit := versionIn(t, form, "tweak")
+	edit := refForm(refIn(t, form, "tweak"))
 	edit.Set("owner", "bob@example.com")
 	edit.Set("budget", "400")
 	if res, body := do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, edit, true); res.Header.Get("X-Form-Error") != "" {
@@ -91,7 +91,7 @@ func TestStaleDenyAndWithdrawFromThePageAreRefused(t *testing.T) {
 		t.Fatalf("stale withdraw should be refused and keep the request: %v\n%s", res.Header, body)
 	}
 	// The refreshed card carries the new version, and that click works.
-	res, body = do(t, ts, "POST", "/requests/tweak/withdraw", "bob@example.com", false, versionIn(t, body, "tweak"), true)
+	res, body = do(t, ts, "POST", "/requests/tweak/withdraw", "bob@example.com", false, refForm(refIn(t, body, "tweak")), true)
 	if res.Header.Get("X-Form-Error") != "" || pending() {
 		t.Fatalf("withdrawing the refreshed row should work: %v\n%s", res.Header, body)
 	}
@@ -104,7 +104,7 @@ func TestStaleWithdrawAfterAResubmissionIsRefusedAsStale(t *testing.T) {
 	ts, prov := newServer(t)
 	do(t, ts, "POST", "/requests", "carl@example.com", false, url.Values{"name": {"shared"}, "budget": {"20"}}, true)
 	_, page := do(t, ts, "GET", "/", "carl@example.com", false, nil, false)
-	carlSaw := versionIn(t, page, "shared")
+	carlSaw := refForm(refIn(t, page, "shared"))
 	// Carl withdraws in another tab, and bob takes the name.
 	if res, body := do(t, ts, "POST", "/requests/shared/withdraw", "carl@example.com", false, carlSaw, true); res.Header.Get("X-Form-Error") != "" {
 		t.Fatalf("withdraw = %s", body)
@@ -123,7 +123,7 @@ func TestStaleWithdrawAfterAResubmissionIsRefusedAsStale(t *testing.T) {
 	}
 	// With the current version, a viewer who may not withdraw still gets 403.
 	_, page = do(t, ts, "GET", "/", "bob@example.com", false, nil, false)
-	if res, _ := do(t, ts, "POST", "/requests/shared/withdraw", "carl@example.com", false, versionIn(t, page, "shared"), true); res.StatusCode != http.StatusForbidden {
+	if res, _ := do(t, ts, "POST", "/requests/shared/withdraw", "carl@example.com", false, refForm(refIn(t, page, "shared")), true); res.StatusCode != http.StatusForbidden {
 		t.Fatalf("withdrawing someone else's current request = %d, want 403", res.StatusCode)
 	}
 }
@@ -329,9 +329,9 @@ func TestCrossProcessChangeShowsTheCurrentRequest(t *testing.T) {
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"tweak"}, "budget": {"20"}}, true)
 	do(t, ts, "POST", "/requests", "carl@example.com", false, url.Values{"name": {"mine"}, "budget": {"20"}}, true)
 	_, page := doAs(t, ts, "GET", "/", "lead@example.com", false, true, nil, false)
-	seen := versionIn(t, page, "tweak")
+	seen := refForm(refIn(t, page, "tweak"))
 	_, own := do(t, ts, "GET", "/", "carl@example.com", false, nil, false)
-	mine := versionIn(t, own, "mine")
+	mine := refForm(refIn(t, own, "mine"))
 
 	q, err := cli.GetRequest(ctx, "tweak")
 	if err != nil {
@@ -344,7 +344,7 @@ func TestCrossProcessChangeShowsTheCurrentRequest(t *testing.T) {
 	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "was edited") || !strings.Contains(body, "$400") {
 		t.Fatalf("the refusal should show the edited request:\n%s", body)
 	}
-	fresh := versionIn(t, body, "tweak")
+	fresh := refForm(refIn(t, body, "tweak"))
 	if fresh.Get("version") == seen.Get("version") {
 		t.Fatal("the refusal rendered the stale version again")
 	}

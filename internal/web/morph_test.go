@@ -106,7 +106,7 @@ func TestPendingCardAnswersWithTheCard(t *testing.T) {
 	_, edit := do(t, ts, "GET", "/requests/to-edit/edit", "ops@example.com", true, nil, true)
 	saved := editFormValues(t, edit, "to-edit")
 	saved.Set("budget", "77")
-	deny := versionIn(t, home, "to-deny")
+	deny := refForm(refIn(t, home, "to-deny"))
 	deny.Set("reason", "not now")
 
 	card := `<section id="pending" class="panel" aria-labelledby="pending-title">`
@@ -114,9 +114,9 @@ func TestPendingCardAnswersWithTheCard(t *testing.T) {
 		path string
 		form url.Values
 	}{
-		{"/requests/to-approve/approve", versionIn(t, home, "to-approve")},
+		{"/requests/to-approve/approve", refForm(refIn(t, home, "to-approve"))},
 		{"/requests/to-deny/deny", deny},
-		{"/requests/to-withdraw/withdraw", versionIn(t, home, "to-withdraw")},
+		{"/requests/to-withdraw/withdraw", refForm(refIn(t, home, "to-withdraw"))},
 		{"/requests/to-edit/edit", saved},
 	} {
 		res, body := do(t, ts, "POST", tc.path, "ops@example.com", true, tc.form, true)
@@ -190,7 +190,7 @@ func TestEditFormIsMarked(t *testing.T) {
 	if !regexp.MustCompile(`<form [^>]*\sdata-editing[\s>]`).MatchString(body) {
 		t.Errorf("the edit form has no data-editing:\n%s", body)
 	}
-	if !regexp.MustCompile(`(?s)<tr id="req-bobs-box">.*?</tr>`).MatchString(body) {
+	if slipIn(body, "bobs-box") == "" {
 		t.Errorf("the edit row lost its plain id:\n%s", body)
 	}
 }
