@@ -144,6 +144,8 @@ func TestPendingCardAnswersWithTheCard(t *testing.T) {
 	}{
 		{"/requests", url.Values{"name": {"from-the-form"}}},
 		{"/refresh", url.Values{}},
+		{"/accounts/111111111111/extend", url.Values{}},
+		{"/accounts/222222222222/close", url.Values{}},
 	} {
 		_, body := do(t, ts, "POST", tc.path, "ops@example.com", true, tc.form, true)
 		tag, _, _ := strings.Cut(body, ">")

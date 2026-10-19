@@ -124,3 +124,52 @@ htmx.defineExtension("morph", {
     }
   }
 });
+
+// The 15 s poll sends the hash of what the page shows, and the server
+// answers 204 when nothing changed. Only the section's own GET carries it,
+// not the Show closed box or a form.
+document.addEventListener("htmx:configRequest", function (ev) {
+  var elt = ev.detail.elt;
+  if (ev.detail.verb === "get" && elt && elt.hasAttribute && elt.hasAttribute("data-poll-hash")) {
+    ev.detail.headers["X-Poll-Hash"] = elt.getAttribute("data-poll-hash");
+  }
+});
+
+// The morph keeps the accounts section in the page, so a poll answer that
+// arrives after an action would put the old state back. Any other request,
+// Show closed included, stops the poll in flight. A poll that is due while
+// another request runs waits for the next one.
+var running = [];
+function requestRunning() {
+  for (var i = 0; i < running.length; i++) {
+    if (running[i].readyState > 0 && running[i].readyState < 4) {
+      return true;
+    }
+  }
+  return false;
+}
+document.addEventListener("htmx:beforeRequest", function (ev) {
+  var accounts = document.getElementById("accounts");
+  if (!accounts) {
+    return;
+  }
+  if (ev.detail.elt === accounts) {
+    if (requestRunning()) {
+      ev.preventDefault();
+    }
+    return;
+  }
+  htmx.trigger(accounts, "htmx:abort");
+});
+// The list holds only requests that htmx sends, so a request that another
+// listener cancels never blocks the poll.
+document.addEventListener("htmx:beforeSend", function (ev) {
+  var accounts = document.getElementById("accounts");
+  if (!ev.detail.xhr || (accounts && ev.detail.elt === accounts)) {
+    return;
+  }
+  running = running.filter(function (xhr) {
+    return xhr.readyState > 0 && xhr.readyState < 4;
+  });
+  running.push(ev.detail.xhr);
+});

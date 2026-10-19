@@ -129,21 +129,26 @@ templ pendingUpdate(pg page) {
 	}
 }
 
-// accountsAnswer answers a request from outside the pending card: the
-// accounts section is the main swap, and the pending card rides out of band.
-templ accountsAnswer(pg page, rows []accountRow) {
-	@accountsPanel(pg, rows, false, false)
-	@pendingUpdate(pg)
+// accountsAnswer answers the poll and every request from outside the
+// pending card: the accounts section is the main swap, and the pending card
+// rides out of band. When the queue did not load, the card and the count
+// stay out, so the page keeps the ones it shows. Rendered with no hash, it
+// is also what the poll hash covers.
+templ accountsAnswer(pg page, rows []accountRow, errMsg, hash string) {
+	@accountsPanel(pg, rows, errMsg, hash, false)
+	if !pg.PendingFailed {
+		@pendingUpdate(pg)
+	}
 }
 
 // cardAnswer answers a decision made in the pending card. The card is the
 // main swap, because htmx finds the morph extension from the form that
 // sent the request. An out-of-band part runs first and can take that form
 // out of the page. The accounts section and the count ride out of band.
-templ cardAnswer(pg page, rows []accountRow) {
+templ cardAnswer(pg page, rows []accountRow, hash string) {
 	@pendingCard(pg, false)
-	@accountsPanel(pg, rows, false, true)
-	if pg.Viewer.Approver {
+	@accountsPanel(pg, rows, "", hash, true)
+	if pg.Viewer.Approver && !pg.PendingFailed {
 		@queueCount(pg, true)
 	}
 }
@@ -191,7 +196,7 @@ type accountRow struct {
 
 // indexPage is the home page. The shell is the visible heading, so the page
 // h1 is for screen readers only.
-templ indexPage(pg page, rows []accountRow, errMsg string) {
+templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
 	@layout(pg, "Accounts") {
 		<h1 class="vh">Accounts</h1>
 		<section class="panel" id="request" aria-labelledby="request-title">
@@ -223,12 +228,10 @@ templ indexPage(pg page, rows []accountRow, errMsg string) {
 				</form>
 			</div>
 		</section>
-		if errMsg != "" {
-			<p class="error page-error">@icon("alert")<span>{ errMsg }</span></p>
-		}
 		@pendingCard(pg, false)
-		// errMsg comes only from a failed account load.
-		@accountsPanel(pg, rows, errMsg != "", false)
+		// errMsg comes only from a failed account load. The panel shows it,
+		// so the next good poll clears it.
+		@accountsPanel(pg, rows, errMsg, hash, false)
 		<p class="help">
 			if pg.SignIn && !pg.Viewer.Admin {
 				You see the accounts you own.
@@ -239,7 +242,9 @@ templ indexPage(pg page, rows []accountRow, errMsg string) {
 }
 
 // pendingCard is the queue. oob marks it as an out-of-band part of an htmx
-// answer, which htmx morphs into the card on the page.
+// answer, which htmx morphs into the card on the page. When the queue did
+// not load, the head shows no count and the card says so, as the accounts
+// panel does. An empty card would read as an empty queue.
 templ pendingCard(pg page, oob bool) {
 	<section
 		id="pending"
@@ -256,13 +261,17 @@ templ pendingCard(pg page, oob bool) {
 				} else {
 					Your pending requests
 				}
-				<span class="muted">({ fmt.Sprint(len(pg.Pending)) })</span>
+				if !pg.PendingFailed {
+					<span class="muted">({ fmt.Sprint(len(pg.Pending)) })</span>
+				}
 			</h2>
 		</div>
 		// A refused decision on a row shows here, beside the rows, and not in
 		// the New request form.
 		<div id="pending-error" class="refusal"></div>
-		if len(pg.Pending) == 0 {
+		if pg.PendingFailed {
+			<p class="empty">The pending requests are unavailable. The page tries again every 15 seconds.</p>
+		} else if len(pg.Pending) == 0 {
 			<p class="empty">Nothing waiting.</p>
 		} else {
 			<div class="scroll">
@@ -367,17 +376,14 @@ templ pendingEditRow(pg page, q core.Request) {
 	</tr>
 }
 
-// accountsTable is the accounts panel after a good load.
-templ accountsTable(pg page, rows []accountRow) {
-	@accountsPanel(pg, rows, false, false)
-}
-
-// accountsPanel is the accounts panel. When the list did not load, the head
-// shows no count and the panel says the list is unavailable. An empty list
-// would look like a fleet with no accounts. The section keeps polling, so
-// the next good poll fills it. oob marks it as an out-of-band part of an
-// htmx answer.
-templ accountsPanel(pg page, rows []accountRow, failed, oob bool) {
+// accountsPanel is the accounts panel. When the list did not load, errMsg
+// holds the error, the head shows no count and the panel says the list is
+// unavailable. An empty list would look like a fleet with no accounts. The
+// section keeps polling, so the next good poll fills it. oob marks it as an
+// out-of-band part of an htmx answer. hash is the poll hash of this answer.
+// pollHash renders the section with no hash, so the hash never covers
+// itself.
+templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 	<section
 		id="accounts"
 		class="panel"
@@ -388,6 +394,9 @@ templ accountsPanel(pg page, rows []accountRow, failed, oob bool) {
 		if oob {
 			hx-swap-oob="morph"
 		}
+		if hash != "" {
+			data-poll-hash={ hash }
+		}
 	>
 		<div class="panel-head">
 			<h2 id="accounts-title">
@@ -396,7 +405,7 @@ templ accountsPanel(pg page, rows []accountRow, failed, oob bool) {
 				} else {
 					Accounts
 				}
-				if !failed {
+				if errMsg == "" {
 					<span class="muted">({ fmt.Sprint(len(rows)) })</span>
 				}
 			</h2>
@@ -404,8 +413,10 @@ templ accountsPanel(pg page, rows []accountRow, failed, oob bool) {
 		</div>
 		// A failed load and an empty list each show one plain line, as the
 		// pending card does, and no column heads. The head keeps Show
-		// closed, and the section keeps polling.
-		if failed {
+		// closed, and the section keeps polling. The error note has an id,
+		// so a morph never pairs it with the table that replaces it.
+		if errMsg != "" {
+			<div id="accounts-error" class="refusal">@icon("alert")<span>{ errMsg }</span></div>
 			<p class="empty">The account list is unavailable. The page tries again every 15 seconds.</p>
 		} else if len(rows) == 0 {
 			<p class="empty">
@@ -450,7 +461,13 @@ templ accountTR(r accountRow) {
 			}
 		</td>
 		<td><code>{ r.Account.ProviderID }</code></td>
-		<td title={ expiryDate(r.Account.ExpiresAt, time.RFC3339) }>
+		// A pending request counts its expiry from now, so the exact time
+		// would change on every read and every poll would get 200, not 204.
+		<td
+			if r.Account.Status != core.StatusPending {
+				title={ expiryDate(r.Account.ExpiresAt, time.RFC3339) }
+			}
+		>
 			if r.Account.Status == core.StatusActive || r.Account.Status == core.StatusExpiring || r.Account.Status == core.StatusClosing {
 				{ expiresIn(r.Account.ExpiresAt) }
 			} else if !r.Account.ExpiresAt.IsZero() && r.Account.Status != core.StatusFailed && r.Account.Status != core.StatusClosed {

@@ -4,13 +4,17 @@
 package web
 
 import (
+	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -141,21 +145,31 @@ type page struct {
 	// SignedOut marks a page for nobody, such as a failed sign-in. The shell
 	// then shows only the brand.
 	SignedOut bool
+	// PendingFailed marks a queue that did not load. The card then says so,
+	// and a poll leaves the card on the page as it is.
+	PendingFailed bool
 }
 
 func (s *Server) pageFor(r *http.Request) page {
 	// "all" arrives as a query parameter on GET and, thanks to hx-include on
 	// the switch, in the body of every action, so the view survives actions.
 	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), ShowAll: r.FormValue("all") == "1", Limits: s.svc.Config(), Path: r.URL.Path}
-	if all, err := s.svc.PendingRequests(r.Context()); err == nil {
-		for _, q := range all {
-			if canSeeRequest(pg.Viewer, q) {
-				pg.Pending = append(pg.Pending, q)
-			}
-		}
-	} else {
+	all, err := s.svc.PendingRequests(r.Context())
+	if err != nil {
 		s.log.Warn("pending requests", "err", err)
+		pg.PendingFailed = true
+		return pg
 	}
+	for _, q := range all {
+		if canSeeRequest(pg.Viewer, q) {
+			pg.Pending = append(pg.Pending, q)
+		}
+	}
+	// Core sorts the queue by time alone, over tags in map order. The name
+	// breaks ties, so two reads of the same queue hash the same.
+	slices.SortStableFunc(pg.Pending, func(a, b core.Request) int {
+		return cmp.Or(a.RequestedAt.Compare(b.RequestedAt), strings.Compare(a.Name, b.Name))
+	})
 	return pg
 }
 
@@ -203,6 +217,11 @@ func (s *Server) rows(ctx context.Context, v Viewer, showAll bool, force bool) (
 			ids = append(ids, a.ID)
 		}
 	}
+	// Core sorts accounts by creation time alone, over a listing in map
+	// order. The id breaks ties, so two reads of the same fleet hash the same.
+	slices.SortStableFunc(mine, func(a, b *core.Account) int {
+		return cmp.Or(b.CreatedAt.Compare(a.CreatedAt), strings.Compare(a.ID, b.ID))
+	})
 	if err := s.svc.WarmCosts(ctx, ids, force); err != nil {
 		s.log.Warn("costs", "err", err)
 	}
@@ -228,11 +247,37 @@ func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request, fromCar
 		s.fail(w, r, err)
 		return
 	}
-	if fromCard {
-		s.render(w, r, cardAnswer(pg, rows))
-		return
+	s.writeAccounts(w, r, pg, rows, "", s.pollHash(r.Context(), pg, rows, ""), fromCard)
+}
+
+// pollHashHeader carries the poll hash of the page. app.js sends it on the
+// 15 s poll, and the poll answers 204 when it still matches.
+const pollHashHeader = "X-Poll-Hash"
+
+// pollHash is the hash of what a poll answer shows: the accounts section
+// without its own hash, then the pending card and the count. The home page,
+// the poll and every action answer use it, so the section always carries
+// the hash of what the page shows. It is empty if the render fails, and the
+// section then carries none, so every poll gets the full answer.
+func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMsg string) string {
+	h := sha256.New()
+	if err := accountsAnswer(pg, rows, errMsg, "").Render(ctx, h); err != nil {
+		s.log.Error("render poll hash", "err", err)
+		return ""
 	}
-	s.render(w, r, accountsAnswer(pg, rows))
+	return hex.EncodeToString(h.Sum(nil)[:16])
+}
+
+// writeAccounts answers with the accounts section, which carries hash for
+// the next poll, and the pending card. fromCard makes the card the main
+// swap, for a decision made in the card. after holds parts that follow,
+// such as the Sync message.
+func (s *Server) writeAccounts(w http.ResponseWriter, r *http.Request, pg page, rows []accountRow, errMsg, hash string, fromCard bool, after ...templ.Component) {
+	main := accountsAnswer(pg, rows, errMsg, hash)
+	if fromCard {
+		main = cardAnswer(pg, rows, hash)
+	}
+	s.render(w, r, templ.Join(append([]templ.Component{main}, after...)...))
 }
 
 // submit puts a request in the queue. Engineers request for themselves;
@@ -480,17 +525,38 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		msg = err.Error()
 	}
-	s.render(w, r, indexPage(pg, rows, msg))
+	s.render(w, r, indexPage(pg, rows, msg, s.pollHash(r.Context(), pg, rows, msg)))
 }
 
+// table answers the 15 s poll and the Show closed box. A poll that sends the
+// hash of the current answer gets 204 and no body. A failed list is a panel
+// that says so, hashed like any answer, so the same failure answers 204 and
+// the next good poll clears it.
 func (s *Server) table(w http.ResponseWriter, r *http.Request) {
-	pg := s.pageFor(r)
-	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
-	if err != nil {
-		s.fail(w, r, err)
+	// The answer is a fragment of the home page, so a page visit goes there.
+	if r.Header.Get("HX-Request") != "true" {
+		to := "/#accounts"
+		if r.FormValue("all") == "1" {
+			to = "/?all=1#accounts"
+		}
+		http.Redirect(w, r, to, http.StatusSeeOther)
 		return
 	}
-	s.render(w, r, accountsTable(pg, rows))
+	pg := s.pageFor(r)
+	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
+	var errMsg string
+	if err != nil {
+		s.log.Warn("accounts poll", "err", err)
+		rows, errMsg = nil, err.Error()
+	}
+	// The answer changes with the data, so a cache must ask every time.
+	w.Header().Set("Cache-Control", "private, no-cache")
+	hash := s.pollHash(r.Context(), pg, rows, errMsg)
+	if hash != "" && r.Header.Get(pollHashHeader) == hash {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	s.writeAccounts(w, r, pg, rows, errMsg, hash, false)
 }
 
 func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
@@ -515,7 +581,7 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	if !sum.Empty() {
 		msg = "synced: " + sum.String()
 	}
-	s.render(w, r, templ.Join(accountsAnswer(pg, rows), noticeFragment(msg)))
+	s.writeAccounts(w, r, pg, rows, "", s.pollHash(r.Context(), pg, rows, ""), false, noticeFragment(msg))
 }
 
 // owned resolves an account the viewer may act on, or writes the error.
@@ -580,7 +646,7 @@ func (s *Server) extend(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.table(w, r)
+	s.pendingAndTable(w, r, false)
 }
 
 func (s *Server) close(w http.ResponseWriter, r *http.Request) {
@@ -592,7 +658,7 @@ func (s *Server) close(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.table(w, r)
+	s.pendingAndTable(w, r, false)
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, c templ.Component) {
