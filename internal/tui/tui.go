@@ -83,6 +83,11 @@ type row struct {
 	MTD     float64          // month-to-date spend
 	Series  []float64        // daily spend, oldest first, last 30 days
 	Points  []core.CostPoint // daily spend, oldest first
+
+	// CostUnknown is true for an account with a provider ID whose last cost
+	// pull failed or never ran. Its spend shows as unavailable, never as $0.
+	// An account with no provider ID has no spend yet.
+	CostUnknown bool
 }
 
 // grid tracks cursor and scroll offset for the account table.
@@ -333,7 +338,9 @@ func (m model) loadWith(forceInventory, forceCosts bool) tea.Cmd {
 		rows := make([]row, 0, len(accounts))
 		for _, a := range accounts {
 			r := row{Account: a}
-			if pts, ok := svc.CostsCached(a.ProviderID, 31); ok && a.ProviderID != "" {
+			pts, known := svc.CostState(a.ProviderID, 31)
+			r.CostUnknown = a.ProviderID != "" && !known
+			if known && a.ProviderID != "" {
 				r.Points = pts
 				r.MTD = core.MonthToDate(pts, now)
 				byDay := map[string]float64{}

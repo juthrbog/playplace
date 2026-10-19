@@ -208,8 +208,8 @@ func canSee(v Viewer, a *core.Account) bool {
 }
 
 // rows lists the accounts the viewer may see, with month-to-date spend from
-// the cost cache. Costs are warmed in parallel; a miss shows as zero until
-// the next poll.
+// the cost cache. Costs are warmed in parallel. A row shows the spend of the
+// last good pull, and zero when no pull succeeded yet.
 func (s *Server) rows(ctx context.Context, v Viewer, showAll bool, force bool) ([]accountRow, error) {
 	accounts, err := s.svc.List(ctx, core.ListFilter{IncludeClosed: showAll})
 	if err != nil {

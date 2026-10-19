@@ -77,9 +77,13 @@ type Service struct {
 	opMu sync.Mutex
 }
 
+// costEntry is the cost state of one account. at and err describe the last
+// pull. points and okAt come from the last pull that succeeded.
 type costEntry struct {
 	points []CostPoint
-	at     time.Time
+	okAt   time.Time // when the last good pull ran, zero if none did
+	at     time.Time // when the last pull ran
+	err    error     // why the last pull failed, nil after a good pull
 }
 
 // NewService wires a Service. A nil logger disables logging.
@@ -1746,8 +1750,20 @@ func (s *Service) notifyAll(ctx context.Context, subject, body, owner, id string
 
 // ---- costs -----------------------------------------------------------------
 
+// costRetryAfter is how long Costs waits after a failed pull of an account
+// before a pull that is not forced runs again.
+const costRetryAfter = 5 * time.Minute
+
 // Costs returns daily spend for the last n days, pulled live and cached for
 // CostTTL. Cost Explorer bills per call, so callers should batch with WarmCosts.
+//
+// After a failed pull, Costs returns that error again for costRetryAfter and
+// does not pull. The web poll warms every visible account every 15 seconds,
+// so without the wait an outage costs a call per account per poll. force
+// pulls at once, also within the wait. Only a person forces a pull: Sync in
+// the web, or r and S in the TUI. So a forced pull is rare, and it gives the
+// person a fresh answer. A pull that fails because the caller's context
+// ended says nothing about AWS, so it changes no cost state.
 func (s *Service) Costs(ctx context.Context, id string, days int, force bool) ([]CostPoint, error) {
 	a, err := s.Get(ctx, id)
 	if err != nil {
@@ -1759,18 +1775,30 @@ func (s *Service) Costs(ctx context.Context, id string, days int, force bool) ([
 	s.mu.Lock()
 	e, ok := s.costs[a.ProviderID]
 	s.mu.Unlock()
-	if ok && !force && s.Now().Sub(e.at) < s.cfg.CostTTL {
-		return window(e.points, days, s.Now()), nil
-	}
 	now := s.Now()
+	if ok && !force {
+		if e.err == nil && now.Sub(e.at) < s.cfg.CostTTL {
+			return window(e.points, days, now), nil
+		}
+		if e.err != nil && now.Sub(e.at) < costRetryAfter {
+			return nil, fmt.Errorf("costs for %s: %w", a.Name, e.err)
+		}
+	}
 	to := now.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
 	from := to.Add(-45 * 24 * time.Hour)
 	pts, err := s.provider.Costs(ctx, a.ProviderID, from, to)
 	if err != nil {
+		if ctx.Err() == nil {
+			s.mu.Lock()
+			e := s.costs[a.ProviderID]
+			e.at, e.err = now, err
+			s.costs[a.ProviderID] = e
+			s.mu.Unlock()
+		}
 		return nil, fmt.Errorf("costs for %s: %w", a.Name, err)
 	}
 	s.mu.Lock()
-	s.costs[a.ProviderID] = costEntry{points: pts, at: now}
+	s.costs[a.ProviderID] = costEntry{points: pts, okAt: now, at: now}
 	s.mu.Unlock()
 	return window(pts, days, now), nil
 }
@@ -1798,12 +1826,29 @@ func (s *Service) WarmCosts(ctx context.Context, ids []string, force bool) error
 	return errors.Join(errs...)
 }
 
-// CostsCached returns cached points without hitting the provider.
+// CostState returns the cached points of the last n days without a pull. It
+// reports known only when the last pull of the account succeeded. An account
+// that was never pulled, or whose last pull failed, has unknown spend: show
+// it as unavailable, never as zero. The points are as old as that pull, and
+// WarmCosts pulls again after CostTTL, so callers warm first.
+func (s *Service) CostState(providerID string, days int) ([]CostPoint, bool) {
+	s.mu.Lock()
+	e, ok := s.costs[providerID]
+	s.mu.Unlock()
+	if !ok || e.err != nil {
+		return nil, false
+	}
+	return window(e.points, days, s.Now()), true
+}
+
+// CostsCached returns the cached points of the last pull that succeeded,
+// without a pull. It returns them also after a later pull failed, so it
+// cannot tell current spend from old spend. Use CostState for that.
 func (s *Service) CostsCached(providerID string, days int) ([]CostPoint, bool) {
 	s.mu.Lock()
 	e, ok := s.costs[providerID]
 	s.mu.Unlock()
-	if !ok {
+	if !ok || e.okAt.IsZero() {
 		return nil, false
 	}
 	return window(e.points, days, s.Now()), true

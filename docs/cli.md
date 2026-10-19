@@ -82,8 +82,8 @@ the notice can be lost or sent twice.
 an id. playplace tries them in that order, so an exact id always finds its own
 account. `list` hides closed accounts unless `--all`. `costs` pulls Cost
 Explorer once an hour per account and serves the cached numbers in between,
-because Cost Explorer bills per call; a failed pull shows as `unavailable`,
-never as `$0.00`.
+because Cost Explorer bills per call. In `costs` and `show`, a failed pull
+shows as `unavailable`, never as `$0.00`.
 `extend` refuses an expiry that
 would give the account a lifetime past `--max-ttl`; `--override-limits`
 allows it and the override is recorded in history.
@@ -202,6 +202,9 @@ run. See [Notices](configuration.md#notices).
 terminal dashboard; press `?` there for its keys. In the TUI, `r` (reload) and
 `S` (sync) pull costs from Cost Explorer again for every open account, and
 Cost Explorer bills each call. The automatic reloads use the hourly cache.
+After a failed pull, the automatic reloads wait five minutes before they
+pull that account again. The TUI shows spend that it does not know as
+`unavailable`, never as `$0`.
 
 Closure is asynchronous: `closing` remains visible until AWS explicitly reports
 `CLOSED`. `unavailable` means suspension, pending activation, or an unknown state,

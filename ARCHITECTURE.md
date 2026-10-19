@@ -21,7 +21,7 @@ system of the web UI, see [DESIGN.md](DESIGN.md).
 - **Guardrails are data, not code paths.** Owner, expiry, budget, and the
   approval trail are tags. Ceilings and limits are configuration.
 - **Cost Explorer bills per call.** Nothing polls it. Views cache for an
-  hour; `list` never touches it.
+  hour and wait five minutes after a failed pull. `list` never touches it.
 
 ## No state file
 
@@ -68,6 +68,11 @@ wait for placement from the organization root, spend from Cost Explorer.
 Accounts that land in the OU without tags are adopted with defaults on the
 next refresh. Cost Explorer bills per call, so `list` never touches it;
 `show`, `costs`, the TUI, and the web UI cache results for an hour.
+Spend is known only while the last pull of the account succeeded
+(`CostState`). After a failed pull, a pull that is not forced waits five
+minutes. A forced pull (Sync in the web UI, `r` and `S` in the TUI) tries at
+once. `show`, `costs` and the TUI show unknown spend as `unavailable`, never
+as $0.
 
 ### Placement and the organization
 
@@ -724,6 +729,8 @@ terminal narrows: ACCOUNT first, then OWNER, then the spend bar.
 | closed | `○` | muted |
 
 Spend bar: success below 70 percent of budget, warning to 90, error above.
+Unknown spend shows as `unavailable` with no bar, and the header total says
+how many open accounts it leaves out.
 Two border treatments only: rounded on dialogs and forms, `─` rule for the
 pane. Selection is a `▌` bar plus a subtle background on every cell.
 
@@ -742,7 +749,8 @@ pane. Selection is a `▌` bar plus a subtle background on every cell.
 - Never print outside the frame. Warnings go through the notice feed, and
   action outcomes through `setFlash`, which is a notice too.
 - Cost Explorer bills per call. Costs come from the service's hourly cache;
-  only `S` (sync) and `r` (reload) force a pull.
+  only `S` (sync) and `r` (reload) force a pull. After a failed pull, the
+  timer waits five minutes before it pulls that account again.
 
 ### Checking a frame
 

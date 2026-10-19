@@ -241,8 +241,26 @@ func (m model) tableRow(r row, cols []column, selected bool) string {
 	return b.String()
 }
 
+// budgetText is the budget of an account, or "unknown" when its budget tag
+// is damaged.
+func budgetText(a *core.Account) string {
+	if a.BudgetUSD <= 0 {
+		return "unknown"
+	}
+	return money(a.BudgetUSD)
+}
+
 // spendCell shows "$412 / $500" with a graded bar when there is room.
+// Unknown spend shows as "unavailable / $500" with no bar, or as
+// "unavailable" alone when the budget does not fit.
 func (m model) spendCell(r row, width int, base lipgloss.Style) string {
+	if r.CostUnknown {
+		txt := "unavailable / " + budgetText(r.Account)
+		if ansi.StringWidth(txt) > width {
+			txt = "unavailable"
+		}
+		return base.Render(pad(txt, width))
+	}
 	if r.Account.BudgetUSD <= 0 {
 		return base.Render(pad(money(r.MTD)+" / unknown", width))
 	}
@@ -337,7 +355,7 @@ func pad2D(s string, width int) string {
 
 func (m model) headerView() string {
 	th := m.th
-	open, soon := 0, 0
+	open, soon, unknown := 0, 0, 0
 	var mtd float64
 	for _, r := range m.rows {
 		if r.Account.Status == core.StatusClosed {
@@ -345,6 +363,9 @@ func (m model) headerView() string {
 		}
 		open++
 		mtd += r.MTD
+		if r.CostUnknown {
+			unknown++
+		}
 		if r.Account.Status.IsOpen() && !r.Account.ExpiresAt.IsZero() && r.Account.ExpiresAt.Sub(m.now()) <= 7*24*time.Hour {
 			soon++
 		}
@@ -359,6 +380,10 @@ func (m model) headerView() string {
 	mark := lipgloss.NewStyle().Foreground(balls[0]).Render("●") + lipgloss.NewStyle().Foreground(balls[1]).Render("●") + lipgloss.NewStyle().Foreground(balls[2]).Render("●")
 	left := " " + mark + " " + th.title.Render("playplace") + " "
 	factText := fmt.Sprintf("%d open · %d expiring ≤7d · %s MTD", open-pending, soon, money(mtd))
+	if unknown > 0 {
+		// The total counts only known spend, so it says how many it leaves out.
+		factText += fmt.Sprintf(" (%d unavailable)", unknown)
+	}
 	if pending > 0 {
 		factText = fmt.Sprintf("%d pending · ", pending) + factText
 	}
@@ -479,10 +504,14 @@ func (m model) detailBlock(r row, width int) []string {
 	return lines
 }
 
-// spendLine is "spend  $x / $y  NN%  bar".
+// spendLine is "spend  $x / $y  NN%  bar", or "spend  unavailable / $y"
+// when the spend is not known.
 func (m model) spendLine(r row, width int) string {
 	th := m.th
 	a := r.Account
+	if r.CostUnknown {
+		return th.label.Render(pad("spend", 9)) + th.value.Render("unavailable / "+budgetText(a))
+	}
 	if a.BudgetUSD <= 0 {
 		return th.label.Render(pad("spend", 9)) + th.value.Render(money(r.MTD)+" / unknown")
 	}
@@ -662,7 +691,10 @@ func (m model) detailView(width, height int) string {
 
 	// Left: daily spend, newest first.
 	costs := []string{th.label.Render("daily spend")}
-	if len(r.Points) == 0 {
+	switch {
+	case r.CostUnknown:
+		costs = append(costs, th.fact.Render("unavailable"))
+	case len(r.Points) == 0:
 		costs = append(costs, th.fact.Render("no cost data yet"))
 	}
 	for i := len(r.Points) - 1; i >= 0 && len(costs) < bodyH; i-- {
