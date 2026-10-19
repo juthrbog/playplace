@@ -55,31 +55,20 @@ func (s *Slack) postRequest(ctx context.Context, q core.Request) error {
 	if s.BaseURL != "" {
 		text += fmt.Sprintf("\n<%s/#pending|Open in playplace>", strings.TrimRight(s.BaseURL, "/"))
 	}
+	value := refValue(q.Ref())
 	msg := map[string]any{
 		"channel": s.Channel,
 		"text":    "Playground account requested: " + q.Name,
 		"blocks": []any{
 			map[string]any{"type": "section", "text": map[string]any{"type": "mrkdwn", "text": text}},
 			map[string]any{"type": "actions", "elements": []any{
-				map[string]any{"type": "button", "action_id": "approve", "value": buttonValue(q), "style": "primary", "text": map[string]any{"type": "plain_text", "text": "Approve"}},
-				map[string]any{"type": "button", "action_id": "deny", "value": buttonValue(q), "style": "danger", "text": map[string]any{"type": "plain_text", "text": "Deny"},
+				map[string]any{"type": "button", "action_id": "approve", "value": value, "style": "primary", "text": map[string]any{"type": "plain_text", "text": "Approve"}},
+				map[string]any{"type": "button", "action_id": "deny", "value": value, "style": "danger", "text": map[string]any{"type": "plain_text", "text": "Deny"},
 					"confirm": map[string]any{"title": map[string]any{"type": "plain_text", "text": "Deny " + q.Name + "?"}, "text": map[string]any{"type": "mrkdwn", "text": "playplace will send a notice that it was denied."}, "confirm": map[string]any{"type": "plain_text", "text": "Deny"}, "deny": map[string]any{"type": "plain_text", "text": "Keep"}}},
 			}},
 		},
 	}
 	return s.api(ctx, "chat.postMessage", msg, nil)
-}
-
-// buttonValue binds a button to the request version its message shows. The
-// message is never updated, so after an edit or a resubmission the click is
-// refused instead of acting on values the clicker did not see.
-func buttonValue(q core.Request) string { return q.Name + " " + q.Version() }
-
-// parseButtonValue reads buttonValue. Names have no spaces. A value without
-// a version comes from a message posted before versions existed.
-func parseButtonValue(v string) (core.RequestRef, bool) {
-	name, version, ok := strings.Cut(v, " ")
-	return core.RequestRef{Name: name, Version: version}, ok && name != "" && version != ""
 }
 
 // interact handles block_actions from Slack: verify the signature, map the
@@ -125,7 +114,7 @@ func (s *Slack) interact(w http.ResponseWriter, r *http.Request) {
 			s.respond(ctx, payload.ResponseURL, email+" is not an approver.", true)
 			return
 		}
-		ref, ok := parseButtonValue(act.Value)
+		ref, ok := parseRefValue(act.Value)
 		if !ok {
 			s.respond(ctx, payload.ResponseURL, "This message is from an older playplace and cannot show whether the request changed since. Open playplace to act on it.", true)
 			return

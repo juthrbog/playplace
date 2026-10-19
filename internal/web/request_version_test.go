@@ -264,7 +264,7 @@ func TestSlackButtonsAreBoundToThePostedVersion(t *testing.T) {
 	}
 	// A message showing the current values approves them.
 	q, _ = svc.GetRequest(context.Background(), "slacked")
-	if text := click("approve", buttonValue(q)); !strings.Contains(text, "approved `slacked`") {
+	if text := click("approve", refValue(q.Ref())); !strings.Contains(text, "approved `slacked`") {
 		t.Fatalf("current Slack approve = %q", text)
 	}
 }
@@ -306,7 +306,7 @@ func TestSlackPostedButtonApprovesTheUnchangedRequest(t *testing.T) {
 		}
 		if reply := slackClick(t, ts, sl, stub, "approve", posted); !strings.Contains(reply, "approved `"+tc.name+"`") {
 			q, _ := svc.GetRequest(context.Background(), tc.name)
-			t.Errorf("%s: the posted button was refused: %q (posted %q, stored %q)", tc.name, reply, posted, buttonValue(q))
+			t.Errorf("%s: the posted button was refused: %q (posted %q, stored %q)", tc.name, reply, posted, refValue(q.Ref()))
 		}
 	}
 }
