@@ -955,6 +955,14 @@
   .way-back {
     margin-top: var(--space-lg);
   }
+  /* A button word and its busy verb share one grid cell, so the button
+     keeps the width of the longer word. */
+  .word {
+    display: inline-grid;
+  }
+  .word > * {
+    grid-area: 1 / 1;
+  }
   /* In a panel with no body, such as the pending card, the refusal sits
      under the head at the row inset. */
   .panel > .refusal {
@@ -1147,6 +1155,18 @@
      the word change. */
   :is(button, .btn)[aria-busy=true] {
     cursor: progress;
+  }
+  /* The busy verb shows only on the busy button itself. The child
+     combinators keep a busy ancestor from turning the words inside it.
+     Hidden words leave the accessible name, so it says the shown verb. */
+  .word > .busy {
+    visibility: hidden;
+  }
+  :is(button, .btn)[aria-busy=true] > .word > :first-child {
+    visibility: hidden;
+  }
+  :is(button, .btn)[aria-busy=true] > .word > .busy {
+    visibility: visible;
   }
   input:disabled {
     background: var(--rule-soft);

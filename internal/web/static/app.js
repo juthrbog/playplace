@@ -145,10 +145,14 @@ htmx.defineExtension("morph", {
           },
           // A focused field keeps what the viewer is typing. Only inputs and
           // text areas, because skipping a focused button would also skip
-          // its children.
+          // its children. The server never renders aria-busy, so a morph
+          // while a request runs would clear the busy state of its button.
           beforeAttributeUpdated: function (name, node) {
             if (node.nodeType === 1 && name === "value" && node === document.activeElement &&
                 (node.tagName === "INPUT" || node.tagName === "TEXTAREA")) {
+              return false;
+            }
+            if (node.nodeType === 1 && name === "aria-busy") {
               return false;
             }
             return true;
@@ -198,6 +202,82 @@ document.addEventListener("htmx:beforeRequest", function (ev) {
   }
   htmx.trigger(accounts, "htmx:abort");
 });
+// busyButton is the button whose request runs, or null. Edit and Cancel are
+// buttons that send a GET. Any other GET comes from the poll or the Show
+// closed box and is never busy. A form names the button that submitted it,
+// or else its first submit button. Only a button is ever busy.
+function busyButton(detail) {
+  var cfg = detail.requestConfig;
+  var elt = cfg && cfg.elt;
+  if (!elt) {
+    return null;
+  }
+  if (elt.tagName === "BUTTON") {
+    return elt;
+  }
+  if (cfg.verb === "get") {
+    return null;
+  }
+  var submitter = cfg.triggeringEvent && cfg.triggeringEvent.submitter;
+  if (submitter && submitter.tagName === "BUTTON") {
+    return submitter;
+  }
+  if (elt.tagName === "FORM") {
+    return elt.querySelector("button[type=submit]");
+  }
+  return null;
+}
+
+// A busy button keeps its size and its colors, and the stylesheet shows its
+// verb in progress. It is never disabled, because hx-sync already drops a
+// second click. The request config stays the same through the request, so
+// both listeners find the same button.
+document.addEventListener("htmx:beforeRequest", function (ev) {
+  var button = ev.defaultPrevented ? null : busyButton(ev.detail);
+  if (button) {
+    button.setAttribute("aria-busy", "true");
+  }
+});
+document.addEventListener("htmx:afterRequest", function (ev) {
+  var button = busyButton(ev.detail);
+  if (button) {
+    button.removeAttribute("aria-busy");
+  }
+});
+
+// A decision takes its row out of the pending card, and the focused button
+// leaves with it. The focus then goes to the same button on the row that
+// takes its place, or on the row before when the row was the last. In an
+// empty card it goes to the heading. This happens only when the focus is
+// lost, so a viewer who moved on keeps their place.
+var leaving = null;
+document.addEventListener("htmx:beforeRequest", function (ev) {
+  var form = ev.detail.requestConfig && ev.detail.requestConfig.elt;
+  var action = form && form.getAttribute && form.getAttribute("data-action");
+  var row = action ? form.closest("#pending tbody > tr") : null;
+  if (ev.defaultPrevented || !row || !row.contains(document.activeElement)) {
+    return;
+  }
+  leaving = {xhr: ev.detail.xhr, action: action, index: Array.prototype.indexOf.call(row.parentNode.children, row)};
+});
+document.addEventListener("htmx:afterSettle", function (ev) {
+  if (!leaving || ev.detail.xhr !== leaving.xhr) {
+    return;
+  }
+  var was = leaving;
+  leaving = null;
+  if (document.activeElement && document.activeElement !== document.body) {
+    return;
+  }
+  var rows = document.querySelectorAll("#pending tbody > tr");
+  var row = rows.length ? rows[Math.min(was.index, rows.length - 1)] : null;
+  var button = row && (row.querySelector('form[data-action="' + was.action + '"] button') || row.querySelector("button"));
+  var target = button || document.getElementById("pending-title");
+  if (target) {
+    target.focus();
+  }
+});
+
 // The list holds only requests that htmx sends, so a request that another
 // listener cancels never blocks the poll.
 document.addEventListener("htmx:beforeSend", function (ev) {

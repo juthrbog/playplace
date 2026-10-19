@@ -86,7 +86,9 @@ templ shell(pg page) {
 				</nav>
 				if pg.Viewer.Admin {
 					<form class="sync" hx-post="/refresh" hx-target="#accounts" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop">
-						<button type="submit" class="btn-ghost" title="poll creations, sweep expiry, retry closes">@icon("sync")<span class="btn-word">Sync with AWS</span></button>
+						// The word cell is also the phone's hidden word, so the phone rule
+						// hides both words and a screen reader still hears the busy verb.
+						<button type="submit" class="btn-ghost" title="poll creations, sweep expiry, retry closes">@icon("sync")<span class="btn-word word"><span>Sync with AWS</span><span class="busy">Syncing</span></span></button>
 					</form>
 				}
 				<a class="btn btn-chip in-menu" href="/#request">
@@ -154,6 +156,14 @@ templ cardAnswer(pg page, rows []accountRow, hash string) {
 	if pg.Viewer.Approver && !pg.PendingFailed {
 		@queueCount(pg, true)
 	}
+}
+
+// busyWord is the word of a button and its verb in progress, in one grid
+// cell, so the button keeps the width of the longer word. app.js sets
+// aria-busy on the button while its request runs, and the stylesheet then
+// shows the busy verb. The hidden word is left out of the accessible name.
+templ busyWord(word, busy string) {
+	<span class="word"><span>{ word }</span><span class="busy">{ busy }</span></span>
 }
 
 // icon draws one symbol of the sprite. It sits next to a word, so screen
@@ -224,7 +234,7 @@ templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
 						if pg.Viewer.Admin {
 							<label class="check" title="admins may exceed the ceilings; recorded on the request"><input type="checkbox" name="override"/>override limits</label>
 						}
-						<button type="submit" class="btn-primary">Request</button>
+						<button type="submit" class="btn-primary">@busyWord("Request", "Sending")</button>
 					</div>
 					<div id="form-error" class="refusal"></div>
 					<p class="help">{ limitsNote(pg) }</p>
@@ -257,8 +267,10 @@ templ pendingCard(pg page, oob bool) {
 		}
 		aria-labelledby="pending-title"
 	>
+		// app.js moves the focus to the heading when a decision takes the
+		// last row out, so the heading takes focus from script only.
 		<div class="panel-head">
-			<h2 id="pending-title">
+			<h2 id="pending-title" tabindex="-1">
 				if pg.Viewer.Approver {
 					Pending approvals
 				} else {
@@ -292,7 +304,9 @@ templ pendingCard(pg page, oob bool) {
 }
 
 // pendingRow is one request in the queue. Each action button carries the
-// request name for screen readers, so "Approve" says which request.
+// request name for screen readers, so "Approve" says which request. Each
+// form that ends the row names its action, so app.js can move the focus to
+// the same button on the next row.
 templ pendingRow(pg page, q core.Request) {
 	<tr id={ "req-" + q.Name }>
 		<td>{ q.Name }</td>
@@ -310,16 +324,16 @@ templ pendingRow(pg page, q core.Request) {
 		<td class="actions">
 			<div class="row-actions">
 				if canApprove(pg, q) {
-					<form class="inline" hx-post={ "/requests/" + q.Name + "/approve" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop">
+					<form class="inline" hx-post={ "/requests/" + q.Name + "/approve" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-action="approve">
 						@versionField(q)
 						<button type="submit" class="btn-approve">
 							@icon("stamp")
-							Approve<span class="vh">{ " " + q.Name }</span>
+							@busyWord("Approve", "Approving")<span class="vh">{ " " + q.Name }</span>
 						</button>
 					</form>
-					<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-prompt="Reason for denying (shown in the notice and in history)" hx-sync="this:drop">
+					<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-prompt="Reason for denying (shown in the notice and in history)" hx-sync="this:drop" data-action="deny">
 						@versionField(q)
-						<button type="submit">Deny<span class="vh">{ " " + q.Name }</span></button>
+						<button type="submit">@busyWord("Deny", "Denying")<span class="vh">{ " " + q.Name }</span></button>
 					</form>
 				} else if pg.Viewer.Approver {
 					<span class="chip-mine" title="you requested this; another approver must act">Your request</span>
@@ -328,9 +342,9 @@ templ pendingRow(pg page, q core.Request) {
 					<button hx-get={ "/requests/" + q.Name + "/edit" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML" title="change owner, days, budget, or purpose before approving">Edit<span class="vh">{ " " + q.Name }</span></button>
 				}
 				if canWithdraw(pg.Viewer, q) {
-					<form class="inline" hx-post={ "/requests/" + q.Name + "/withdraw" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-confirm={ "Withdraw the request for " + q.Name + "?" } hx-sync="this:drop">
+					<form class="inline" hx-post={ "/requests/" + q.Name + "/withdraw" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-confirm={ "Withdraw the request for " + q.Name + "?" } hx-sync="this:drop" data-action="withdraw">
 						@versionField(q)
-						<button type="submit">Withdraw<span class="vh">{ " " + q.Name }</span></button>
+						<button type="submit">@busyWord("Withdraw", "Withdrawing")<span class="vh">{ " " + q.Name }</span></button>
 					</form>
 				}
 			</div>
@@ -370,7 +384,7 @@ templ pendingEditRow(pg page, q core.Request) {
 					<label class="field">budget $<input name="budget" type="number" min="0.01" step="0.01" value={ budgetValue(q.BudgetUSD) } class="in-budget"/></label>
 					<label class="field">purpose<input name="purpose" value={ q.Purpose } size="28" maxlength={ fmt.Sprint(core.MaxPurpose) } pattern={ tagPattern } title="letters, numbers, spaces, and _ . : / = + - @"/></label>
 					<label class="check" title="allow values above the ceilings"><input type="checkbox" name="override" checked?={ q.OverrideLimits }/>override limits</label>
-					<button type="submit" class="btn-primary">Save</button>
+					<button type="submit" class="btn-primary">@busyWord("Save", "Saving")</button>
 					<button type="button" hx-get={ "/requests/" + q.Name + "/row" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML">Cancel</button>
 				</div>
 			</form>
@@ -636,7 +650,7 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 							<label class="field">USD per month<input name="budget" type="number" min="0.01" step="0.01" value={ fmt.Sprintf("%.2f", a.BudgetUSD) } required class="in-budget"/></label>
 							<label class="field">reason<input name="reason" maxlength="500" required/></label>
 							<label class="check"><input type="checkbox" name="override"/>override budget ceiling</label>
-							<button type="submit" class="btn-primary">Save budget</button>
+							<button type="submit" class="btn-primary">@busyWord("Save budget", "Saving")</button>
 						</div>
 					</form>
 					<div id="form-error" class="refusal"></div>

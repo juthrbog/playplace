@@ -255,21 +255,55 @@ func TestPollNeverSpeaks(t *testing.T) {
 	}
 }
 
-// cssRules returns the declarations of each innermost rule of app.css by its
-// selector list as written, with the selectors joined by ", ".
-func cssRules(t *testing.T) map[string]map[string]string {
-	t.Helper()
-	out := map[string]map[string]string{}
-	for _, m := range cssRule.FindAllStringSubmatch(appCSS(t), -1) {
-		var sels []string
-		for _, s := range strings.Split(m[1], ",") {
-			sels = append(sels, strings.Join(strings.Fields(s), " "))
+// cssRuleSet is one innermost rule of app.css: its selectors, each with its
+// spaces made single, and its declarations.
+type cssRuleSet struct {
+	sels  []string
+	decls map[string]string
+}
+
+// splitSelectors splits a selector list at the commas outside parentheses,
+// so :is(button, .btn) stays one piece.
+func splitSelectors(list string) []string {
+	var out []string
+	depth, from := 0, 0
+	for i := 0; i <= len(list); i++ {
+		if i == len(list) || (list[i] == ',' && depth == 0) {
+			out = append(out, strings.Join(strings.Fields(list[from:i]), " "))
+			from = i + 1
+			continue
 		}
+		switch list[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		}
+	}
+	return out
+}
+
+// cssRuleSets returns every innermost rule of app.css.
+func cssRuleSets(t *testing.T) []cssRuleSet {
+	t.Helper()
+	var out []cssRuleSet
+	for _, m := range cssRule.FindAllStringSubmatch(appCSS(t), -1) {
 		decls := map[string]string{}
 		for _, d := range declarations("{" + m[2] + "}") {
 			decls[d.prop] = d.value
 		}
-		out[strings.Join(sels, ", ")] = decls
+		out = append(out, cssRuleSet{splitSelectors(m[1]), decls})
+	}
+	return out
+}
+
+// cssRules returns the declarations of each innermost rule of app.css by its
+// selector list, with the selectors joined by ", ".
+func cssRules(t *testing.T) map[string]map[string]string {
+	t.Helper()
+	out := map[string]map[string]string{}
+	for _, r := range cssRuleSets(t) {
+		out[strings.Join(r.sels, ", ")] = r.decls
 	}
 	return out
 }
