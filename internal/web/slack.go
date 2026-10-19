@@ -102,6 +102,13 @@ func (s *Slack) interact(w http.ResponseWriter, r *http.Request) {
 	// Slack wants a fast 200; do the work and report through response_url.
 	w.WriteHeader(http.StatusOK)
 	act := payload.Actions[0]
+	path := r.URL.Path
+	// refused replies with the text of refusal for err, after the outcome.
+	// The log holds the raw error.
+	refused := func(ctx context.Context, outcome string, ref core.RequestRef, err error) {
+		s.log.Warn("slack action failed", "path", path, "action", act.ActionID, "request", ref.Name, "err", err)
+		s.respond(ctx, payload.ResponseURL, outcome+" "+refusal(err, ref.Name), true)
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -123,13 +130,13 @@ func (s *Slack) interact(w http.ResponseWriter, r *http.Request) {
 		case "approve":
 			a, err := s.svc.Approve(ctx, ref, email)
 			if err != nil {
-				s.respond(ctx, payload.ResponseURL, "Approve failed: "+err.Error(), true)
+				refused(ctx, "Not approved.", ref, err)
 				return
 			}
 			s.respond(ctx, payload.ResponseURL, fmt.Sprintf(":white_check_mark: *%s* approved `%s` for %s. AWS is creating it.", email, a.Name, a.Owner), false)
 		case "deny":
 			if err := s.svc.Deny(ctx, ref, email, "denied in Slack"); err != nil {
-				s.respond(ctx, payload.ResponseURL, "Deny failed: "+err.Error(), true)
+				refused(ctx, "Not denied.", ref, err)
 				return
 			}
 			s.respond(ctx, payload.ResponseURL, fmt.Sprintf(":no_entry: *%s* denied `%s`.", email, ref.Name), false)

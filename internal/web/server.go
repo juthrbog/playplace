@@ -269,8 +269,9 @@ const pollHashHeader = "X-Poll-Hash"
 // the poll and every action answer use it, so the section always carries
 // the hash of what the page shows. It is empty if the render fails, and the
 // section then carries none, so every poll gets the full answer. The hash
-// covers a failed list as one state, because the AWS error text holds a new
-// request ID on every call. The same outage then answers 204.
+// covers a failed list as one state, also when its refusal text changes, for
+// example from a throttle to another failure. The same outage then answers
+// 204.
 func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMsg string) string {
 	if errMsg != "" {
 		errMsg = "unavailable"
@@ -348,7 +349,8 @@ func requestRef(r *http.Request) core.RequestRef {
 // failRequest reports a refused decision on a request. The refusal shows in
 // the pending card, beside the rows, not in the New request form. When the
 // request changed or ended after the page was loaded, the pending card is
-// rendered again first, so the viewer sees what is waiting now.
+// rendered again first, so the viewer sees what is waiting now. The log
+// holds the raw error, and the slot holds the text of refusal.
 func (s *Server) failRequest(w http.ResponseWriter, r *http.Request, err error) {
 	if r.Header.Get("HX-Request") != "true" {
 		s.fail(w, r, err)
@@ -367,7 +369,7 @@ func (s *Server) failRequest(w http.ResponseWriter, r *http.Request, err error) 
 		// first with an empty slot, and the refusal then fills it.
 		s.render(w, r, pendingUpdate(s.pageFor(r)))
 	}
-	s.render(w, r, errorFragment("pending-error", err.Error()))
+	s.render(w, r, errorFragment("pending-error", refusal(err, r.PathValue("name"))))
 }
 
 func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
@@ -539,15 +541,16 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
 	var msg string
 	if err != nil {
-		msg = err.Error()
+		s.log.Warn("accounts", "path", r.URL.Path, "err", err)
+		msg = refusal(err, "")
 	}
 	s.render(w, r, indexPage(pg, rows, msg, s.pollHash(r.Context(), pg, rows, msg)))
 }
 
 // table answers the 15 s poll and the Show closed box. A poll that sends the
 // hash of the current answer gets 204 and no body. A failed list is a panel
-// that says so. Its hash leaves out the error text, so the same outage
-// answers 204, and the next good poll clears it.
+// that says so, with the text of refusal. Its hash leaves out that text, so
+// the same outage answers 204, and the next good poll clears it.
 func (s *Server) table(w http.ResponseWriter, r *http.Request) {
 	// The answer is a fragment of the home page, so a page visit goes there.
 	if r.Header.Get("HX-Request") != "true" {
@@ -562,8 +565,8 @@ func (s *Server) table(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
 	var errMsg string
 	if err != nil {
-		s.log.Warn("accounts poll", "err", err)
-		rows, errMsg = nil, err.Error()
+		s.log.Warn("accounts poll", "path", r.URL.Path, "err", err)
+		rows, errMsg = nil, refusal(err, "")
 	}
 	// The answer changes with the data, so a cache must ask every time.
 	w.Header().Set("Cache-Control", "private, no-cache")
@@ -618,7 +621,7 @@ func (s *Server) failSync(w http.ResponseWriter, r *http.Request, err error) {
 	s.log.Warn("request failed", "path", r.URL.Path, "err", err)
 	w.Header().Set("HX-Reswap", "none")
 	w.Header().Set("X-Form-Error", "1")
-	s.render(w, r, noticeFragment("alert", err.Error()))
+	s.render(w, r, noticeFragment("alert", refusal(err, "")))
 }
 
 // owned resolves an account the viewer may act on, or writes the error.
@@ -738,19 +741,22 @@ func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why string) {
 
 // fail returns an error the page can show. htmx requests get out-of-band
 // parts, so the refusal slot and the live region update without replacing
-// the table. A page visit gets the styled 400 page.
+// the table. A page visit gets the styled 400 page. The log holds the raw
+// error, and the page holds the text of refusal. The name in the path is
+// the request that the action was on, if any.
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	s.log.Warn("request failed", "path", r.URL.Path, "err", err)
+	text := refusal(err, r.PathValue("name"))
 	if r.Header.Get("HX-Request") == "true" {
 		// 200 so htmx processes the out-of-band error slot; the header tells
 		// the form not to reset its fields.
 		w.Header().Set("HX-Reswap", "none")
 		w.Header().Set("X-Form-Error", "1")
 		markField(w, err, "form-error")
-		s.render(w, r, errorFragment("form-error", err.Error()))
+		s.render(w, r, errorFragment("form-error", text))
 		return
 	}
-	s.errorPage(w, r, errorView{Code: http.StatusBadRequest, Title: "Action refused", Message: err.Error(), Recovery: "Go back to Home and try again.", Back: "/", BackLabel: "Go to Home"})
+	s.errorPage(w, r, errorView{Code: http.StatusBadRequest, Title: "Action refused", Message: text, Recovery: "Go back to Home and try again.", Back: "/", BackLabel: "Go to Home"})
 }
 
 // The headers of a refused field. app.js marks the input with aria-invalid

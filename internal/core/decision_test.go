@@ -11,9 +11,12 @@ import (
 
 func TestSelfApprovalRefusalMatchesTheSentinelAndKeepsItsWords(t *testing.T) {
 	r := core.Request{Name: "box", Owner: "bob@example.com", RequestedBy: "anna@example.com"}
-	for _, c := range []struct{ approver, want string }{
-		{"anna@example.com", "anna@example.com requested box and cannot approve it; another approver must"},
-		{"Bob@example.com", "Bob@example.com would own box and cannot approve it; another approver must"},
+	for _, c := range []struct {
+		approver, want string
+		wouldOwn       bool
+	}{
+		{"anna@example.com", "anna@example.com requested box and cannot approve it; another approver must", false},
+		{"Bob@example.com", "Bob@example.com would own box and cannot approve it; another approver must", true},
 	} {
 		err := core.CheckApprover(r, c.approver, false)
 		if !errors.Is(err, core.ErrSelfApproval) {
@@ -21,6 +24,11 @@ func TestSelfApprovalRefusalMatchesTheSentinelAndKeepsItsWords(t *testing.T) {
 		}
 		if err == nil || err.Error() != c.want {
 			t.Errorf("refusal of %s = %v, want %q", c.approver, err, c.want)
+		}
+		// An interface tells the two refusals apart without reading the text.
+		var self core.SelfApprovalError
+		if !errors.As(err, &self) || self.WouldOwn != c.wouldOwn {
+			t.Errorf("refusal of %s: WouldOwn = %v, want %v", c.approver, self.WouldOwn, c.wouldOwn)
 		}
 		if err := core.CheckApprover(r, c.approver, true); err != nil {
 			t.Errorf("allowSelf must let %s approve, got %v", c.approver, err)

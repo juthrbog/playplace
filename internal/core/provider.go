@@ -84,6 +84,38 @@ var ErrCloseQuota = errors.New("account closure quota reached; will retry on a l
 // ErrUserNotFound is returned by LookupUser when no identity matches.
 var ErrUserNotFound = errors.New("user not found in the identity store")
 
+// ProviderError is the failure of a provider call. Core returns the error of
+// every provider call in one, so an interface can tell a failed call to AWS
+// from a refusal of core. The raw text holds AWS request IDs, so an
+// interface shows its own words and logs the raw error.
+//
+// Op names the step that failed, for example "list playground accounts". It
+// is empty when core writes its own words around the error. Error gives the
+// same text as a plain wrap with %w, so logs, the CLI and the TUI stay the
+// same. errors.Is and errors.As see through it, for example to ErrNotFound.
+type ProviderError struct {
+	Op  string
+	Err error
+}
+
+func (e *ProviderError) Error() string {
+	if e.Op == "" {
+		return e.Err.Error()
+	}
+	return e.Op + ": " + e.Err.Error()
+}
+
+func (e *ProviderError) Unwrap() error { return e.Err }
+
+// providerError wraps err, the error of a provider call, in a ProviderError
+// with op. A nil err stays nil, so the result of a call can pass through.
+func providerError(op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &ProviderError{Op: op, Err: err}
+}
+
 // User is a principal in the provider's identity store (IAM Identity Center on AWS).
 type User struct {
 	ID       string // principal id used in access grants

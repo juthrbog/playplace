@@ -266,8 +266,8 @@ templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
 			</div>
 		</section>
 		@pendingCard(pg, false)
-		// errMsg comes only from a failed account load. The panel shows it,
-		// so the next good poll clears it.
+		// errMsg is the refusal text of a failed account load. The panel
+		// shows it, so the next good poll clears it.
 		@accountsPanel(pg, rows, errMsg, hash, false)
 		<p class="help">
 			if pg.SignIn && !pg.Viewer.Admin {
@@ -421,12 +421,12 @@ templ pendingEditRow(pg page, q core.Request) {
 }
 
 // accountsPanel is the accounts panel. When the list did not load, errMsg
-// holds the error, the head shows no count and the panel says the list is
-// unavailable. An empty list would look like a fleet with no accounts. The
-// section keeps polling, so the next good poll fills it. oob marks it as an
-// out-of-band part of an htmx answer. hash is the poll hash of this answer.
-// pollHash renders the section with no hash, so the hash never covers
-// itself.
+// holds the text of refusal for the error, the head shows no count and the
+// panel says the list is unavailable. An empty list would look like a fleet
+// with no accounts. The section keeps polling, so the next good poll fills
+// it. oob marks it as an out-of-band part of an htmx answer. hash is the
+// poll hash of this answer. pollHash renders the section with no hash, so
+// the hash never covers itself.
 templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 	<section
 		id="accounts"
@@ -455,13 +455,13 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 			</h2>
 			<label class="check" title="include accounts AWS explicitly reports CLOSED"><input id="show-closed" type="checkbox" name="all" value="1" checked?={ pg.ShowAll } hx-get="/accounts" hx-target="#accounts" hx-swap="morph" hx-trigger="change"/>Show closed</label>
 		</div>
-		// A failed load is one note: the problem, then the error and the
-		// recovery. An empty list is one plain line, as in the pending card.
-		// Neither has column heads. The head keeps Show closed, and the
-		// section keeps polling. The error note has an id, so a morph never
-		// pairs it with the table that replaces it.
+		// A failed load is one note: the problem, then the refusal text of
+		// the error and the recovery. An empty list is one plain line, as in
+		// the pending card. Neither has column heads. The head keeps Show
+		// closed, and the section keeps polling. The error note has an id, so
+		// a morph never pairs it with the table that replaces it.
 		if errMsg != "" {
-			<div id="accounts-error" class="refusal">@icon("alert")<div class="note-text"><p class="note-title">The account list is unavailable.</p><p class="note-body">{ sentence(errMsg) + " The page tries again every 15 seconds." }</p></div></div>
+			<div id="accounts-error" class="refusal">@icon("alert")<div class="note-text"><p class="note-title">The account list is unavailable.</p><p class="note-body">{ errMsg + " The page tries again every 15 seconds." }</p></div></div>
 		} else if len(rows) == 0 {
 			<p class="empty">
 				if pg.ShowAll {

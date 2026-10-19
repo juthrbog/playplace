@@ -164,6 +164,7 @@ func (s *Service) reconcileBudget(ctx context.Context, a *Account) (settled bool
 	}
 	if err == nil {
 		p, err = s.provider.EnsureBudget(ctx, a.ProviderID, spec)
+		err = providerError("", err)
 	}
 	progress := budgetProgress{BudgetProtection: p}
 	if err == nil && p.Action != nil {
@@ -189,6 +190,7 @@ func (s *Service) retireBudget(ctx context.Context, a *Account) error {
 		err = errors.New("restore the account's budget enforcement configuration before retirement")
 	} else {
 		p.Configured, err = s.provider.RetireBudgetAction(ctx, a.ProviderID, spec)
+		err = providerError("", err)
 	}
 	if err != nil {
 		err = fmt.Errorf("budget action retirement: %w", err)
@@ -237,7 +239,7 @@ func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec B
 	}
 	if len(tags) > 0 {
 		if tagErr := s.provider.SetTags(ctx, a.ProviderID, tags); tagErr != nil {
-			return errors.Join(err, tagErr)
+			return errors.Join(err, providerError("", tagErr))
 		}
 		s.Invalidate()
 		if a.BudgetHealth != state {
@@ -270,6 +272,8 @@ func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec B
 		}
 	}
 	if err != nil {
+		// err is a failed provider call, which is a ProviderError already, or
+		// a refusal of core. So the prefix stays a plain wrap.
 		return fmt.Errorf("budget for %s: %w", a.Name, err)
 	}
 	if p.resubmitted != "" {
@@ -337,7 +341,7 @@ func (s *Service) SetBudget(ctx context.Context, ref string, amount float64, act
 	if spec.Enforced() {
 		before, err := s.provider.InspectBudget(ctx, a.ProviderID, spec)
 		if err != nil {
-			return nil, fmt.Errorf("inspect budget before change: %w", err)
+			return nil, providerError("inspect budget before change", err)
 		}
 		if before.LimitUSD != a.BudgetUSD {
 			return nil, errors.New("budget amount has drifted; reconcile before changing it")
@@ -362,7 +366,7 @@ func (s *Service) SetBudget(ctx context.Context, ref string, amount float64, act
 		tags[TagBudgetRecovery] = recovery.Encode()
 	}
 	if err := s.provider.SetTags(ctx, a.ProviderID, tags); err != nil {
-		return nil, err
+		return nil, providerError("", err)
 	}
 	a.BudgetUSD = amount
 	if recovery != nil {

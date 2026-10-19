@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"html"
 	"io"
 	"log/slog"
@@ -46,6 +47,12 @@ func newServer(t *testing.T) (*httptest.Server, *fake.Provider) {
 // needs a provider that fails.
 func newServerOn(t *testing.T, wrap func(*fake.Provider) core.Provider) (*httptest.Server, *fake.Provider) {
 	t.Helper()
+	return newServerLogged(t, wrap, slog.New(slog.DiscardHandler))
+}
+
+// newServerLogged is newServerOn with the server log written to log.
+func newServerLogged(t *testing.T, wrap func(*fake.Provider) core.Provider, log *slog.Logger) (*httptest.Server, *fake.Provider) {
+	t.Helper()
 	prov := fake.New()
 	prov.Now = func() time.Time { return t0 }
 	tags := func(owner string) map[string]string {
@@ -59,7 +66,7 @@ func newServerOn(t *testing.T, wrap func(*fake.Provider) core.Provider) (*httpte
 	svc.Now = func() time.Time { return t0 }
 	hist := &audit.Memory{}
 	svc.SetAuditor(hist)
-	srv := New(svc, slog.New(slog.DiscardHandler), headerAuth{}, nil, hist)
+	srv := New(svc, log, headerAuth{}, nil, hist)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, prov
@@ -179,9 +186,9 @@ func TestEmptyAccountsPanelHasNoTable(t *testing.T) {
 }
 
 // A failed load is not an empty fleet. The panel has its own note: the
-// problem as the title, then the error and the recovery. It shows no count.
-// The section still polls, so the next good poll fills it and clears the
-// note.
+// problem as the title, then the refusal text of the error and the recovery.
+// It shows no count. The section still polls, so the next good poll fills it
+// and clears the note.
 func TestFailedAccountLoadIsNotAnEmptyFleet(t *testing.T) {
 	pg := page{Viewer: Viewer{Email: "nobody@example.com"}, SignIn: true, Limits: core.DefaultConfig()}
 	render := func(errMsg string) (string, string) {
@@ -198,9 +205,9 @@ func TestFailedAccountLoadIsNotAnEmptyFleet(t *testing.T) {
 		return out.String(), section
 	}
 
-	_, section := render("list accounts: AccessDenied")
+	_, section := render(refusal(&core.ProviderError{Op: "list playground accounts", Err: errors.New("AccessDenied")}, ""))
 	want := `<div id="accounts-error" class="refusal">` + alertIcon + `<div class="note-text"><p class="note-title">The account list is unavailable.</p>` +
-		`<p class="note-body">List accounts: AccessDenied. The page tries again every 15 seconds.</p></div></div>`
+		`<p class="note-body">` + awsFailed + ` The page tries again every 15 seconds.</p></div></div>`
 	if !strings.Contains(section, want) {
 		t.Errorf("the panel does not name the problem, the error and the recovery in its own note:\n%s", section)
 	}
@@ -594,7 +601,7 @@ func TestAdminEditsPendingRequestInline(t *testing.T) {
 	}
 	// Saving the same form again is refused: it was filled from the old
 	// values and would undo the change just made.
-	if res, body := do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, form, true); res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "was edited after you loaded it") || !strings.Contains(body, `id="pending"`) {
+	if res, body := do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, form, true); res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "tweak changed after you loaded the page. Read the new values, then try again.") || !strings.Contains(body, `id="pending"`) {
 		t.Fatalf("stale edit form should be refused with a fresh pending card: %v\n%s", res.Header, body)
 	}
 	q, err := core.NewService(prov, nil, core.DefaultConfig(), nil).GetRequest(context.Background(), "tweak")
@@ -852,7 +859,7 @@ func TestEditRejectsBadNumbersAndKeepsOverride(t *testing.T) {
 	}
 	// A bad budget is an error, not a silently unchanged field.
 	res, body := doAs(t, ts, "POST", "/requests/over/edit", "root@example.com", true, true, edit(url.Values{"owner": {"carl@example.com"}, "budget": {"lots"}, "override": {"on"}}), true)
-	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "budget must be a positive number") {
+	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "Budget must be a positive number.") {
 		t.Fatalf("bad budget should be reported: %v\n%s", res.Header, body)
 	}
 	// Unticking override while the budget is over the ceiling is refused.

@@ -1861,12 +1861,12 @@ func pendingEditRow(pg page, q core.Request) templ.Component {
 }
 
 // accountsPanel is the accounts panel. When the list did not load, errMsg
-// holds the error, the head shows no count and the panel says the list is
-// unavailable. An empty list would look like a fleet with no accounts. The
-// section keeps polling, so the next good poll fills it. oob marks it as an
-// out-of-band part of an htmx answer. hash is the poll hash of this answer.
-// pollHash renders the section with no hash, so the hash never covers
-// itself.
+// holds the text of refusal for the error, the head shows no count and the
+// panel says the list is unavailable. An empty list would look like a fleet
+// with no accounts. The section keeps polling, so the next good poll fills
+// it. oob marks it as an out-of-band part of an htmx answer. hash is the
+// poll hash of this answer. pollHash renders the section with no hash, so
+// the hash never covers itself.
 func accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -1992,9 +1992,9 @@ func accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) te
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var86 string
-			templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.JoinStringErrs(sentence(errMsg) + " The page tries again every 15 seconds.")
+			templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.JoinStringErrs(errMsg + " The page tries again every 15 seconds.")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `views.templ`, Line: 464, Col: 222}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `views.templ`, Line: 464, Col: 212}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var86))
 			if templ_7745c5c3_Err != nil {

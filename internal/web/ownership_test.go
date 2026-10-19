@@ -44,7 +44,7 @@ func TestDamagedOwnedAccountViewsAndOperations(t *testing.T) {
 		{"budget", url.Values{"budget": {"75"}, "reason": {"not a repair"}, "override": {"on"}}},
 	} {
 		_, body := do(t, ts, http.MethodPost, "/accounts/"+id+"/"+op.path, "ops@example.com", true, op.form, true)
-		if !strings.Contains(body, "operator tag repair required") {
+		if !strings.Contains(body, "Operator tag repair required.") {
 			t.Fatalf("%s bypassed repair guard: %s", op.path, body)
 		}
 	}

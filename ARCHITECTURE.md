@@ -449,9 +449,10 @@ the exact budget, the exact lifetime, and the limit override, because its
 buttons bind to them. playplace does not update the message when someone
 edits, withdraws, or decides the request elsewhere. The buttons carry the
 request version that the message shows. After any of those changes,
-playplace refuses a click with a private reply that points to the web UI.
-Buttons from an older playplace carry only the name, and playplace refuses
-them the same way.
+playplace refuses a click with a private reply. The reply starts with "Not
+approved." or "Not denied.", and then gives the reason in the words of the
+web UI. Buttons from an older playplace carry only the name, and playplace
+refuses them with a reply that points to the web UI.
 
 
 ## Account readiness and initial handoff
@@ -557,6 +558,17 @@ or to the same button on the next row. The home
 page polls `GET /accounts` every 15 seconds. The poll sends the
 `X-Poll-Hash` header with the hash of what the page shows. If nothing
 changed, the server answers 204 No Content and the page stays as it is.
+
+A page never shows the raw text of a failed call to AWS, because that text
+holds AWS request IDs. Core returns the error of every provider call in a
+`core.ProviderError`. Its text stays the same, so the log, the CLI and the
+TUI do not change. The web UI and the Slack replies say "The call to AWS
+failed. Try again in a minute. If it fails again, ask an admin to read the
+playplace log." For a throttle or a time-out they say "AWS did not answer in
+time. Try again in a minute." The server log holds the raw error with the
+path, at the warn level. A stale request, a self-approval, and a request that
+is no longer waiting get sentences of their own. Other refusals of core keep
+their words, written as sentences.
 
 The server needs management-account credentials, because AWS only allows
 CreateAccount and CloseAccount from there. Run it in the management account

@@ -63,6 +63,21 @@ func sentence(s string) string {
 	return s
 }
 
+// sentences writes a refusal of core as sentences. Core joins the clauses of
+// one refusal with "; ", and it joins several errors with line breaks. Each
+// part becomes a sentence of its own.
+func sentences(s string) string {
+	var out []string
+	for line := range strings.SplitSeq(s, "\n") {
+		for part := range strings.SplitSeq(line, "; ") {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, sentence(part))
+			}
+		}
+	}
+	return strings.Join(out, " ")
+}
+
 // errorPage renders a styled error page. A signed-in viewer gets the full
 // shell, which needs the queue count. Without a viewer, the shell shows
 // only the brand.

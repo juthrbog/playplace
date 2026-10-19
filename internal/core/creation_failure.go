@@ -40,7 +40,7 @@ func (s *Service) reportCreationFailure(ctx context.Context, r Request, cr Creat
 	// crash or a lost history write after this write can lose, not repeat,
 	// the event and the notice.
 	if err := s.provider.SetOUTags(ctx, map[string]string{flagged.Key(): flagged.Encode()}); err != nil {
-		return fmt.Errorf("record failed creation of %s: %w", r.Name, err)
+		return providerError("record failed creation of "+r.Name, err)
 	}
 	s.Invalidate()
 	a := FromCreateRequest(cr)
@@ -79,7 +79,7 @@ func (s *Service) reportReplacedFailure(ctx context.Context, name string) error 
 		}
 		creates, err := s.provider.ListCreateRequests(ctx)
 		if err != nil {
-			return fmt.Errorf("list create requests: %w", err)
+			return providerError("list create requests", err)
 		}
 		for _, c := range creates {
 			if c.RequestID == r.CreateRequestID && c.State == CreateFailed {

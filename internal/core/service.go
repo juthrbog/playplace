@@ -130,7 +130,8 @@ func (s *Service) SetBaseURL(u string) { s.cfg.BaseURL = u }
 
 // Init makes sure the organization and playground OU exist.
 func (s *Service) Init(ctx context.Context) (OrgInfo, error) {
-	return s.provider.EnsureOrganization(ctx)
+	info, err := s.provider.EnsureOrganization(ctx)
+	return info, providerError("", err)
 }
 
 // Forecast holds the active accounts in the playground OU and the creations
@@ -171,11 +172,11 @@ func (s *Service) Forecast(ctx context.Context) (Forecast, error) {
 	var f Forecast
 	remote, err := s.provider.ListPlaygroundAccounts(ctx)
 	if err != nil {
-		return f, fmt.Errorf("list playground accounts: %w", err)
+		return f, providerError("list playground accounts", err)
 	}
 	root, err := s.provider.ListRootAccounts(ctx)
 	if err != nil {
-		return f, fmt.Errorf("list root accounts: %w", err)
+		return f, providerError("list root accounts", err)
 	}
 	now := s.Now()
 	inOU := map[string]bool{}
@@ -232,7 +233,7 @@ func (s *Service) Inventory(ctx context.Context, force bool) ([]*Account, error)
 
 	remote, err := s.provider.ListPlaygroundAccounts(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list playground accounts: %w", err)
+		return nil, providerError("list playground accounts", err)
 	}
 	// The root listing only adds unplaced creations. Without it the OU and
 	// the queue still list, and Refresh reports the same failure.
@@ -243,7 +244,7 @@ func (s *Service) Inventory(ctx context.Context, force bool) ([]*Account, error)
 	}
 	reqs, err := s.provider.ListCreateRequests(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list create requests: %w", err)
+		return nil, providerError("list create requests", err)
 	}
 	records, err := s.allRequests(ctx)
 	if err != nil {
@@ -504,7 +505,7 @@ func (s *Service) Request(ctx context.Context, in RequestInput) (*Account, error
 			return nil, fmt.Errorf("owner %q is not a user in the identity store; use the engineer's email or user name", in.Owner)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("look up owner: %w", err)
+			return nil, providerError("look up owner", err)
 		}
 		in.Owner = user.Identity()
 	}
@@ -540,7 +541,7 @@ func (s *Service) Request(ctx context.Context, in RequestInput) (*Account, error
 	}
 	reqID, err := s.provider.RequestAccount(ctx, AccountRequest{Name: a.Name, Email: a.Email, Tags: a.Tags()})
 	if err != nil {
-		return nil, fmt.Errorf("request account: %w", err)
+		return nil, providerError("request account", err)
 	}
 	a.ID, a.RequestID = reqID, reqID
 	s.Invalidate()
@@ -613,7 +614,7 @@ func (s *Service) PollCreate(ctx context.Context, requestID string, started *Acc
 	defer s.opMu.Unlock()
 	r, err := s.provider.CreateStatus(ctx, requestID)
 	if err != nil {
-		return nil, err
+		return nil, providerError("", err)
 	}
 	switch r.State {
 	case CreateSucceeded:
@@ -621,7 +622,7 @@ func (s *Service) PollCreate(ctx context.Context, requestID string, started *Acc
 		if err != nil {
 			a := FromCreateRequest(r)
 			a.ProviderID = r.ProviderID
-			return nil, &CreatedError{Account: a, Err: err}
+			return nil, &CreatedError{Account: a, Err: providerError("", err)}
 		}
 		now := s.Now()
 		if remote.Status == "PENDING_ACTIVATION" && awaitingPlacement(remote) {
@@ -657,7 +658,7 @@ func (s *Service) PollCreate(ctx context.Context, requestID string, started *Acc
 		// tag, as in Refresh.
 		fresh, err := s.provider.GetAccount(ctx, a.ProviderID)
 		if err != nil {
-			return a, &CreatedError{Account: a, Placed: true, Err: fmt.Errorf("read %s after placement: %w", a.Name, err)}
+			return a, &CreatedError{Account: a, Placed: true, Err: providerError("read "+a.Name+" after placement", err)}
 		}
 		a = FromRemote(fresh, s.cfg, s.Now())
 		if err := s.reconcileReadiness(ctx, a); err != nil {
@@ -763,7 +764,7 @@ func (s *Service) place(ctx context.Context, a *Account) (*Account, error) {
 	tags := a.Tags()
 	delete(tags, TagHandoff)
 	if err := s.provider.PlaceAccount(ctx, a.ProviderID, tags); err != nil {
-		return nil, fmt.Errorf("place %s: %w", a.Name, err)
+		return nil, providerError("place "+a.Name, err)
 	}
 	a.Managed = true
 	s.dropApprovedRecord(ctx, a)
@@ -803,13 +804,13 @@ func (s *Service) grantAccess(ctx context.Context, a *Account) error {
 	}
 	user, err := s.provider.LookupUser(ctx, a.Owner)
 	if err != nil {
-		return err
+		return providerError("", err)
 	}
 	if err := s.provider.GrantAccess(ctx, a.ProviderID, user); err != nil {
-		return err
+		return providerError("", err)
 	}
 	if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagAccess: user.ID}); err != nil {
-		return err
+		return providerError("", err)
 	}
 	a.AccessGrantedTo = user.ID
 	s.log.Info("access granted", "account", a.Name, "owner", user.Identity())
@@ -823,10 +824,10 @@ func (s *Service) revokeAccess(ctx context.Context, a *Account) error {
 		return nil
 	}
 	if err := s.provider.RevokeAccess(ctx, a.ProviderID, User{ID: a.AccessGrantedTo}); err != nil {
-		return err
+		return providerError("", err)
 	}
 	if err := s.provider.RemoveTags(ctx, a.ProviderID, []string{TagAccess}); err != nil {
-		return err
+		return providerError("", err)
 	}
 	a.AccessGrantedTo = ""
 	return nil
@@ -860,10 +861,10 @@ func (s *Service) Extend(ctx context.Context, id string, until time.Time, by str
 	a.ExpiresAt = until
 	a.WarnedAt = nil
 	if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagExpires: until.UTC().Format(time.RFC3339)}); err != nil {
-		return nil, fmt.Errorf("tag %s: %w", a.Name, err)
+		return nil, providerError("tag "+a.Name, err)
 	}
 	if err := s.provider.RemoveTags(ctx, a.ProviderID, []string{TagWarnedAt}); err != nil {
-		return nil, fmt.Errorf("untag %s: %w", a.Name, err)
+		return nil, providerError("untag "+a.Name, err)
 	}
 	a.Status = StatusActive
 	s.Invalidate()
@@ -911,7 +912,7 @@ func (s *Service) RequestClose(ctx context.Context, id string, by string) (*Acco
 	now := s.Now()
 	a.CloseRequestedAt = &now
 	if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagCloseRequested: now.UTC().Format(time.RFC3339)}); err != nil {
-		return nil, fmt.Errorf("tag %s: %w", a.Name, err)
+		return nil, providerError("tag "+a.Name, err)
 	}
 	a.Status = StatusClosing
 	s.Invalidate()
@@ -935,11 +936,11 @@ func (s *Service) tryClose(ctx context.Context, a *Account) (*Account, error) {
 		return a, nil
 	}
 	if err != nil {
-		return a, fmt.Errorf("close %s: %w", a.Name, err)
+		return a, providerError("close "+a.Name, err)
 	}
 	r, err := s.provider.GetAccount(ctx, a.ProviderID)
 	if err != nil {
-		return a, fmt.Errorf("verify closure of %s: %w", a.Name, err)
+		return a, providerError("verify closure of "+a.Name, err)
 	}
 	requestedAt := a.CloseRequestedAt
 	a = FromRemote(r, s.cfg, s.Now())
@@ -966,7 +967,7 @@ func (s *Service) confirmClosed(ctx context.Context, a *Account) error {
 	}
 	now := s.Now().UTC()
 	if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagClosedAt: now.Format(time.RFC3339)}); err != nil {
-		return fmt.Errorf("record confirmed closure of %s: %w", a.Name, err)
+		return providerError("record confirmed closure of "+a.Name, err)
 	}
 	a.ClosedAt = &now
 	s.Invalidate()
@@ -988,7 +989,7 @@ func (s *Service) checkClosureDelay(ctx context.Context, a *Account) error {
 	if a.CloseAlertedAt == nil {
 		now := s.Now().UTC()
 		if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagCloseAlertedAt: now.Format(time.RFC3339)}); err != nil {
-			return errors.Join(errors.New(msg), fmt.Errorf("record closure alert: %w", err))
+			return errors.Join(errors.New(msg), providerError("record closure alert", err))
 		}
 		a.CloseAlertedAt = &now
 		s.audit(ctx, "closure-overdue", a, ActorSystem, "", msg, nil)
@@ -1045,7 +1046,7 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 
 	remote, err := s.provider.ListPlaygroundAccounts(ctx)
 	if err != nil {
-		return sum, fmt.Errorf("list playground accounts: %w", err)
+		return sum, providerError("list playground accounts", err)
 	}
 	inOU := map[string]bool{}
 	for _, r := range remote {
@@ -1058,7 +1059,7 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 	//    that was placed once is never moved back, wherever it is now.
 	root, err := s.provider.ListRootAccounts(ctx)
 	if err != nil {
-		errs = append(errs, fmt.Errorf("list root accounts: %w", err))
+		errs = append(errs, providerError("list root accounts", err))
 	}
 	for _, acct := range root {
 		if inOU[acct.ProviderID] || !awaitingPlacement(acct) {
@@ -1082,7 +1083,7 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 		// handoff tag.
 		fresh, err := s.provider.GetAccount(ctx, acct.ProviderID)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("read %s after placement: %w", acct.Name, err))
+			errs = append(errs, providerError("read "+acct.Name+" after placement", err))
 			continue
 		}
 		remote = append(remote, fresh)
@@ -1113,7 +1114,7 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 				// monitoring clock on every reconciliation.
 				a.CloseRequestedAt = &now
 				if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagCloseRequested: now.UTC().Format(time.RFC3339)}); err != nil {
-					errs = append(errs, fmt.Errorf("track closure of %s: %w", a.Name, err))
+					errs = append(errs, providerError("track closure of "+a.Name, err))
 					continue
 				}
 			}
@@ -1154,7 +1155,7 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 				a.handoff = handoffPending
 			}
 			if err := s.provider.SetTags(ctx, a.ProviderID, a.Tags()); err != nil {
-				errs = append(errs, fmt.Errorf("adopt %s: %w", a.Name, err))
+				errs = append(errs, providerError("adopt "+a.Name, err))
 				continue
 			}
 			a.Managed = true
@@ -1181,7 +1182,7 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 		case left <= 0:
 			a.CloseRequestedAt = &now
 			if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagCloseRequested: now.UTC().Format(time.RFC3339)}); err != nil {
-				errs = append(errs, fmt.Errorf("tag %s: %w", a.Name, err))
+				errs = append(errs, providerError("tag "+a.Name, err))
 				continue
 			}
 			s.audit(ctx, "expired", a, ActorSystem, "", fmt.Sprintf("%s passed its expiry %s and is being closed", a.Name, a.ExpiresAt.Format("2006-01-02")), nil)
@@ -1196,7 +1197,7 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 			}
 		case left <= s.cfg.WarnBefore && a.WarnedAt == nil:
 			if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagWarnedAt: now.UTC().Format(time.RFC3339)}); err != nil {
-				errs = append(errs, fmt.Errorf("tag %s: %w", a.Name, err))
+				errs = append(errs, providerError("tag "+a.Name, err))
 				continue
 			}
 			s.notify(ctx, a, "Playground account expiring",
@@ -1225,7 +1226,7 @@ var ErrNeedsApproval = errors.New("needs approval")
 func (s *Service) allRequests(ctx context.Context) ([]Request, error) {
 	tags, err := s.provider.OUTags(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("read request queue: %w", err)
+		return nil, providerError("read request queue", err)
 	}
 	var out []Request
 	for k, v := range tags {
@@ -1341,7 +1342,7 @@ func (s *Service) SubmitRequest(ctx context.Context, in RequestInput, via string
 			return Request{}, fmt.Errorf("owner %q is not a user in the identity store; use the engineer's email or user name", in.Owner)
 		}
 		if err != nil {
-			return Request{}, fmt.Errorf("look up owner: %w", err)
+			return Request{}, providerError("look up owner", err)
 		}
 		in.Owner = user.Identity()
 	}
@@ -1385,7 +1386,7 @@ func (s *Service) SubmitRequest(ctx context.Context, in RequestInput, via string
 		return Request{}, err
 	}
 	if err := s.provider.SetOUTags(ctx, map[string]string{r.Key(): r.Encode()}); err != nil {
-		return Request{}, fmt.Errorf("queue request: %w", err)
+		return Request{}, providerError("queue request", err)
 	}
 	s.Invalidate()
 	s.log.Info("request queued", "name", r.Name, "owner", r.Owner, "via", via)
@@ -1416,7 +1417,7 @@ func (s *Service) SubmitRequest(ctx context.Context, in RequestInput, via string
 func (s *Service) checkQueueRoom(ctx context.Context) error {
 	tags, err := s.provider.OUTags(ctx)
 	if err != nil {
-		return fmt.Errorf("read request queue: %w", err)
+		return providerError("read request queue", err)
 	}
 	if len(tags) >= MaxTagsPerResource {
 		return fmt.Errorf("the request queue is full: AWS allows %d tags on the OU and all are in use; approve or deny waiting requests, or run reconcile to drop stale ones", MaxTagsPerResource)
@@ -1456,7 +1457,7 @@ func (s *Service) Approve(ctx context.Context, ref RequestRef, approver string) 
 		return nil, err
 	}
 	if err := s.provider.SetOUTags(ctx, map[string]string{r.Key(): r.Encode()}); err != nil {
-		return nil, fmt.Errorf("claim request: %w", err)
+		return nil, providerError("claim request", err)
 	}
 	a, err := s.Request(ctx, RequestInput{
 		Name: r.Name, Owner: r.Owner, TTL: r.TTL, BudgetUSD: r.BudgetUSD,
@@ -1500,27 +1501,31 @@ func (s *Service) Approve(ctx context.Context, ref RequestRef, approver string) 
 // interface finds it with errors.Is and can then choose its own words.
 var ErrSelfApproval = errors.New("self-approval refused")
 
-// selfApprovalError is a refusal of CheckApprover. Error returns the refusal
+// SelfApprovalError is a refusal of CheckApprover. Error returns the refusal
 // alone, with no prefix from the sentinel, so the CLI and the TUI keep their
-// words.
-type selfApprovalError struct{ msg string }
+// words. WouldOwn tells the two refusals apart: it is true when the approver
+// is the owner of the request, and false when the approver requested it.
+type SelfApprovalError struct {
+	WouldOwn bool
+	msg      string
+}
 
-func (e selfApprovalError) Error() string { return e.msg }
-func (e selfApprovalError) Unwrap() error { return ErrSelfApproval }
+func (e SelfApprovalError) Error() string { return e.msg }
+func (e SelfApprovalError) Unwrap() error { return ErrSelfApproval }
 
 // CheckApprover applies the self-approval rule: nobody may approve a request
 // they asked for or would own, unless self-approval is allowed. The web UI
 // uses it to decide whether to show the button, so the click always matches.
-// A refusal matches ErrSelfApproval.
+// A refusal is a SelfApprovalError, which matches ErrSelfApproval.
 func CheckApprover(r Request, approver string, allowSelf bool) error {
 	if allowSelf {
 		return nil
 	}
 	if strings.EqualFold(r.RequestedBy, approver) {
-		return selfApprovalError{fmt.Sprintf("%s requested %s and cannot approve it; another approver must", approver, r.Name)}
+		return SelfApprovalError{msg: fmt.Sprintf("%s requested %s and cannot approve it; another approver must", approver, r.Name)}
 	}
 	if strings.EqualFold(r.Owner, approver) {
-		return selfApprovalError{fmt.Sprintf("%s would own %s and cannot approve it; another approver must", approver, r.Name)}
+		return SelfApprovalError{WouldOwn: true, msg: fmt.Sprintf("%s would own %s and cannot approve it; another approver must", approver, r.Name)}
 	}
 	return nil
 }
@@ -1557,7 +1562,7 @@ func (s *Service) UpdateRequest(ctx context.Context, ref RequestRef, editor stri
 				return Request{}, fmt.Errorf("owner %q is not a user in the identity store", owner)
 			}
 			if err != nil {
-				return Request{}, fmt.Errorf("look up owner: %w", err)
+				return Request{}, providerError("look up owner", err)
 			}
 			owner = user.Identity()
 		}
@@ -1598,7 +1603,7 @@ func (s *Service) UpdateRequest(ctx context.Context, ref RequestRef, editor stri
 		return Request{}, err
 	}
 	if err := s.provider.SetOUTags(ctx, map[string]string{r.Key(): r.Encode()}); err != nil {
-		return Request{}, fmt.Errorf("update request: %w", err)
+		return Request{}, providerError("update request", err)
 	}
 	s.Invalidate()
 	s.log.Info("request edited", "name", name, "by", editor)
@@ -1641,7 +1646,7 @@ func (s *Service) Deny(ctx context.Context, ref RequestRef, approver, reason str
 	}
 	name := r.Name
 	if err := s.provider.RemoveOUTags(ctx, []string{r.Key()}); err != nil {
-		return fmt.Errorf("remove request: %w", err)
+		return providerError("remove request", err)
 	}
 	s.Invalidate()
 	s.log.Info("request denied", "name", name, "by", approver)
@@ -1665,7 +1670,7 @@ func (s *Service) Withdraw(ctx context.Context, ref RequestRef, by string) error
 	}
 	name := r.Name
 	if err := s.provider.RemoveOUTags(ctx, []string{r.Key()}); err != nil {
-		return fmt.Errorf("remove request: %w", err)
+		return providerError("remove request", err)
 	}
 	s.Invalidate()
 	s.log.Info("request withdrawn", "name", name, "by", by)
@@ -1684,7 +1689,7 @@ func (s *Service) expireRequests(ctx context.Context, sum *Summary) error {
 	}
 	creates, err := s.provider.ListCreateRequests(ctx)
 	if err != nil {
-		return err
+		return providerError("", err)
 	}
 	byID := map[string]CreateRequest{}
 	for _, c := range creates {
@@ -1725,7 +1730,7 @@ func (s *Service) expireRequests(ctx context.Context, sum *Summary) error {
 	}
 	if len(keys) > 0 {
 		if err := s.provider.RemoveOUTags(ctx, keys); err != nil {
-			return errors.Join(append(errs, err)...)
+			return errors.Join(append(errs, providerError("", err))...)
 		}
 	}
 	// A failed removal is not a terminal outcome. Announce expiry only after
@@ -1781,7 +1786,7 @@ func (s *Service) Costs(ctx context.Context, id string, days int, force bool) ([
 			return window(e.points, days, now), nil
 		}
 		if e.err != nil && now.Sub(e.at) < costRetryAfter {
-			return nil, fmt.Errorf("costs for %s: %w", a.Name, e.err)
+			return nil, providerError("costs for "+a.Name, e.err)
 		}
 	}
 	to := now.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
@@ -1795,7 +1800,7 @@ func (s *Service) Costs(ctx context.Context, id string, days int, force bool) ([
 			s.costs[a.ProviderID] = e
 			s.mu.Unlock()
 		}
-		return nil, fmt.Errorf("costs for %s: %w", a.Name, err)
+		return nil, providerError("costs for "+a.Name, err)
 	}
 	s.mu.Lock()
 	s.costs[a.ProviderID] = costEntry{points: pts, okAt: now, at: now}
