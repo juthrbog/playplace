@@ -148,6 +148,15 @@ type page struct {
 	// PendingFailed marks a queue that did not load. The card then says so,
 	// and a poll leaves the card on the page as it is.
 	PendingFailed bool
+	// RegionInCard marks the home page, which holds the live region in the
+	// pending card. The layout then leaves out its own.
+	RegionInCard bool
+}
+
+// regionInCard is pg for the home page layout.
+func regionInCard(pg page) page {
+	pg.RegionInCard = true
+	return pg
 }
 
 func (s *Server) pageFor(r *http.Request) page {
@@ -259,8 +268,13 @@ const pollHashHeader = "X-Poll-Hash"
 // without its own hash, then the pending card and the count. The home page,
 // the poll and every action answer use it, so the section always carries
 // the hash of what the page shows. It is empty if the render fails, and the
-// section then carries none, so every poll gets the full answer.
+// section then carries none, so every poll gets the full answer. The hash
+// covers a failed list as one state, because the AWS error text holds a new
+// request ID on every call. The same outage then answers 204.
 func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMsg string) string {
+	if errMsg != "" {
+		errMsg = "unavailable"
+	}
 	h := sha256.New()
 	if err := accountsAnswer(pg, rows, errMsg, "").Render(ctx, h); err != nil {
 		s.log.Error("render poll hash", "err", err)
@@ -532,8 +546,8 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 
 // table answers the 15 s poll and the Show closed box. A poll that sends the
 // hash of the current answer gets 204 and no body. A failed list is a panel
-// that says so, hashed like any answer, so the same failure answers 204 and
-// the next good poll clears it.
+// that says so. Its hash leaves out the error text, so the same outage
+// answers 204, and the next good poll clears it.
 func (s *Server) table(w http.ResponseWriter, r *http.Request) {
 	// The answer is a fragment of the home page, so a page visit goes there.
 	if r.Header.Get("HX-Request") != "true" {
@@ -561,6 +575,10 @@ func (s *Server) table(w http.ResponseWriter, r *http.Request) {
 	s.writeAccounts(w, r, pg, rows, errMsg, hash, false)
 }
 
+// syncFromShell is the HX-Target of Sync on a page with no accounts
+// section. The answer then holds only the live region part.
+const syncFromShell = "notice"
+
 func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	pg := s.pageFor(r)
 	if !pg.Viewer.Admin {
@@ -570,20 +588,37 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	// the sync form has no fields of its own, so the switch is the only value
 	sum, err := s.svc.Refresh(r.Context())
 	if err != nil {
-		s.fail(w, r, err)
+		s.failSync(w, r, err)
 		return
 	}
 	s.svc.Invalidate()
+	msg := "Synced with AWS. Nothing changed."
+	if !sum.Empty() {
+		msg = "Synced with AWS: " + sum.String() + "."
+	}
+	if r.Header.Get("HX-Target") == syncFromShell {
+		s.render(w, r, noticeFragment("sync", msg))
+		return
+	}
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, true)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	msg := "synced, nothing changed"
-	if !sum.Empty() {
-		msg = "synced: " + sum.String()
-	}
 	s.writeAccounts(w, r, pg, rows, "", s.pollHash(r.Context(), pg, rows, ""), false, noticeFragment("sync", msg))
+}
+
+// failSync reports a failed Sync. Off the home page there is no refusal slot
+// near the button, so the refusal shows in the live region itself.
+func (s *Server) failSync(w http.ResponseWriter, r *http.Request, err error) {
+	if r.Header.Get("HX-Request") != "true" || r.Header.Get("HX-Target") != syncFromShell {
+		s.fail(w, r, err)
+		return
+	}
+	s.log.Warn("request failed", "path", r.URL.Path, "err", err)
+	w.Header().Set("HX-Reswap", "none")
+	w.Header().Set("X-Form-Error", "1")
+	s.render(w, r, noticeFragment("alert", err.Error()))
 }
 
 // owned resolves an account the viewer may act on, or writes the error.
@@ -674,7 +709,8 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, c templ.Componen
 }
 
 // forbid answers 403 with the reason, which names the rule that refused the
-// viewer. A page visit gets the styled 403 page.
+// viewer. Every /requests/{name}/... route acts from the pending card, so its
+// refusal fills the slot of the card. A page visit gets the styled 403 page.
 func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why string) {
 	s.log.Warn("forbidden", "path", r.URL.Path, "viewer", ViewerFrom(r.Context()).Email, "why", why)
 	if r.Header.Get("HX-Request") == "true" {
@@ -684,7 +720,11 @@ func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why string) {
 		w.Header().Set("X-Form-Error", "1")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusForbidden)
-		if err := errorFragment("form-error", why).Render(r.Context(), w); err != nil {
+		slot := "form-error"
+		if strings.HasPrefix(r.URL.Path, "/requests/") {
+			slot = "pending-error"
+		}
+		if err := errorFragment(slot, why).Render(r.Context(), w); err != nil {
 			s.log.Error("render", "path", r.URL.Path, "err", err)
 		}
 		return
@@ -710,7 +750,7 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		s.render(w, r, errorFragment("form-error", err.Error()))
 		return
 	}
-	s.errorPage(w, r, errorView{Code: http.StatusBadRequest, Title: "Not done", Message: err.Error(), Recovery: "Go back to Home and try again.", Back: "/", BackLabel: "Go to Home"})
+	s.errorPage(w, r, errorView{Code: http.StatusBadRequest, Title: "Action refused", Message: err.Error(), Recovery: "Go back to Home and try again.", Back: "/", BackLabel: "Go to Home"})
 }
 
 // The headers of a refused field. app.js marks the input with aria-invalid

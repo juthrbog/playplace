@@ -955,17 +955,33 @@
   .way-back {
     margin-top: var(--space-lg);
   }
-  /* A button word and its busy verb share one grid cell, so the button
-     keeps the width of the longer word. */
+  /* A button word and its busy verb share one grid cell. The busy verb
+     has no width, so the button keeps the width of its word at rest and a
+     table of buttons is no wider than without the verb. The verb is
+     centered and spills into the side padding of the button. */
   .word {
     display: inline-grid;
   }
   .word > * {
     grid-area: 1 / 1;
   }
+  .word > .busy {
+    display: flex;
+    justify-content: center;
+    justify-self: center;
+    width: 0;
+    white-space: nowrap;
+  }
+  /* After an icon, the verb moves right by half the 7 px gap between the
+     icon and the word, so a longer verb keeps clear of the icon. */
+  .i + .word > .busy {
+    translate: 3.5px 0;
+  }
   /* In a panel with no body, such as the pending card, the refusal sits
-     under the head at the row inset. */
-  .panel > .refusal {
+     under the head at the row inset. On the home page the live region sits
+     there too, above the refusal. */
+  .panel > .refusal,
+  .panel > .notice {
     margin: 0 var(--space-lg) var(--space-md);
   }
   .banner-incomplete {

@@ -95,15 +95,25 @@ document.addEventListener("htmx:beforeSwap", function (ev) {
     ev.detail.shouldSwap = true;
     ev.detail.isError = false;
   }
+  // A poll that started before the latest action carries the state from
+  // before it, so its answer is dropped.
+  if (xhr && xhr.pollSeq !== undefined && xhr.pollSeq !== actionSeq) {
+    ev.detail.shouldSwap = false;
+  }
 });
 
-// keepNode reports whether a morph leaves this node as it is. An open edit
-// row stays through every answer but the one to its own form, so a poll or
-// another row's action never drops what the admin typed. A filled refusal in
-// the pending card stays through a poll, so the viewer can still read it.
-// The rules use ids, not classes, so a node that idiomorph pairs by shape
-// is never kept by mistake.
+// keepNode reports whether a morph leaves this node as it is. The live
+// region in the pending card stays, so a morph of the card never clears the
+// message that an answer just wrote into it. An open edit row stays through
+// every answer but the one to its own form, so a poll or another row's
+// action never drops what the admin typed. A filled refusal in the pending
+// card stays through a poll, so the viewer can still read it. The rules use
+// ids, not classes, so a node that idiomorph pairs by shape is never kept by
+// mistake.
 function keepNode(node) {
+  if (node.id === "notice") {
+    return true;
+  }
   if (node.tagName === "TR" && node.querySelector("form[data-editing]")) {
     return !(swapSource && node.contains(swapSource));
   }
@@ -177,10 +187,14 @@ document.addEventListener("htmx:configRequest", function (ev) {
 });
 
 // The morph keeps the accounts section in the page, so a poll answer that
-// arrives after an action would put the old state back. Any other request,
-// Show closed included, stops the poll in flight. A poll that is due while
-// another request runs waits for the next one.
+// arrives after an action would put the old state back. Every other
+// request, Show closed included, counts as an action, and the beforeSwap
+// listener drops the answer of a poll that started before the latest one.
+// The poll is not aborted, because htmx logs an aborted request as two
+// errors. A poll that is due while another request runs waits for the next
+// one.
 var running = [];
+var actionSeq = 0;
 function requestRunning() {
   for (var i = 0; i < running.length; i++) {
     if (running[i].readyState > 0 && running[i].readyState < 4) {
@@ -200,7 +214,7 @@ document.addEventListener("htmx:beforeRequest", function (ev) {
     }
     return;
   }
-  htmx.trigger(accounts, "htmx:abort");
+  actionSeq++;
 });
 // busyButton is the button whose request runs, or null. Edit and Cancel are
 // buttons that send a GET. Any other GET comes from the poll or the Show
@@ -245,20 +259,42 @@ document.addEventListener("htmx:afterRequest", function (ev) {
   }
 });
 
-// A decision takes its row out of the pending card, and the focused button
-// leaves with it. The focus then goes to the same button on the row that
-// takes its place, or on the row before when the row was the last. In an
-// empty card it goes to the heading. This happens only when the focus is
-// lost, so a viewer who moved on keeps their place.
+// Some answers take the focused button out of the page. Approve, Deny and
+// Withdraw take the row out of the pending card. Edit opens the edit row,
+// and Save and Cancel close it again. Close turns the account to closing,
+// which takes its buttons away. focusNext names, for each action, the
+// control in the row that takes the focus then.
+var focusNext = {
+  approve: 'form[data-action="approve"] button',
+  deny: 'form[data-action="deny"] button',
+  withdraw: 'form[data-action="withdraw"] button',
+  edit: "form[data-editing] input:not([type=hidden])",
+  save: 'button[data-action="edit"]',
+  cancel: 'button[data-action="edit"]',
+  close: "td a"
+};
+
+// The row keeps its id through Edit, Save, Cancel and Close, so the focus
+// goes to the control in that row. A row that left gives its place to the
+// next row, or to the row before when it was the last, and the focus goes
+// to the same control there, or to the first button. In an empty card it
+// goes to the heading. This happens only when the focus is lost, so a
+// viewer who moved on keeps their place.
 var leaving = null;
 document.addEventListener("htmx:beforeRequest", function (ev) {
-  var form = ev.detail.requestConfig && ev.detail.requestConfig.elt;
-  var action = form && form.getAttribute && form.getAttribute("data-action");
-  var row = action ? form.closest("#pending tbody > tr") : null;
+  var elt = ev.detail.requestConfig && ev.detail.requestConfig.elt;
+  var action = elt && elt.getAttribute && elt.getAttribute("data-action");
+  var row = action && focusNext[action] ? elt.closest("#pending tbody > tr, #accounts tbody > tr") : null;
   if (ev.defaultPrevented || !row || !row.contains(document.activeElement)) {
     return;
   }
-  leaving = {xhr: ev.detail.xhr, action: action, index: Array.prototype.indexOf.call(row.parentNode.children, row)};
+  leaving = {
+    xhr: ev.detail.xhr,
+    want: focusNext[action],
+    row: row.id,
+    rows: row.closest("#pending") ? "#pending tbody > tr" : "#accounts tbody > tr",
+    index: Array.prototype.indexOf.call(row.parentNode.children, row)
+  };
 });
 document.addEventListener("htmx:afterSettle", function (ev) {
   if (!leaving || ev.detail.xhr !== leaving.xhr) {
@@ -269,20 +305,31 @@ document.addEventListener("htmx:afterSettle", function (ev) {
   if (document.activeElement && document.activeElement !== document.body) {
     return;
   }
-  var rows = document.querySelectorAll("#pending tbody > tr");
-  var row = rows.length ? rows[Math.min(was.index, rows.length - 1)] : null;
-  var button = row && (row.querySelector('form[data-action="' + was.action + '"] button') || row.querySelector("button"));
-  var target = button || document.getElementById("pending-title");
+  var row = was.row ? document.getElementById(was.row) : null;
+  var target = row && row.querySelector(was.want);
+  if (!target) {
+    var rows = document.querySelectorAll(was.rows);
+    var other = rows.length ? rows[Math.min(was.index, rows.length - 1)] : null;
+    target = other && (other.querySelector(was.want) || other.querySelector("button"));
+  }
+  if (!target && was.rows.indexOf("#pending") === 0) {
+    target = document.getElementById("pending-title");
+  }
   if (target) {
     target.focus();
   }
 });
 
 // The list holds only requests that htmx sends, so a request that another
-// listener cancels never blocks the poll.
+// listener cancels never blocks the poll. A poll notes the latest action
+// it started after.
 document.addEventListener("htmx:beforeSend", function (ev) {
   var accounts = document.getElementById("accounts");
-  if (!ev.detail.xhr || (accounts && ev.detail.elt === accounts)) {
+  if (!ev.detail.xhr) {
+    return;
+  }
+  if (accounts && ev.detail.elt === accounts) {
+    ev.detail.xhr.pollSeq = actionSeq;
     return;
   }
   running = running.filter(function (xhr) {

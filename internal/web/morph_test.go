@@ -200,14 +200,30 @@ func TestEditFormIsMarked(t *testing.T) {
 // not through ignoreActiveValue, which also freezes a focused button.
 func TestMorphExtensionNeedsNoEval(t *testing.T) {
 	js := staticText(t, "app.js")
-	for _, want := range []string{`htmx.defineExtension("morph"`, `Idiomorph.morph(`, `style === "morph"`, "nodeType === 1", "catch", "beforeAttributeUpdated", `name === "value"`, "document.activeElement", `"pending-error"`, "form[data-editing]"} {
+	for _, want := range []string{`htmx.defineExtension("morph"`, `Idiomorph.morph(`, `style === "morph"`, "catch", `"pending-error"`, `node.id === "notice"`, "form[data-editing]"} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js lacks %s", want)
 		}
 	}
-	// Each of the two callbacks checks for an element first.
-	if n := strings.Count(js, "nodeType === 1"); n < 2 {
-		t.Errorf("app.js checks the node type %d times, want one check in each callback", n)
+	// The guards are checked inside their own callback, because other code
+	// in app.js also reads the node type and the focused element.
+	callback := func(name string) string {
+		t.Helper()
+		_, rest, ok := strings.Cut(js, name+": function (")
+		if !ok {
+			t.Fatalf("app.js has no %s callback", name)
+		}
+		body, _, _ := strings.Cut(rest, "\n          }")
+		return body
+	}
+	if b := callback("beforeNodeMorphed"); !strings.Contains(b, "node.nodeType === 1") || !strings.Contains(b, "keepNode(node)") {
+		t.Errorf("beforeNodeMorphed does not check for an element first:\n%s", b)
+	}
+	b := callback("beforeAttributeUpdated")
+	for _, want := range []string{"node.nodeType === 1", `name === "value"`, "node === document.activeElement", `node.tagName === "INPUT"`, `node.tagName === "TEXTAREA"`} {
+		if !strings.Contains(b, want) {
+			t.Errorf("the value guard lacks %s:\n%s", want, b)
+		}
 	}
 	for _, bad := range []string{"Function(", "eval(", ".style.", `setAttribute("style"`, "ignoreActiveValue", `classList.contains("refusal")`} {
 		if strings.Contains(js, bad) {

@@ -2,6 +2,9 @@ package web
 
 import (
 	"net/http"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // errorView is what a styled error page says: the title and the status code
@@ -34,11 +37,30 @@ var forbidRecovery = map[string]string{
 }
 
 // writeErrorPage writes the status and renders the page. The caller logs
-// the error, because the OIDC handler has no Server.
+// the error, because the OIDC handler has no Server. The message is the
+// title of the note, so it is a sentence like the recovery under it. The
+// htmx slots keep the reason as it is.
 func writeErrorPage(w http.ResponseWriter, r *http.Request, pg page, e errorView) error {
+	e.Message = sentence(e.Message)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(e.Code)
 	return errorPage(pg, e).Render(r.Context(), w)
+}
+
+// sentence starts s with a capital letter and ends it with a full stop,
+// unless it already ends a sentence. Core and the 403 reasons write their
+// messages as lowercase fragments.
+func sentence(s string) string {
+	s = strings.TrimSpace(s)
+	first, size := utf8.DecodeRuneInString(s)
+	if size == 0 {
+		return s
+	}
+	s = string(unicode.ToUpper(first)) + s[size:]
+	if !strings.HasSuffix(s, ".") && !strings.HasSuffix(s, "?") && !strings.HasSuffix(s, "!") {
+		s += "."
+	}
+	return s
 }
 
 // errorPage renders a styled error page. A signed-in viewer gets the full

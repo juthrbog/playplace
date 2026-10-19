@@ -2,7 +2,7 @@ package web
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -181,15 +181,17 @@ func TestPollHashIsStableAcrossReads(t *testing.T) {
 }
 
 // flakyList fails the account listing while fail is set. Core then fails the
-// inventory, so the queue does not load either.
+// inventory, so the queue does not load either. Each error names a new
+// request, as an AWS error does.
 type flakyList struct {
 	*fake.Provider
-	fail atomic.Bool
+	fail  atomic.Bool
+	calls atomic.Int64
 }
 
 func (p *flakyList) ListPlaygroundAccounts(ctx context.Context) ([]core.RemoteAccount, error) {
 	if p.fail.Load() {
-		return nil, errors.New("AccessDenied: the role cannot list accounts")
+		return nil, fmt.Errorf("AccessDenied: the role cannot list accounts, RequestID: req-%d", p.calls.Add(1))
 	}
 	return p.Provider.ListPlaygroundAccounts(ctx)
 }
@@ -197,8 +199,9 @@ func (p *flakyList) ListPlaygroundAccounts(ctx context.Context) ([]core.RemoteAc
 // A failed poll shows the failed panel inside the section, with the error,
 // and never a refusal under New request. It leaves out the pending card and
 // the count, so the page keeps what it shows and never reads "Nothing
-// waiting". The same failure gets 204, and the first good poll brings the
-// table back and drops the error note.
+// waiting". The same outage gets 204, also when the error text changes on
+// each call, and the first good poll brings the table back and drops the
+// error note.
 func TestFailedPollShowsTheUnavailablePanel(t *testing.T) {
 	flaky := &flakyList{}
 	ts, _ := newServerOn(t, func(p *fake.Provider) core.Provider { flaky.Provider = p; return flaky })
@@ -214,7 +217,7 @@ func TestFailedPollShowsTheUnavailablePanel(t *testing.T) {
 	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" || res.Header.Get("HX-Reswap") != "" || strings.Contains(body, `id="form-error"`) {
 		t.Fatalf("a failed poll is a refusal: %d %v\n%s", res.StatusCode, res.Header, body)
 	}
-	for _, want := range []string{"The account list is unavailable", `<div id="accounts-error" class="refusal">`, "AccessDenied: the role cannot list accounts"} {
+	for _, want := range []string{`<div id="accounts-error" class="refusal">`, `<p class="note-title">The account list is unavailable.</p>`, `<p class="note-body">List playground accounts: AccessDenied: the role cannot list accounts, RequestID: req-`, `. The page tries again every 15 seconds.</p>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the failed panel lacks %s:\n%s", want, body)
 		}
@@ -226,7 +229,10 @@ func TestFailedPollShowsTheUnavailablePanel(t *testing.T) {
 	}
 	failed := pollHashIn(t, body)
 	if res, _ := poll(t, ts, "/accounts", "ops@example.com", true, false, failed); res.StatusCode != http.StatusNoContent {
-		t.Errorf("the same failure = %d, want 204", res.StatusCode)
+		t.Errorf("the same outage with a new error text = %d, want 204", res.StatusCode)
+	}
+	if flaky.calls.Load() < 3 {
+		t.Fatalf("the list failed %d times, so the error text did not change between polls", flaky.calls.Load())
 	}
 
 	flaky.fail.Store(false)
@@ -261,20 +267,31 @@ func TestAppJSSendsThePollHash(t *testing.T) {
 	}
 }
 
-// Any request that is not the poll stops the poll in flight, and a poll
-// waits while another request runs. A late poll answer would otherwise put
-// the state from before an action back on the page.
+// Any request that is not the poll counts as an action, the answer of a
+// poll that started before the latest action is dropped, and a poll waits
+// while another request runs. A late poll answer would otherwise put the
+// state from before an action back on the page. The poll is not aborted,
+// because htmx logs an abort as two console errors.
 func TestActionsStopTheRunningPoll(t *testing.T) {
 	js := staticText(t, "app.js")
 	listener := regexp.MustCompile(`(?s)"htmx:beforeRequest", function \(ev\) \{.*?\n\}\);`).FindString(js)
-	for _, want := range []string{`htmx.trigger(accounts, "htmx:abort")`, "ev.preventDefault()", "requestRunning()"} {
+	for _, want := range []string{"actionSeq++", "ev.preventDefault()", "requestRunning()"} {
 		if !strings.Contains(listener, want) {
 			t.Errorf("the htmx:beforeRequest listener lacks %s:\n%s", want, listener)
 		}
 	}
 	sent := regexp.MustCompile(`(?s)"htmx:beforeSend", function \(ev\) \{.*?\n\}\);`).FindString(js)
-	if !strings.Contains(sent, "running.push(ev.detail.xhr)") {
-		t.Error("app.js does not record the requests that htmx sends")
+	for _, want := range []string{"running.push(ev.detail.xhr)", "ev.detail.xhr.pollSeq = actionSeq"} {
+		if !strings.Contains(sent, want) {
+			t.Errorf("the htmx:beforeSend listener lacks %s:\n%s", want, sent)
+		}
+	}
+	swap := listeners(js, "htmx:beforeSwap")
+	if len(swap) != 1 || !strings.Contains(swap[0], "xhr.pollSeq !== actionSeq") || !strings.Contains(swap[0], "shouldSwap = false") {
+		t.Errorf("the htmx:beforeSwap listener does not drop a late poll answer:\n%v", swap)
+	}
+	if strings.Contains(js, "htmx:abort") {
+		t.Error("app.js aborts a request, which htmx logs as an error")
 	}
 }
 

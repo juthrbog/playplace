@@ -51,9 +51,11 @@ func TestBusyButtonsNameTheirVerb(t *testing.T) {
 }
 
 // A busy button keeps its variant colors. The busy rules change only the
-// pointer and which word shows, and only on the busy button itself.
+// pointer and which word shows, and only on the busy button itself. The
+// word rules only lay the two words out in one cell.
 func TestBusyKeepsTheVariantColors(t *testing.T) {
 	const busy = ":is(button, .btn)[aria-busy=true]"
+	layout := map[string]bool{"display": true, "grid-area": true, "visibility": true, "justify-content": true, "justify-self": true, "width": true, "white-space": true, "translate": true}
 	var busyRules, wordRules int
 	for _, r := range cssRuleSets(t) {
 		for _, sel := range r.sels {
@@ -71,8 +73,8 @@ func TestBusyKeepsTheVariantColors(t *testing.T) {
 			if strings.Contains(sel, ".word") || strings.Contains(sel, ".busy") {
 				wordRules++
 				for prop := range r.decls {
-					if prop != "display" && prop != "grid-area" && prop != "visibility" {
-						t.Errorf("%s sets %s, want only display, grid-area or visibility", sel, prop)
+					if !layout[prop] {
+						t.Errorf("%s sets %s, want only layout properties", sel, prop)
 					}
 				}
 			}
@@ -81,6 +83,23 @@ func TestBusyKeepsTheVariantColors(t *testing.T) {
 	if busyRules < 3 || wordRules < 5 {
 		t.Fatalf("found %d busy selectors and %d word selectors, want at least 3 and 5", busyRules, wordRules)
 	}
+}
+
+// The busy verb takes no width in the word cell, so a button at rest is as
+// wide as its word, and the pending table fits at 1440 as it did before the
+// busy verbs. The verb is centered and spills into the side padding.
+func TestBusyVerbTakesNoWidth(t *testing.T) {
+	for _, r := range cssRuleSets(t) {
+		if len(r.sels) == 1 && r.sels[0] == ".word > .busy" && r.decls["width"] != "" {
+			for prop, want := range map[string]string{"width": "0", "justify-self": "center", "justify-content": "center", "white-space": "nowrap"} {
+				if r.decls[prop] != want {
+					t.Errorf(".word > .busy sets %s: %q, want %q", prop, r.decls[prop], want)
+				}
+			}
+			return
+		}
+	}
+	t.Fatal("app.css has no .word > .busy rule that sets the width of the busy verb")
 }
 
 // The disabled look sits in the last layer, so it beats every button
@@ -147,27 +166,55 @@ func TestBusyStateLivesInAppJS(t *testing.T) {
 	}
 }
 
-// A decision takes its row out of the pending card. Each form that does so
-// names its action, so app.js can put the focus on the same button of the
-// next row, and the heading can take the focus when the card is empty.
+// Every control whose answer takes the focused button away names its
+// action: a decision takes its row out of the pending card, Edit, Save and
+// Cancel swap the row type, and Close takes the buttons of the account row
+// away. app.js then puts the focus on the next control in that row, or on
+// the same button of the next row, and the heading takes the focus when
+// the card is empty.
 func TestFocusHasAPlaceAfterARowLeaves(t *testing.T) {
 	ts, _ := newServer(t)
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"bobs-box"}}, true)
 	_, home := do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
-	for _, action := range []string{"approve", "deny", "withdraw"} {
-		re := regexp.MustCompile(`<form class="inline" hx-post="/requests/bobs-box/` + action + `"[^>]*>`)
-		if tag := re.FindString(home); !strings.HasSuffix(tag, ` data-action="`+action+`">`) {
-			t.Errorf("the %s form does not end with its data-action: %q", action, tag)
+	_, edit := do(t, ts, "GET", "/requests/bobs-box/edit", "ops@example.com", true, nil, true)
+	for _, tc := range []struct {
+		action, body, tag string
+	}{
+		{"approve", home, `<form class="inline" hx-post="/requests/bobs-box/approve"[^>]*>`},
+		{"deny", home, `<form class="inline" hx-post="/requests/bobs-box/deny"[^>]*>`},
+		{"withdraw", home, `<form class="inline" hx-post="/requests/bobs-box/withdraw"[^>]*>`},
+		{"edit", home, `<button hx-get="/requests/bobs-box/edit"[^>]*>`},
+		{"save", edit, `<form hx-post="/requests/bobs-box/edit"[^>]*>`},
+		{"cancel", edit, `<button type="button" hx-get="/requests/bobs-box/row"[^>]*>`},
+		{"close", home, `<form class="inline" hx-post="/accounts/111111111111/close"[^>]*>`},
+	} {
+		if tag := regexp.MustCompile(tc.tag).FindString(tc.body); !strings.HasSuffix(tag, ` data-action="`+tc.action+`">`) {
+			t.Errorf("the %s control does not end with its data-action: %q", tc.action, tag)
 		}
 	}
 	if !strings.Contains(home, `<h2 id="pending-title" tabindex="-1">`) {
 		t.Error("the pending heading cannot take the focus")
 	}
-	settle := listeners(staticText(t, "app.js"), "htmx:afterSettle")
+	js := staticText(t, "app.js")
+	// Each action names the control that takes the focus after its answer.
+	for _, want := range []string{
+		`approve: 'form[data-action="approve"] button'`,
+		`deny: 'form[data-action="deny"] button'`,
+		`withdraw: 'form[data-action="withdraw"] button'`,
+		`edit: "form[data-editing] input:not([type=hidden])"`,
+		`save: 'button[data-action="edit"]'`,
+		`cancel: 'button[data-action="edit"]'`,
+		`close: "td a"`,
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js lacks the focus target %s", want)
+		}
+	}
+	settle := listeners(js, "htmx:afterSettle")
 	if len(settle) != 1 {
 		t.Fatalf("app.js has %d htmx:afterSettle listeners, want 1", len(settle))
 	}
-	for _, want := range []string{"ev.detail.xhr !== leaving.xhr", "document.activeElement !== document.body", `form[data-action="`, `getElementById("pending-title")`, "rows.length - 1"} {
+	for _, want := range []string{"ev.detail.xhr !== leaving.xhr", "document.activeElement !== document.body", "document.getElementById(was.row)", "row.querySelector(was.want)", `getElementById("pending-title")`, "rows.length - 1"} {
 		if !strings.Contains(settle[0], want) {
 			t.Errorf("the focus move lacks %s", want)
 		}

@@ -537,11 +537,16 @@ inline style, inline script or inline event handler. Page behaviour lives in
 
 `app.js` holds the htmx morph extension. The extension uses idiomorph to
 merge each answer into the page, so focus, scroll and open forms stay. Every
-page has one live region (the `#notice` element at the top of `<main>`,
-with `aria-live="polite"`). Each action writes a short result message into
-it. A refusal fills its slot under the form or in the pending card, and
-writes a hidden copy of the same text into the region. While a request runs, its button sets
-`aria-busy` and shows its verb in progress, for example Approving. The home
+page has one live region, the `#notice` element with `aria-live="polite"`.
+The home page holds it in the pending card, under the card heading, so an
+approver who arrives from the `BASE/#pending` link sees each result. Every
+other page holds it at the top of `<main>`. Each action writes a short
+result message into it. A refusal fills its slot under the form or in the
+pending card, and writes a hidden copy of the same text into the region.
+While a request runs, its button sets `aria-busy` and shows its verb in
+progress, for example Approving. When an answer takes the focused button
+out of the page, `app.js` moves the focus to the next control of that row,
+or to the same button on the next row. The home
 page polls `GET /accounts` every 15 seconds. The poll sends the
 `X-Poll-Hash` header with the hash of what the page shows. If nothing
 changed, the server answers 204 No Content and the page stays as it is.

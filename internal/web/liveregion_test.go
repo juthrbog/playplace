@@ -14,9 +14,16 @@ import (
 	"playplace/internal/core"
 )
 
-// regionStart is the start of main on every page: the empty live region
-// comes first.
-const regionStart = `<main><p id="notice" class="notice" role="status" aria-live="polite"></p>`
+// emptyRegion is the live region as a page renders it.
+const emptyRegion = `<p id="notice" class="notice" role="status" aria-live="polite"></p>`
+
+// regionStart is the start of main on every page but home: the empty live
+// region comes first.
+const regionStart = `<main>` + emptyRegion
+
+// cardRegion is the live region of the home page: in the pending card, under
+// its head and above the refusal slot of the card.
+var cardRegion = regexp.MustCompile(`<section id="pending" class="panel" aria-labelledby="pending-title">(?:<!--.*?-->)?<div class="panel-head">.*?</div>` + regexp.QuoteMeta(emptyRegion) + `<div id="pending-error" class="refusal"></div>`)
 
 var (
 	otherLiveRoles = regexp.MustCompile(`role="(alert|log|timer|marquee)"`)
@@ -39,9 +46,10 @@ func (incompleteHistory) Search(context.Context, audit.Filter) (audit.Page, erro
 	return audit.Page{Incomplete: true, Events: []core.AuditEvent{{ID: "e1", JourneyID: "new-journey", At: t0, Event: "requested", Message: "asked"}}}, nil
 }
 
-// Every page has one live region, the empty notice at the top of main. The
-// other notes on a page are not live, so a screen reader hears each message
-// once and from one place.
+// Every page has one live region, the empty notice. The home page holds it
+// in the pending card, next to the decisions, and every other page at the
+// top of main. The other notes on a page are not live, so a screen reader
+// hears each message once and from one place.
 func TestOnePoliteLiveRegionPerPage(t *testing.T) {
 	ts, _ := newServer(t)
 	page := func(path, user string, admin bool, want int) string {
@@ -63,16 +71,17 @@ func TestOnePoliteLiveRegionPerPage(t *testing.T) {
 
 	for _, tc := range []struct {
 		name, body, holds string
+		home              bool
 	}{
-		{"admin home", page("/", "ops@example.com", true, http.StatusOK), `id="pending"`},
-		{"engineer home", page("/", "anna@example.com", false, http.StatusOK), `id="form-error"`},
-		{"admin account page", page("/accounts/111111111111", "ops@example.com", true, http.StatusOK), `id="form-error"`},
-		{"bad history cursor", journey(&audit.Memory{}, "/accounts/111111111111?history_cursor=bad"), "Invalid history cursor"},
-		{"history unavailable", journey(unavailableHistory{}, "/accounts/111111111111"), "History is unavailable"},
-		{"history incomplete", journey(incompleteHistory{}, "/accounts/111111111111"), "History is incomplete: some stored records"},
-		{"not found", page("/nope", "anna@example.com", false, http.StatusNotFound), "Page not found"},
-		{"forbidden", page("/accounts/222222222222", "anna@example.com", false, http.StatusForbidden), "Not allowed"},
-		{"sign-in error", rec.Body.String(), "Sign-in failed"},
+		{"admin home", page("/", "ops@example.com", true, http.StatusOK), `id="pending"`, true},
+		{"engineer home", page("/", "anna@example.com", false, http.StatusOK), `id="form-error"`, true},
+		{"admin account page", page("/accounts/111111111111", "ops@example.com", true, http.StatusOK), `id="form-error"`, false},
+		{"bad history cursor", journey(&audit.Memory{}, "/accounts/111111111111?history_cursor=bad"), "Invalid history cursor", false},
+		{"history unavailable", journey(unavailableHistory{}, "/accounts/111111111111"), "History is unavailable", false},
+		{"history incomplete", journey(incompleteHistory{}, "/accounts/111111111111"), "History is incomplete: some stored records", false},
+		{"not found", page("/nope", "anna@example.com", false, http.StatusNotFound), "Page not found", false},
+		{"forbidden", page("/accounts/222222222222", "anna@example.com", false, http.StatusForbidden), "Not allowed", false},
+		{"sign-in error", rec.Body.String(), "Sign-in failed", false},
 	} {
 		// Each page shows the note it is chosen for, so the checks below
 		// run on that note.
@@ -80,7 +89,10 @@ func TestOnePoliteLiveRegionPerPage(t *testing.T) {
 			t.Errorf("%s: the page lacks %q:\n%s", tc.name, tc.holds, tc.body)
 			continue
 		}
-		if !strings.Contains(tc.body, regionStart) {
+		if tc.home && (strings.Contains(tc.body, regionStart) || !cardRegion.MatchString(tc.body)) {
+			t.Errorf("%s: the empty live region is not in the pending card, under its head:\n%s", tc.name, tc.body)
+		}
+		if !tc.home && !strings.Contains(tc.body, regionStart) {
 			t.Errorf("%s: main does not start with the empty live region:\n%s", tc.name, tc.body)
 		}
 		for attr, want := range map[string]int{`id="notice"`: 1, "aria-live=": 1, `aria-live="polite"`: 1, `role="status"`: 1, "<output": 0} {
@@ -96,12 +108,13 @@ func TestOnePoliteLiveRegionPerPage(t *testing.T) {
 
 // The answers write into the region node, never over it, so the node with
 // its role stays and screen readers keep following it. A refusal slot keeps
-// its class the same way.
+// its class the same way. A pending card in an answer holds the empty
+// region, which app.js keeps as it is on the page.
 func TestMessagesWriteIntoTheRegionNode(t *testing.T) {
 	ts, _ := newServer(t)
 	_, sync := do(t, ts, "POST", "/refresh", "ops@example.com", true, url.Values{}, true)
 	syncIcon := `<svg class="i" aria-hidden="true" focusable="false"><use href="#i-sync"></use></svg>`
-	if m := regionPart.FindStringSubmatch(sync); m == nil || !strings.HasPrefix(m[1], syncIcon+"<span>synced") {
+	if m := regionPart.FindStringSubmatch(sync); m == nil || !strings.HasPrefix(m[1], syncIcon+"<span>Synced with AWS") {
 		t.Errorf("the Sync answer does not write its message with the sync icon into the region:\n%s", sync)
 	}
 	_, refused := do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"Bad Name"}}, true)
@@ -112,7 +125,7 @@ func TestMessagesWriteIntoTheRegionNode(t *testing.T) {
 		if regexp.MustCompile(`<[^>]+id="(notice|form-error|pending-error)"[^>]*hx-swap-oob="true"`).MatchString(body) {
 			t.Errorf("an answer replaces the region or a slot node:\n%s", body)
 		}
-		if strings.Contains(body, `class="notice"`) || strings.Contains(body, `class="refusal" hx-swap-oob`) {
+		if strings.Contains(strings.ReplaceAll(body, emptyRegion, ""), `class="notice"`) || strings.Contains(body, `class="refusal" hx-swap-oob`) {
 			t.Errorf("an answer carries the class of a node it writes into:\n%s", body)
 		}
 	}
@@ -153,7 +166,7 @@ func TestActionsAnswerInTheRegion(t *testing.T) {
 		if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
 			t.Fatalf("%s = %d %v\n%s", tc.path, res.StatusCode, res.Header, body)
 		}
-		if n := strings.Count(body, `id="notice"`); n != 1 {
+		if n := len(regionPart.FindAllString(body, -1)); n != 1 {
 			t.Errorf("%s: the answer writes the region %d times, want once", tc.path, n)
 		}
 		if m := regionPart.FindStringSubmatch(body); m == nil || m[1] != check+"<span>"+tc.msg+"</span>" {
@@ -197,7 +210,7 @@ func TestRefusalsAlsoReachTheRegion(t *testing.T) {
 		if slot == nil || region == nil || slot[1] != tc.slot || slot[2] == "" || slot[2] != region[1] {
 			t.Errorf("%s: want the refusal in %s and the same text hidden in the region:\n%s", tc.name, tc.slot, body)
 		}
-		if n := strings.Count(body, `id="notice"`); n != 1 {
+		if n := len(regionPart.FindAllString(body, -1)); n != 1 {
 			t.Errorf("%s: the answer writes the region %d times, want once", tc.name, n)
 		}
 	}
@@ -242,7 +255,7 @@ func TestFieldRefusalsNameTheirInput(t *testing.T) {
 }
 
 // The poll runs every 15 seconds without the viewer doing anything, so it
-// never speaks.
+// never speaks. Its pending card holds only the empty region node.
 func TestPollNeverSpeaks(t *testing.T) {
 	ts, _ := newServer(t)
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"bobs-box"}}, true)
@@ -250,7 +263,7 @@ func TestPollNeverSpeaks(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(body, `<section id="accounts"`) {
 		t.Fatalf("poll = %d:\n%s", res.StatusCode, body)
 	}
-	if strings.Contains(body, `id="notice"`) {
+	if regionPart.MatchString(body) || strings.Count(body, `id="notice"`) != strings.Count(body, emptyRegion) {
 		t.Errorf("the poll writes into the live region:\n%s", body)
 	}
 }

@@ -72,6 +72,24 @@ func TestWrongMethodStays405(t *testing.T) {
 	}
 }
 
+// The message is the title of the note, so a fragment becomes a sentence
+// like the recovery under it.
+func TestErrorPageMessageIsASentence(t *testing.T) {
+	for in, want := range map[string]string{
+		"that account belongs to someone else": "That account belongs to someone else.",
+		"bad duration xyz":                     "Bad duration xyz.",
+		"There is no page at this address.":    "There is no page at this address.",
+		"why not?":                             "Why not?",
+		"ärger ahead!":                         "Ärger ahead!",
+		" padded ":                             "Padded.",
+		"":                                     "",
+	} {
+		if got := sentence(in); got != want {
+			t.Errorf("sentence(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestRefusalsWithoutHTMXAreStyledPages(t *testing.T) {
 	ts, _ := newServer(t)
 	for _, c := range []struct {
@@ -82,15 +100,15 @@ func TestRefusalsWithoutHTMXAreStyledPages(t *testing.T) {
 	}{
 		{"another's account", "GET", "/accounts/222222222222", nil, http.StatusForbidden, []string{
 			`<title>Not allowed · playplace</title>`,
-			note("that account belongs to someone else", "Go back to Home to see your own accounts."),
+			note("That account belongs to someone else.", "Go back to Home to see your own accounts."),
 		}},
 		{"an unknown account", "GET", "/accounts/999999999999", nil, http.StatusNotFound, []string{
 			`<title>Account not found · playplace</title>`,
 			note("No account matches 999999999999.", "Go back to Home to see the accounts you can open."),
 		}},
 		{"a bad extend", "POST", "/accounts/111111111111/extend", url.Values{"by": {"xyz"}}, http.StatusBadRequest, []string{
-			`<title>Not done · playplace</title>`,
-			note("bad duration xyz", "Go back to Home and try again."),
+			`<title>Action refused · playplace</title>`,
+			note("Bad duration xyz.", "Go back to Home and try again."),
 		}},
 	} {
 		res, body := do(t, ts, c.method, c.path, "anna@example.com", false, c.form, false)
@@ -106,7 +124,9 @@ func TestRefusalsWithoutHTMXAreStyledPages(t *testing.T) {
 }
 
 // TestForbiddenNamesTheRule checks every 403 reason. The htmx answer puts the
-// reason in the refusal slot, and the page names it with its recovery.
+// reason in the refusal slot beside the control: the pending card for a
+// /requests/{name}/... route, and the form slot for the others. The page
+// names it as a sentence with its recovery.
 func TestForbiddenNamesTheRule(t *testing.T) {
 	ts, _ := newServer(t)
 	if res, body := do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"bobs-req"}}, true); res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
@@ -119,25 +139,25 @@ func TestForbiddenNamesTheRule(t *testing.T) {
 		name, method, path, user string
 		approver                 bool
 		form                     url.Values
-		why, recovery            string
+		why, recovery, slot      string
 	}{
-		{"approve by an engineer", "POST", "/requests/bobs-req/approve", "anna@example.com", false, version, approversOnly, home403},
-		{"deny by an engineer", "POST", "/requests/bobs-req/deny", "anna@example.com", false, version, approversOnly, home403},
-		{"edit form by an approver", "GET", "/requests/bobs-req/edit", "lead@example.com", true, nil, adminsEditOnly, home403},
-		{"edit save by an approver", "POST", "/requests/bobs-req/edit", "lead@example.com", true, version, adminsEditOnly, home403},
-		{"row by a stranger", "GET", "/requests/bobs-req/row", "sam@example.com", false, nil, notYourRequest, "Go back to Home to see your own requests."},
-		{"withdraw by a stranger", "POST", "/requests/bobs-req/withdraw", "sam@example.com", false, version, cannotWithdraw, home403},
-		{"another's account", "GET", "/accounts/222222222222", "anna@example.com", false, nil, notYourAccount, "Go back to Home to see your own accounts."},
-		{"sync by an engineer", "POST", "/refresh", "anna@example.com", false, url.Values{}, "only admins can sync with AWS", home403},
-		{"budget by an engineer", "POST", "/accounts/111111111111/budget", "anna@example.com", false, url.Values{"budget": {"60"}, "reason": {"more"}}, "only admins can change existing account budgets", home403},
+		{"approve by an engineer", "POST", "/requests/bobs-req/approve", "anna@example.com", false, version, approversOnly, home403, "pending-error"},
+		{"deny by an engineer", "POST", "/requests/bobs-req/deny", "anna@example.com", false, version, approversOnly, home403, "pending-error"},
+		{"edit form by an approver", "GET", "/requests/bobs-req/edit", "lead@example.com", true, nil, adminsEditOnly, home403, "pending-error"},
+		{"edit save by an approver", "POST", "/requests/bobs-req/edit", "lead@example.com", true, version, adminsEditOnly, home403, "pending-error"},
+		{"row by a stranger", "GET", "/requests/bobs-req/row", "sam@example.com", false, nil, notYourRequest, "Go back to Home to see your own requests.", "pending-error"},
+		{"withdraw by a stranger", "POST", "/requests/bobs-req/withdraw", "sam@example.com", false, version, cannotWithdraw, home403, "pending-error"},
+		{"another's account", "GET", "/accounts/222222222222", "anna@example.com", false, nil, notYourAccount, "Go back to Home to see your own accounts.", "form-error"},
+		{"sync by an engineer", "POST", "/refresh", "anna@example.com", false, url.Values{}, "only admins can sync with AWS", home403, "form-error"},
+		{"budget by an engineer", "POST", "/accounts/111111111111/budget", "anna@example.com", false, url.Values{"budget": {"60"}, "reason": {"more"}}, "only admins can change existing account budgets", home403, "form-error"},
 	} {
 		res, body := doAs(t, ts, c.method, c.path, c.user, false, c.approver, c.form, true)
-		if res.StatusCode != http.StatusForbidden || !strings.Contains(body, `<span>`+c.why+`</span>`) {
-			t.Fatalf("%s (htmx) = %d, want 403 with %q:\n%s", c.name, res.StatusCode, c.why, body)
+		if res.StatusCode != http.StatusForbidden || !strings.Contains(body, `<div id="`+c.slot+`" hx-swap-oob="innerHTML">`+alertIcon+`<span>`+c.why+`</span></div>`) {
+			t.Fatalf("%s (htmx) = %d, want 403 with %q in %s:\n%s", c.name, res.StatusCode, c.why, c.slot, body)
 		}
 		res, body = doAs(t, ts, c.method, c.path, c.user, false, c.approver, c.form, false)
-		if res.StatusCode != http.StatusForbidden || !strings.Contains(body, note(c.why, c.recovery)) {
-			t.Fatalf("%s = %d, want the 403 page with %q and %q:\n%s", c.name, res.StatusCode, c.why, c.recovery, body)
+		if res.StatusCode != http.StatusForbidden || !strings.Contains(body, note(sentence(c.why), c.recovery)) {
+			t.Fatalf("%s = %d, want the 403 page with %q and %q:\n%s", c.name, res.StatusCode, sentence(c.why), c.recovery, body)
 		}
 	}
 }
@@ -155,7 +175,7 @@ func TestSignInErrorsAreStyledPages(t *testing.T) {
 		t.Fatalf("callback without a flow = %d %q, want a 400 page", rec.Code, rec.Header().Get("Content-Type"))
 	}
 	if !signedOutShell.MatchString(body) || !strings.Contains(body, `<title>Sign-in failed · playplace</title>`) ||
-		!strings.Contains(body, note("sign-in expired, start again", signInAgain)) || !strings.Contains(body, `<a class="btn btn-primary" href="/auth/login">Sign in again</a>`) {
+		!strings.Contains(body, note("Your sign-in expired.", signInAgain)) || !strings.Contains(body, `<a class="btn btn-primary" href="/auth/login">Sign in again</a>`) {
 		t.Fatalf("the sign-in error page should have the brand-only shell, the note and the way back:\n%s", body)
 	}
 	for _, bad := range []string{"Sign out", `class="nav"`, "New request", "menu-toggle"} {
@@ -174,7 +194,7 @@ func TestSignInErrorsAreStyledPages(t *testing.T) {
 	rec = httptest.NewRecorder()
 	a.callback(rec, req)
 	body = rec.Body.String()
-	if rec.Code != http.StatusUnauthorized || !strings.Contains(body, "provider refused: &lt;b&gt;x&lt;/b&gt;") || strings.Contains(body, "<b>x</b>") {
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(body, note("The sign-in provider refused the sign-in (&lt;b&gt;x&lt;/b&gt;).", signInAgain)) || strings.Contains(body, "<b>x</b>") {
 		t.Fatalf("provider error = %d, want it escaped:\n%s", rec.Code, body)
 	}
 }
@@ -228,10 +248,10 @@ func TestSignInErrorsNameTheRecovery(t *testing.T) {
 		code          int
 		msg, recovery string
 	}{
-		{"nonce", map[string]any{"email": "ok@example.com", "nonce": "other"}, http.StatusUnauthorized, "nonce mismatch", signInAgain},
-		{"no email", map[string]any{}, http.StatusUnauthorized, "id token has no email claim", "Sign in with an account that has an email address."},
-		{"unverified", map[string]any{"email": "ok@example.com", "email_verified": false}, http.StatusUnauthorized, "email is not verified at the provider", "Verify your email at the provider, then sign in again."},
-		{"other domain", map[string]any{"email": "ok@other.test"}, http.StatusForbidden, "this sign-in is limited to example.com", "Sign in with an account at example.com."},
+		{"nonce", map[string]any{"email": "ok@example.com", "nonce": "other"}, http.StatusUnauthorized, signInMismatch, signInAgain},
+		{"no email", map[string]any{}, http.StatusUnauthorized, "The sign-in provider did not send an email address.", "Sign in with an account that has an email address."},
+		{"unverified", map[string]any{"email": "ok@example.com", "email_verified": false}, http.StatusUnauthorized, "The sign-in provider has not verified your email address.", "Verify your email at the provider, then sign in again."},
+		{"other domain", map[string]any{"email": "ok@other.test"}, http.StatusForbidden, "Only accounts at example.com can sign in.", "Sign in with an account at example.com."},
 	} {
 		rec := signIn(c.claims)
 		if body := rec.Body.String(); rec.Code != c.code || !strings.Contains(body, note(c.msg, c.recovery)) || !signedOutShell.MatchString(body) {

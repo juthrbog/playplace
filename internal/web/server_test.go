@@ -189,9 +189,10 @@ func TestEmptyAccountsPanelHasNoTable(t *testing.T) {
 	}
 }
 
-// A failed load is not an empty fleet. The panel names the problem in its
-// own note, shows no count and says that the list is unavailable. The
-// section still polls, so the next good poll fills it and clears the note.
+// A failed load is not an empty fleet. The panel has its own note: the
+// problem as the title, then the error and the recovery. It shows no count.
+// The section still polls, so the next good poll fills it and clears the
+// note.
 func TestFailedAccountLoadIsNotAnEmptyFleet(t *testing.T) {
 	pg := page{Viewer: Viewer{Email: "nobody@example.com"}, SignIn: true, Limits: core.DefaultConfig()}
 	render := func(errMsg string) (string, string) {
@@ -208,15 +209,14 @@ func TestFailedAccountLoadIsNotAnEmptyFleet(t *testing.T) {
 		return out.String(), section
 	}
 
-	body, section := render("list accounts: AccessDenied")
-	if !strings.Contains(body, "list accounts: AccessDenied") {
-		t.Errorf("the page error is missing:\n%s", body)
+	_, section := render("list accounts: AccessDenied")
+	want := `<div id="accounts-error" class="refusal">` + alertIcon + `<div class="note-text"><p class="note-title">The account list is unavailable.</p>` +
+		`<p class="note-body">List accounts: AccessDenied. The page tries again every 15 seconds.</p></div></div>`
+	if !strings.Contains(section, want) {
+		t.Errorf("the panel does not name the problem, the error and the recovery in its own note:\n%s", section)
 	}
-	if !strings.Contains(section, `<div id="accounts-error" class="refusal">`) || !strings.Contains(section, "<span>list accounts: AccessDenied</span>") {
-		t.Errorf("the error is not in the panel's own note:\n%s", section)
-	}
-	if !strings.Contains(section, `<p class="empty">The account list is unavailable. The page tries again every 15 seconds.</p>`) {
-		t.Errorf("the panel does not say that the list is unavailable:\n%s", section)
+	if strings.Contains(section, `<p class="empty">`) {
+		t.Errorf("the failed panel repeats the problem outside its note:\n%s", section)
 	}
 	for _, bad := range []string{"(0)", "No open accounts.", "No accounts.", "<table"} {
 		if strings.Contains(section, bad) {
