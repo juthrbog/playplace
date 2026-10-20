@@ -7,12 +7,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"playplace/internal/core"
@@ -32,6 +34,10 @@ type Slack struct {
 
 	svc *core.Service
 	log *slog.Logger
+	// decisions counts the clicks that still decide. A click answers Slack
+	// at once and decides after the answer, so the stop of the HTTP server
+	// does not wait for it. wait does.
+	decisions sync.WaitGroup
 }
 
 func (s *Slack) client() *http.Client {
@@ -55,31 +61,20 @@ func (s *Slack) postRequest(ctx context.Context, q core.Request) error {
 	if s.BaseURL != "" {
 		text += fmt.Sprintf("\n<%s/#pending|Open in playplace>", strings.TrimRight(s.BaseURL, "/"))
 	}
+	value := refValue(q.Ref())
 	msg := map[string]any{
 		"channel": s.Channel,
 		"text":    "Playground account requested: " + q.Name,
 		"blocks": []any{
 			map[string]any{"type": "section", "text": map[string]any{"type": "mrkdwn", "text": text}},
 			map[string]any{"type": "actions", "elements": []any{
-				map[string]any{"type": "button", "action_id": "approve", "value": buttonValue(q), "style": "primary", "text": map[string]any{"type": "plain_text", "text": "Approve"}},
-				map[string]any{"type": "button", "action_id": "deny", "value": buttonValue(q), "style": "danger", "text": map[string]any{"type": "plain_text", "text": "Deny"},
+				map[string]any{"type": "button", "action_id": "approve", "value": value, "style": "primary", "text": map[string]any{"type": "plain_text", "text": "Approve"}},
+				map[string]any{"type": "button", "action_id": "deny", "value": value, "style": "danger", "text": map[string]any{"type": "plain_text", "text": "Deny"},
 					"confirm": map[string]any{"title": map[string]any{"type": "plain_text", "text": "Deny " + q.Name + "?"}, "text": map[string]any{"type": "mrkdwn", "text": "playplace will send a notice that it was denied."}, "confirm": map[string]any{"type": "plain_text", "text": "Deny"}, "deny": map[string]any{"type": "plain_text", "text": "Keep"}}},
 			}},
 		},
 	}
 	return s.api(ctx, "chat.postMessage", msg, nil)
-}
-
-// buttonValue binds a button to the request version its message shows. The
-// message is never updated, so after an edit or a resubmission the click is
-// refused instead of acting on values the clicker did not see.
-func buttonValue(q core.Request) string { return q.Name + " " + q.Version() }
-
-// parseButtonValue reads buttonValue. Names have no spaces. A value without
-// a version comes from a message posted before versions existed.
-func parseButtonValue(v string) (core.RequestRef, bool) {
-	name, version, ok := strings.Cut(v, " ")
-	return core.RequestRef{Name: name, Version: version}, ok && name != "" && version != ""
 }
 
 // interact handles block_actions from Slack: verify the signature, map the
@@ -113,7 +108,24 @@ func (s *Slack) interact(w http.ResponseWriter, r *http.Request) {
 	// Slack wants a fast 200; do the work and report through response_url.
 	w.WriteHeader(http.StatusOK)
 	act := payload.Actions[0]
-	go func() {
+	path := r.URL.Path
+	// refused replies with the text of refusal for err, after the outcome.
+	// The log holds the raw error. A message in Slack never changes, so a
+	// changed request gets a reply that points to the web UI. An own request
+	// gets the words of the web UI.
+	refused := func(ctx context.Context, outcome string, ref core.RequestRef, err error) {
+		s.log.Warn("slack action failed", "path", path, "action", act.ActionID, "request", ref.Name, "err", err)
+		text := outcome + " " + refusal(err, ref.Name)
+		var self core.SelfApprovalError
+		switch {
+		case errors.Is(err, core.ErrRequestChanged):
+			text = outcome + " " + ref.Name + " changed after playplace posted this message. Open playplace to read the new values."
+		case errors.As(err, &self):
+			text = ownRequest(act.ActionID, self.WouldOwn)
+		}
+		s.respond(ctx, payload.ResponseURL, text, true)
+	}
+	s.decisions.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		email, err := s.userEmail(ctx, payload.User.ID)
@@ -125,7 +137,7 @@ func (s *Slack) interact(w http.ResponseWriter, r *http.Request) {
 			s.respond(ctx, payload.ResponseURL, email+" is not an approver.", true)
 			return
 		}
-		ref, ok := parseButtonValue(act.Value)
+		ref, ok := parseRefValue(act.Value)
 		if !ok {
 			s.respond(ctx, payload.ResponseURL, "This message is from an older playplace and cannot show whether the request changed since. Open playplace to act on it.", true)
 			return
@@ -134,18 +146,33 @@ func (s *Slack) interact(w http.ResponseWriter, r *http.Request) {
 		case "approve":
 			a, err := s.svc.Approve(ctx, ref, email)
 			if err != nil {
-				s.respond(ctx, payload.ResponseURL, "Approve failed: "+err.Error(), true)
+				refused(ctx, "Not approved.", ref, err)
 				return
 			}
 			s.respond(ctx, payload.ResponseURL, fmt.Sprintf(":white_check_mark: *%s* approved `%s` for %s. AWS is creating it.", email, a.Name, a.Owner), false)
 		case "deny":
 			if err := s.svc.Deny(ctx, ref, email, "denied in Slack"); err != nil {
-				s.respond(ctx, payload.ResponseURL, "Deny failed: "+err.Error(), true)
+				refused(ctx, "Not denied.", ref, err)
 				return
 			}
 			s.respond(ctx, payload.ResponseURL, fmt.Sprintf(":no_entry: *%s* denied `%s`.", email, ref.Name), false)
 		}
+	})
+}
+
+// wait waits until every click that decides has ended, or until ctx ends.
+// The caller stops the HTTP server first, so no new click starts a decision
+// during the wait.
+func (s *Slack) wait(ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		s.decisions.Wait()
+		close(done)
 	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
 }
 
 // verify checks Slack's v0 request signature and rejects replays older than 5 minutes.

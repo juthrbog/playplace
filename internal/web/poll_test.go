@@ -149,7 +149,7 @@ func TestActionAnswersCarryTheNextPollHash(t *testing.T) {
 		{"extend", "/accounts/111111111111/extend", "/accounts", "anna@example.com", false, false, url.Values{}},
 		{"extend, closed shown", "/accounts/111111111111/extend", "/accounts?all=1", "anna@example.com", false, false, url.Values{"all": {"1"}}},
 		{"close", "/accounts/111111111111/close", "/accounts", "anna@example.com", false, false, url.Values{}},
-		{"approve", "/requests/bobs-box/approve", "/accounts", "lead@example.com", false, true, versionIn(t, home, "bobs-box")},
+		{"approve", "/requests/bobs-box/approve", "/accounts", "lead@example.com", false, true, refForm(refIn(t, home, "bobs-box"))},
 		{"sync", "/refresh", "/accounts", "ops@example.com", true, true, url.Values{}},
 	} {
 		res, body := doAs(t, ts, "POST", tc.path, tc.who, tc.admin, tc.approver, tc.form, true)
@@ -196,12 +196,12 @@ func (p *flakyList) ListPlaygroundAccounts(ctx context.Context) ([]core.RemoteAc
 	return p.Provider.ListPlaygroundAccounts(ctx)
 }
 
-// A failed poll shows the failed panel inside the section, with the error,
-// and never a refusal under New request. It leaves out the pending card and
-// the count, so the page keeps what it shows and never reads "Nothing
-// waiting". The same outage gets 204, also when the error text changes on
-// each call, and the first good poll brings the table back and drops the
-// error note.
+// A failed poll shows the failed panel inside the section, with the text for
+// a failed call to AWS, and never a refusal under New request. It leaves out
+// the pending card and the count, so the page keeps what it shows and never
+// reads "Nothing waiting". The same outage gets 204, also when the error text
+// changes on each call, and the first good poll brings the table back and
+// drops the error note.
 func TestFailedPollShowsTheUnavailablePanel(t *testing.T) {
 	flaky := &flakyList{}
 	ts, _ := newServerOn(t, func(p *fake.Provider) core.Provider { flaky.Provider = p; return flaky })
@@ -217,10 +217,16 @@ func TestFailedPollShowsTheUnavailablePanel(t *testing.T) {
 	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" || res.Header.Get("HX-Reswap") != "" || strings.Contains(body, `id="form-error"`) {
 		t.Fatalf("a failed poll is a refusal: %d %v\n%s", res.StatusCode, res.Header, body)
 	}
-	for _, want := range []string{`<div id="accounts-error" class="refusal">`, `<p class="note-title">The account list is unavailable.</p>`, `<p class="note-body">List playground accounts: AccessDenied: the role cannot list accounts, RequestID: req-`, `. The page tries again every 15 seconds.</p>`} {
+	// The page tries again by itself, so the panel never tells the person to
+	// try again.
+	for _, want := range []string{`<div id="accounts-error" class="refusal">`, `<p class="note-title">The account list is unavailable.</p>`, `<p class="note-body">The call to AWS failed. If it keeps failing, ask an admin to read the playplace log. The page tries again every 15 seconds.</p>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the failed panel lacks %s:\n%s", want, body)
 		}
+	}
+	// The raw error holds an AWS request ID, so only the log shows it.
+	if strings.Contains(body, "AccessDenied") || strings.Contains(body, "RequestID") {
+		t.Errorf("the failed panel shows the raw AWS error:\n%s", body)
 	}
 	for _, bad := range []string{"Nothing waiting", `id="pending"`, `id="queue-count"`} {
 		if strings.Contains(body, bad) {

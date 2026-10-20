@@ -141,13 +141,14 @@ func (s *Service) budgetSpec(a *Account) (BudgetSpec, error) {
 	return BudgetSpec{LimitUSD: a.BudgetUSD, Email: s.cfg.AlertEmail, PolicyID: s.cfg.BudgetPolicyID, RoleARN: s.cfg.BudgetActionRole, Recovery: r, Now: s.Now()}, err
 }
 
-// protectionSettleAlert is how long protection can stay settling, that is in a
+// ProtectionSettleAlert is how long protection can stay settling, that is in a
 // state that a later pass completes (setup-pending, restricting, recovering,
-// retiring), before reconciliation reports it as a failure. Normal progress
-// takes two to four passes: minutes with the serve worker, under an hour with
-// a 15-minute scheduled reconcile. The overdue error and the docs say "two
-// hours": change them together.
-const protectionSettleAlert = 2 * time.Hour
+// retiring), before reconciliation reports it as a failure. Attention uses it
+// for the settling-long kind. Normal progress takes two to four passes:
+// minutes with the serve worker, under an hour with a 15-minute scheduled
+// reconcile. The overdue error and the docs say "two hours": change them
+// together.
+const ProtectionSettleAlert = 2 * time.Hour
 
 // reconcileBudget reports settled when protection is observed configured.
 // Unsettled protection without an error is progress: callers must not grant
@@ -163,6 +164,7 @@ func (s *Service) reconcileBudget(ctx context.Context, a *Account) (settled bool
 	}
 	if err == nil {
 		p, err = s.provider.EnsureBudget(ctx, a.ProviderID, spec)
+		err = providerError("", err)
 	}
 	progress := budgetProgress{BudgetProtection: p}
 	if err == nil && p.Action != nil {
@@ -188,6 +190,7 @@ func (s *Service) retireBudget(ctx context.Context, a *Account) error {
 		err = errors.New("restore the account's budget enforcement configuration before retirement")
 	} else {
 		p.Configured, err = s.provider.RetireBudgetAction(ctx, a.ProviderID, spec)
+		err = providerError("", err)
 	}
 	if err != nil {
 		err = fmt.Errorf("budget action retirement: %w", err)
@@ -236,7 +239,7 @@ func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec B
 	}
 	if len(tags) > 0 {
 		if tagErr := s.provider.SetTags(ctx, a.ProviderID, tags); tagErr != nil {
-			return errors.Join(err, tagErr)
+			return errors.Join(err, providerError("", tagErr))
 		}
 		s.Invalidate()
 		if a.BudgetHealth != state {
@@ -244,7 +247,9 @@ func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec B
 			// Finishing setup is not news: the ready notice covers a new
 			// account, and a repaired configuration changes nothing for people.
 			if state == "error" || state == "restricted" || state == "retired" || a.BudgetHealth == "restricted" || a.BudgetHealth == "recovering" || a.BudgetHealth == "error" {
-				body := "Budget protection is " + state + ". " + message
+				// The tag and history keep message, but the notice goes to
+				// Slack, so it never holds the raw text of a failed AWS call.
+				body := "Budget protection is " + state + ". " + s.noticeText(a, err)
 				switch {
 				case a.BudgetHealth == "error" && state == "setup-pending":
 					// The step from setup-pending to ready is silent, so this
@@ -269,6 +274,8 @@ func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec B
 		}
 	}
 	if err != nil {
+		// err is a failed provider call, which is a ProviderError already, or
+		// a refusal of core. So the prefix stays a plain wrap.
 		return fmt.Errorf("budget for %s: %w", a.Name, err)
 	}
 	if p.resubmitted != "" {
@@ -283,7 +290,7 @@ func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec B
 	// the state lasts too long, so that protection that never settles still
 	// alerts.
 	since, perr := time.Parse(time.RFC3339, a.BudgetChecked)
-	if perr == nil && s.Now().Sub(since) < protectionSettleAlert {
+	if perr == nil && s.Now().Sub(since) < ProtectionSettleAlert {
 		return nil
 	}
 	return fmt.Errorf("budget for %s: protection is still %s after more than two hours (since %q). Inspect the account's budget action in AWS Budgets", a.Name, state, a.BudgetChecked)
@@ -336,7 +343,7 @@ func (s *Service) SetBudget(ctx context.Context, ref string, amount float64, act
 	if spec.Enforced() {
 		before, err := s.provider.InspectBudget(ctx, a.ProviderID, spec)
 		if err != nil {
-			return nil, fmt.Errorf("inspect budget before change: %w", err)
+			return nil, providerError("inspect budget before change", err)
 		}
 		if before.LimitUSD != a.BudgetUSD {
 			return nil, errors.New("budget amount has drifted; reconcile before changing it")
@@ -361,7 +368,7 @@ func (s *Service) SetBudget(ctx context.Context, ref string, amount float64, act
 		tags[TagBudgetRecovery] = recovery.Encode()
 	}
 	if err := s.provider.SetTags(ctx, a.ProviderID, tags); err != nil {
-		return nil, err
+		return nil, providerError("", err)
 	}
 	a.BudgetUSD = amount
 	if recovery != nil {

@@ -641,16 +641,18 @@ func showCmd(opts *options) *cobra.Command {
 				fmt.Println("note:        not yet tagged by playplace; the next refresh adopts it")
 			}
 			if acc.ProviderID != "" {
-				costs, err := a.svc.Costs(ctx, acc.ID, 30, false)
-				if err != nil {
+				if _, err := a.svc.Costs(ctx, acc.ID, 30, false); err != nil {
 					fmt.Fprintln(os.Stderr, "costs:", err)
-					fmt.Println("spend (30d): unavailable")
-				} else {
+				}
+				// A failed pull must not read as zero spend.
+				if costs, ok := a.svc.CostState(acc.ProviderID, 30); ok {
 					var total float64
 					for _, c := range costs {
 						total += c.AmountUSD
 					}
 					fmt.Printf("spend (30d): $%.2f over %d days\n", total, len(costs))
+				} else {
+					fmt.Println("spend (30d): unavailable")
 				}
 			}
 			return nil
@@ -776,7 +778,7 @@ func costsCmd(opts *options) *cobra.Command {
 			for _, acc := range accounts {
 				// A failed pull must not read as zero spend.
 				spend := "unavailable"
-				if pts, ok := a.svc.CostsCached(acc.ProviderID, days); ok {
+				if pts, ok := a.svc.CostState(acc.ProviderID, days); ok {
 					var total float64
 					for _, p := range pts {
 						total += p.AmountUSD
@@ -902,9 +904,12 @@ issuer or preset are an error.`,
 			}
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
-			errc := make(chan error, 2)
+			errc := make(chan error, 1)
 			if !noWorker {
-				go func() { errc <- worker.New(a.svc, interval, a.log).Run(ctx) }()
+				// Run returns only when ctx ends. serve then waits for the web
+				// server, which first finishes the answers in flight, such as a
+				// decision post.
+				go func() { _ = worker.New(a.svc, interval, a.log).Run(ctx) }()
 			}
 			var sl *web.Slack
 			if slack.botToken != "" || slack.signingSecret != "" {

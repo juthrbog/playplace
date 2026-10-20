@@ -20,16 +20,19 @@ import (
 	"playplace/internal/provider/fake"
 )
 
+// tweakChanged is the refusal of a stale action on the request tweak.
+const tweakChanged = "tweak changed after you loaded the page. Read the new values, then try again."
+
 // An approver's page loaded before an admin edit must not approve the new
 // values; the refusal re-renders the pending card with what is there now.
 func TestStaleApproveFromThePageIsRefused(t *testing.T) {
 	ts, prov := newServer(t)
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"tweak"}, "budget": {"20"}}, true)
 	_, page := doAs(t, ts, "GET", "/", "lead@example.com", false, true, nil, false)
-	seen := versionIn(t, page, "tweak")
+	seen := refForm(refIn(t, page, "tweak"))
 
 	_, form := do(t, ts, "GET", "/requests/tweak/edit", "ops@example.com", true, nil, true)
-	edit := versionIn(t, form, "tweak")
+	edit := refForm(refIn(t, form, "tweak"))
 	edit.Set("owner", "bob@example.com")
 	edit.Set("budget", "400")
 	if res, body := do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, edit, true); res.Header.Get("X-Form-Error") != "" {
@@ -37,7 +40,7 @@ func TestStaleApproveFromThePageIsRefused(t *testing.T) {
 	}
 
 	res, body := doAs(t, ts, "POST", "/requests/tweak/approve", "lead@example.com", false, true, seen, true)
-	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "was edited after you loaded it") || !strings.Contains(body, "$400") {
+	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, tweakChanged) || !strings.Contains(body, "$400") {
 		t.Fatalf("stale approve should be refused with the current values: %v\n%s", res.Header, body)
 	}
 	// The refusal sits in the pending card, beside the row, not under New
@@ -51,7 +54,7 @@ func TestStaleApproveFromThePageIsRefused(t *testing.T) {
 		t.Fatal("a stale approve created an account")
 	}
 	// The refreshed card carries the new version, and that click works.
-	res, _ = doAs(t, ts, "POST", "/requests/tweak/approve", "lead@example.com", false, true, versionIn(t, body, "tweak"), true)
+	res, _ = doAs(t, ts, "POST", "/requests/tweak/approve", "lead@example.com", false, true, refForm(refIn(t, body, "tweak")), true)
 	if res.Header.Get("X-Form-Error") != "" {
 		t.Fatal("approving the refreshed row should work")
 	}
@@ -66,12 +69,12 @@ func TestStaleDenyAndWithdrawFromThePageAreRefused(t *testing.T) {
 	ts, prov := newServer(t)
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"tweak"}, "budget": {"20"}}, true)
 	_, page := doAs(t, ts, "GET", "/", "lead@example.com", false, true, nil, false)
-	approverSaw := versionIn(t, page, "tweak")
+	approverSaw := refForm(refIn(t, page, "tweak"))
 	_, page = do(t, ts, "GET", "/", "bob@example.com", false, nil, false)
-	requesterSaw := versionIn(t, page, "tweak")
+	requesterSaw := refForm(refIn(t, page, "tweak"))
 
 	_, form := do(t, ts, "GET", "/requests/tweak/edit", "ops@example.com", true, nil, true)
-	edit := versionIn(t, form, "tweak")
+	edit := refForm(refIn(t, form, "tweak"))
 	edit.Set("owner", "bob@example.com")
 	edit.Set("budget", "400")
 	if res, body := do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, edit, true); res.Header.Get("X-Form-Error") != "" {
@@ -82,16 +85,18 @@ func TestStaleDenyAndWithdrawFromThePageAreRefused(t *testing.T) {
 		return err == nil
 	}
 
+	// The reason rule runs before core, so the stale deny sends a reason.
+	approverSaw.Set("reason", "no budget left")
 	res, body := doAs(t, ts, "POST", "/requests/tweak/deny", "lead@example.com", false, true, approverSaw, true)
-	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "was edited after you loaded it") || !pending() {
+	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, tweakChanged) || !pending() {
 		t.Fatalf("stale deny should be refused and keep the request: %v\n%s", res.Header, body)
 	}
 	res, body = do(t, ts, "POST", "/requests/tweak/withdraw", "bob@example.com", false, requesterSaw, true)
-	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "was edited after you loaded it") || !pending() {
+	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, tweakChanged) || !pending() {
 		t.Fatalf("stale withdraw should be refused and keep the request: %v\n%s", res.Header, body)
 	}
 	// The refreshed card carries the new version, and that click works.
-	res, body = do(t, ts, "POST", "/requests/tweak/withdraw", "bob@example.com", false, versionIn(t, body, "tweak"), true)
+	res, body = do(t, ts, "POST", "/requests/tweak/withdraw", "bob@example.com", false, refForm(refIn(t, body, "tweak")), true)
 	if res.Header.Get("X-Form-Error") != "" || pending() {
 		t.Fatalf("withdrawing the refreshed row should work: %v\n%s", res.Header, body)
 	}
@@ -104,7 +109,7 @@ func TestStaleWithdrawAfterAResubmissionIsRefusedAsStale(t *testing.T) {
 	ts, prov := newServer(t)
 	do(t, ts, "POST", "/requests", "carl@example.com", false, url.Values{"name": {"shared"}, "budget": {"20"}}, true)
 	_, page := do(t, ts, "GET", "/", "carl@example.com", false, nil, false)
-	carlSaw := versionIn(t, page, "shared")
+	carlSaw := refForm(refIn(t, page, "shared"))
 	// Carl withdraws in another tab, and bob takes the name.
 	if res, body := do(t, ts, "POST", "/requests/shared/withdraw", "carl@example.com", false, carlSaw, true); res.Header.Get("X-Form-Error") != "" {
 		t.Fatalf("withdraw = %s", body)
@@ -112,7 +117,7 @@ func TestStaleWithdrawAfterAResubmissionIsRefusedAsStale(t *testing.T) {
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"shared"}, "budget": {"30"}}, true)
 
 	res, body := do(t, ts, "POST", "/requests/shared/withdraw", "carl@example.com", false, carlSaw, true)
-	if res.StatusCode == http.StatusForbidden || res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "has changed or ended; look again") || !strings.Contains(body, `id="pending"`) {
+	if res.StatusCode == http.StatusForbidden || res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "shared changed after you loaded the page. Read the new values, then try again.") || !strings.Contains(body, `id="pending"`) {
 		t.Fatalf("a stale withdraw should be refused as stale with a fresh card: %d %v\n%s", res.StatusCode, res.Header, body)
 	}
 	if strings.Contains(body, "bob@example.com") || strings.Contains(body, `id="req-shared"`) {
@@ -123,7 +128,7 @@ func TestStaleWithdrawAfterAResubmissionIsRefusedAsStale(t *testing.T) {
 	}
 	// With the current version, a viewer who may not withdraw still gets 403.
 	_, page = do(t, ts, "GET", "/", "bob@example.com", false, nil, false)
-	if res, _ := do(t, ts, "POST", "/requests/shared/withdraw", "carl@example.com", false, versionIn(t, page, "shared"), true); res.StatusCode != http.StatusForbidden {
+	if res, _ := do(t, ts, "POST", "/requests/shared/withdraw", "carl@example.com", false, refForm(refIn(t, page, "shared")), true); res.StatusCode != http.StatusForbidden {
 		t.Fatalf("withdrawing someone else's current request = %d, want 403", res.StatusCode)
 	}
 }
@@ -191,13 +196,20 @@ func (s *slackStub) RoundTrip(r *http.Request) (*http.Response, error) {
 // slackServer runs the web server with Slack wired to a stub API.
 func slackServer(t *testing.T) (*httptest.Server, *core.Service, *fake.Provider, *Slack, *slackStub) {
 	t.Helper()
+	return slackServerOn(t, func(p *fake.Provider) core.Provider { return p }, slog.New(slog.DiscardHandler))
+}
+
+// slackServerOn is slackServer with the fake wrapped and the server log
+// written to log.
+func slackServerOn(t *testing.T, wrap func(*fake.Provider) core.Provider, log *slog.Logger) (*httptest.Server, *core.Service, *fake.Provider, *Slack, *slackStub) {
+	t.Helper()
 	prov := fake.New()
 	cfg := core.DefaultConfig()
 	cfg.InventoryTTL = 0
-	svc := core.NewService(prov, nil, cfg, nil)
+	svc := core.NewService(wrap(prov), nil, cfg, nil)
 	stub := &slackStub{responses: make(chan string, 1)}
 	sl := &Slack{SigningSecret: "s3cret", Client: &http.Client{Transport: stub}, IsApprover: func(string) bool { return true }}
-	ts := httptest.NewServer(New(svc, slog.New(slog.DiscardHandler), headerAuth{}, sl, nil).Handler())
+	ts := httptest.NewServer(New(svc, log, headerAuth{}, sl, nil).Handler())
 	t.Cleanup(ts.Close)
 	return ts, svc, prov, sl, stub
 }
@@ -206,15 +218,7 @@ func slackServer(t *testing.T) (*httptest.Server, *core.Service, *fake.Provider,
 // the reply posted to the response URL.
 func slackClick(t *testing.T, ts *httptest.Server, sl *Slack, stub *slackStub, action, value string) string {
 	t.Helper()
-	payload, _ := json.Marshal(map[string]any{"type": "block_actions", "response_url": "https://hooks.example/r",
-		"user": map[string]string{"id": "U1"}, "actions": []map[string]string{{"action_id": action, "value": value}}})
-	body := []byte("payload=" + url.QueryEscape(string(payload)))
-	stamp := strconv.FormatInt(time.Now().Unix(), 10)
-	req, _ := http.NewRequest("POST", ts.URL+"/slack/interact", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("X-Slack-Request-Timestamp", stamp)
-	req.Header.Set("X-Slack-Signature", sl.sign(stamp, body))
-	res, err := http.DefaultClient.Do(req)
+	res, err := http.DefaultClient.Do(slackClickRequest(ts.URL, sl, action, value))
 	if err != nil {
 		t.Fatalf("interact: %v", err)
 	}
@@ -229,6 +233,20 @@ func slackClick(t *testing.T, ts *httptest.Server, sl *Slack, stub *slackStub, a
 		t.Fatal("no Slack response")
 		return ""
 	}
+}
+
+// slackClickRequest is a signed button click as lead@example.com on the
+// server at base.
+func slackClickRequest(base string, sl *Slack, action, value string) *http.Request {
+	payload, _ := json.Marshal(map[string]any{"type": "block_actions", "response_url": "https://hooks.example/r",
+		"user": map[string]string{"id": "U1"}, "actions": []map[string]string{{"action_id": action, "value": value}}})
+	body := []byte("payload=" + url.QueryEscape(string(payload)))
+	stamp := strconv.FormatInt(time.Now().Unix(), 10)
+	req, _ := http.NewRequest("POST", base+"/slack/interact", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Slack-Request-Timestamp", stamp)
+	req.Header.Set("X-Slack-Signature", sl.sign(stamp, body))
+	return req
 }
 
 func TestSlackButtonsAreBoundToThePostedVersion(t *testing.T) {
@@ -247,10 +265,12 @@ func TestSlackButtonsAreBoundToThePostedVersion(t *testing.T) {
 	if _, err := svc.UpdateRequest(context.Background(), q.Ref(), "ops@example.com", core.RequestEdit{BudgetUSD: 400}); err != nil {
 		t.Fatal(err)
 	}
-	if text := click("approve", posted[0]); !strings.Contains(text, "Approve failed") || !strings.Contains(text, "was edited") {
+	// The message in Slack never shows the new values, so the reply points
+	// to the web UI.
+	if text := click("approve", posted[0]); text != "Not approved. slacked changed after playplace posted this message. Open playplace to read the new values." {
 		t.Fatalf("stale Slack approve = %q", text)
 	}
-	if text := click("deny", posted[0]); !strings.Contains(text, "Deny failed") || !strings.Contains(text, "was edited") {
+	if text := click("deny", posted[0]); text != "Not denied. slacked changed after playplace posted this message. Open playplace to read the new values." {
 		t.Fatalf("stale Slack deny = %q", text)
 	}
 	if text := click("deny", "slacked"); !strings.Contains(text, "older playplace") {
@@ -264,7 +284,7 @@ func TestSlackButtonsAreBoundToThePostedVersion(t *testing.T) {
 	}
 	// A message showing the current values approves them.
 	q, _ = svc.GetRequest(context.Background(), "slacked")
-	if text := click("approve", buttonValue(q)); !strings.Contains(text, "approved `slacked`") {
+	if text := click("approve", refValue(q.Ref())); !strings.Contains(text, "approved `slacked`") {
 		t.Fatalf("current Slack approve = %q", text)
 	}
 }
@@ -306,7 +326,7 @@ func TestSlackPostedButtonApprovesTheUnchangedRequest(t *testing.T) {
 		}
 		if reply := slackClick(t, ts, sl, stub, "approve", posted); !strings.Contains(reply, "approved `"+tc.name+"`") {
 			q, _ := svc.GetRequest(context.Background(), tc.name)
-			t.Errorf("%s: the posted button was refused: %q (posted %q, stored %q)", tc.name, reply, posted, buttonValue(q))
+			t.Errorf("%s: the posted button was refused: %q (posted %q, stored %q)", tc.name, reply, posted, refValue(q.Ref()))
 		}
 	}
 }
@@ -329,9 +349,9 @@ func TestCrossProcessChangeShowsTheCurrentRequest(t *testing.T) {
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"tweak"}, "budget": {"20"}}, true)
 	do(t, ts, "POST", "/requests", "carl@example.com", false, url.Values{"name": {"mine"}, "budget": {"20"}}, true)
 	_, page := doAs(t, ts, "GET", "/", "lead@example.com", false, true, nil, false)
-	seen := versionIn(t, page, "tweak")
+	seen := refForm(refIn(t, page, "tweak"))
 	_, own := do(t, ts, "GET", "/", "carl@example.com", false, nil, false)
-	mine := versionIn(t, own, "mine")
+	mine := refForm(refIn(t, own, "mine"))
 
 	q, err := cli.GetRequest(ctx, "tweak")
 	if err != nil {
@@ -341,10 +361,10 @@ func TestCrossProcessChangeShowsTheCurrentRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	res, body := doAs(t, ts, "POST", "/requests/tweak/approve", "lead@example.com", false, true, seen, true)
-	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "was edited") || !strings.Contains(body, "$400") {
+	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, tweakChanged) || !strings.Contains(body, "$400") {
 		t.Fatalf("the refusal should show the edited request:\n%s", body)
 	}
-	fresh := versionIn(t, body, "tweak")
+	fresh := refForm(refIn(t, body, "tweak"))
 	if fresh.Get("version") == seen.Get("version") {
 		t.Fatal("the refusal rendered the stale version again")
 	}

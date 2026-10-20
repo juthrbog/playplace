@@ -55,6 +55,7 @@ func New(svc *core.Service, log *slog.Logger, auth Authenticator, slack *Slack, 
 	s.mux.HandleFunc("GET /{$}", s.index)
 	s.mux.HandleFunc("GET /accounts", s.table)
 	s.mux.HandleFunc("POST /requests", s.submit)
+	s.mux.HandleFunc("POST /requests/decide", s.decideAll)
 	s.mux.HandleFunc("POST /requests/{name}/approve", s.approve)
 	s.mux.HandleFunc("POST /requests/{name}/deny", s.deny)
 	s.mux.HandleFunc("POST /requests/{name}/withdraw", s.withdraw)
@@ -118,7 +119,16 @@ func (s *Server) Handler() http.Handler {
 	}))
 }
 
-// ListenAndServe runs until ctx is cancelled, then drains connections.
+// shutdownDrain is how long a stop waits for the answers in flight. A
+// decision post can run for decideBudget and one more approval. Shutdown
+// returns as soon as the last answer is out, so an idle server still stops
+// at once.
+const shutdownDrain = decideBudget + 15*time.Second
+
+// ListenAndServe runs until ctx is cancelled, then drains connections. A
+// Slack click decides after its answer, so the stop then waits for those
+// decisions too, in the same drain. Shutdown returns nil only when every
+// handler has returned, so no click starts a decision during that wait.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	srv := &http.Server{Addr: addr, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 1)
@@ -127,9 +137,11 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	case err := <-errc:
 		return err
 	case <-ctx.Done():
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdown, cancel := context.WithTimeout(context.Background(), shutdownDrain)
 		defer cancel()
-		srv.Shutdown(shutdown)
+		if srv.Shutdown(shutdown) == nil && s.slack != nil {
+			s.slack.wait(shutdown)
+		}
 		return ctx.Err()
 	}
 }
@@ -151,6 +163,9 @@ type page struct {
 	// RegionInCard marks the home page, which holds the live region in the
 	// pending card. The layout then leaves out its own.
 	RegionInCard bool
+	// Undecided are the requests of a decision post that it did not decide,
+	// with the reasons. The pending card lists them in its refusal slot.
+	Undecided []decision
 }
 
 // regionInCard is pg for the home page layout.
@@ -208,8 +223,8 @@ func canSee(v Viewer, a *core.Account) bool {
 }
 
 // rows lists the accounts the viewer may see, with month-to-date spend from
-// the cost cache. Costs are warmed in parallel; a miss shows as zero until
-// the next poll.
+// the cost cache. Costs are warmed in parallel. A row shows the spend of the
+// last good pull, and zero when no pull succeeded yet.
 func (s *Server) rows(ctx context.Context, v Viewer, showAll bool, force bool) ([]accountRow, error) {
 	accounts, err := s.svc.List(ctx, core.ListFilter{IncludeClosed: showAll})
 	if err != nil {
@@ -269,8 +284,9 @@ const pollHashHeader = "X-Poll-Hash"
 // the poll and every action answer use it, so the section always carries
 // the hash of what the page shows. It is empty if the render fails, and the
 // section then carries none, so every poll gets the full answer. The hash
-// covers a failed list as one state, because the AWS error text holds a new
-// request ID on every call. The same outage then answers 204.
+// covers a failed list as one state, also when its refusal text changes, for
+// example from a throttle to another failure. The same outage then answers
+// 204.
 func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMsg string) string {
 	if errMsg != "" {
 		errMsg = "unavailable"
@@ -290,7 +306,7 @@ func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMs
 func (s *Server) writeAccounts(w http.ResponseWriter, r *http.Request, pg page, rows []accountRow, errMsg, hash string, fromCard bool, after ...templ.Component) {
 	main := accountsAnswer(pg, rows, errMsg, hash)
 	if fromCard {
-		main = cardAnswer(pg, rows, hash)
+		main = cardAnswer(pg, rows, errMsg, hash)
 	}
 	s.render(w, r, templ.Join(append([]templ.Component{main}, after...)...))
 }
@@ -348,7 +364,8 @@ func requestRef(r *http.Request) core.RequestRef {
 // failRequest reports a refused decision on a request. The refusal shows in
 // the pending card, beside the rows, not in the New request form. When the
 // request changed or ended after the page was loaded, the pending card is
-// rendered again first, so the viewer sees what is waiting now.
+// rendered again first, so the viewer sees what is waiting now. The log
+// holds the raw error, and the slot holds the text of refusal.
 func (s *Server) failRequest(w http.ResponseWriter, r *http.Request, err error) {
 	if r.Header.Get("HX-Request") != "true" {
 		s.fail(w, r, err)
@@ -367,37 +384,7 @@ func (s *Server) failRequest(w http.ResponseWriter, r *http.Request, err error) 
 		// first with an empty slot, and the refusal then fills it.
 		s.render(w, r, pendingUpdate(s.pageFor(r)))
 	}
-	s.render(w, r, errorFragment("pending-error", err.Error()))
-}
-
-func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
-	v := ViewerFrom(r.Context())
-	if !v.Approver {
-		s.forbid(w, r, approversOnly)
-		return
-	}
-	if _, err := s.svc.Approve(r.Context(), requestRef(r), v.Email); err != nil {
-		s.failRequest(w, r, err)
-		return
-	}
-	s.pendingAndTable(w, r, true, "Approved "+r.PathValue("name")+".")
-}
-
-func (s *Server) deny(w http.ResponseWriter, r *http.Request) {
-	v := ViewerFrom(r.Context())
-	if !v.Approver {
-		s.forbid(w, r, approversOnly)
-		return
-	}
-	reason := r.FormValue("reason")
-	if reason == "" {
-		reason = r.Header.Get("HX-Prompt")
-	}
-	if err := s.svc.Deny(r.Context(), requestRef(r), v.Email, reason); err != nil {
-		s.failRequest(w, r, err)
-		return
-	}
-	s.pendingAndTable(w, r, true, "Denied "+r.PathValue("name")+".")
+	s.render(w, r, errorFragment("pending-error", refusal(err, r.PathValue("name"))))
 }
 
 // editForm swaps a pending row for an inline form. Admins only.
@@ -539,15 +526,16 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
 	var msg string
 	if err != nil {
-		msg = err.Error()
+		s.log.Warn("accounts", "path", r.URL.Path, "err", err)
+		msg = listFailure(err)
 	}
 	s.render(w, r, indexPage(pg, rows, msg, s.pollHash(r.Context(), pg, rows, msg)))
 }
 
 // table answers the 15 s poll and the Show closed box. A poll that sends the
 // hash of the current answer gets 204 and no body. A failed list is a panel
-// that says so. Its hash leaves out the error text, so the same outage
-// answers 204, and the next good poll clears it.
+// that says so, with the text of refusal. Its hash leaves out that text, so
+// the same outage answers 204, and the next good poll clears it.
 func (s *Server) table(w http.ResponseWriter, r *http.Request) {
 	// The answer is a fragment of the home page, so a page visit goes there.
 	if r.Header.Get("HX-Request") != "true" {
@@ -562,8 +550,8 @@ func (s *Server) table(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
 	var errMsg string
 	if err != nil {
-		s.log.Warn("accounts poll", "err", err)
-		rows, errMsg = nil, err.Error()
+		s.log.Warn("accounts poll", "path", r.URL.Path, "err", err)
+		rows, errMsg = nil, listFailure(err)
 	}
 	// The answer changes with the data, so a cache must ask every time.
 	w.Header().Set("Cache-Control", "private, no-cache")
@@ -618,7 +606,7 @@ func (s *Server) failSync(w http.ResponseWriter, r *http.Request, err error) {
 	s.log.Warn("request failed", "path", r.URL.Path, "err", err)
 	w.Header().Set("HX-Reswap", "none")
 	w.Header().Set("X-Form-Error", "1")
-	s.render(w, r, noticeFragment("alert", err.Error()))
+	s.render(w, r, noticeFragment("alert", refusal(err, "")))
 }
 
 // owned resolves an account the viewer may act on, or writes the error.
@@ -652,8 +640,12 @@ func (s *Server) show(w http.ResponseWriter, r *http.Request) {
 	}
 	var costs []core.CostPoint
 	if a.ProviderID != "" {
+		// Opening the page is a request of a person, so spend that is not
+		// known is pulled at once, also within the wait after a failed poll
+		// pull. Only people force a pull, and the poll never does.
+		_, known := s.svc.CostState(a.ProviderID, 30)
 		var err error
-		costs, err = s.svc.Costs(r.Context(), a.ID, 30, false)
+		costs, err = s.svc.Costs(r.Context(), a.ID, 30, !known)
 		if err != nil {
 			s.log.Warn("costs", "account", a.Name, "err", err)
 		}
@@ -709,7 +701,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, c templ.Componen
 }
 
 // forbid answers 403 with the reason, which names the rule that refused the
-// viewer. Every /requests/{name}/... route acts from the pending card, so its
+// viewer. Every route under /requests/ acts from the pending card, so its
 // refusal fills the slot of the card. A page visit gets the styled 403 page.
 func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why string) {
 	s.log.Warn("forbidden", "path", r.URL.Path, "viewer", ViewerFrom(r.Context()).Email, "why", why)
@@ -738,19 +730,22 @@ func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why string) {
 
 // fail returns an error the page can show. htmx requests get out-of-band
 // parts, so the refusal slot and the live region update without replacing
-// the table. A page visit gets the styled 400 page.
+// the table. A page visit gets the styled 400 page. The log holds the raw
+// error, and the page holds the text of refusal. The name in the path is
+// the request that the action was on, if any.
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	s.log.Warn("request failed", "path", r.URL.Path, "err", err)
+	text := refusal(err, r.PathValue("name"))
 	if r.Header.Get("HX-Request") == "true" {
 		// 200 so htmx processes the out-of-band error slot; the header tells
 		// the form not to reset its fields.
 		w.Header().Set("HX-Reswap", "none")
 		w.Header().Set("X-Form-Error", "1")
 		markField(w, err, "form-error")
-		s.render(w, r, errorFragment("form-error", err.Error()))
+		s.render(w, r, errorFragment("form-error", text))
 		return
 	}
-	s.errorPage(w, r, errorView{Code: http.StatusBadRequest, Title: "Action refused", Message: err.Error(), Recovery: "Go back to Home and try again.", Back: "/", BackLabel: "Go to Home"})
+	s.errorPage(w, r, errorView{Code: http.StatusBadRequest, Title: "Action refused", Message: text, Recovery: "Go back to Home and try again.", Back: "/", BackLabel: "Go to Home"})
 }
 
 // The headers of a refused field. app.js marks the input with aria-invalid

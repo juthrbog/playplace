@@ -951,6 +951,13 @@
     font-size: 13.5px;
     font-weight: 400;
   }
+  /* A refused decision on several requests lists each request with its
+     reason, one item a line. */
+  .note-list {
+    max-width: 75ch;
+    margin: 0;
+    padding-left: var(--space-lg);
+  }
   /* The way back on an error page sits under the note. */
   .way-back {
     margin-top: var(--space-lg);

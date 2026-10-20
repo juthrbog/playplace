@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"html"
 	"io"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -46,6 +48,12 @@ func newServer(t *testing.T) (*httptest.Server, *fake.Provider) {
 // needs a provider that fails.
 func newServerOn(t *testing.T, wrap func(*fake.Provider) core.Provider) (*httptest.Server, *fake.Provider) {
 	t.Helper()
+	return newServerLogged(t, wrap, slog.New(slog.DiscardHandler))
+}
+
+// newServerLogged is newServerOn with the server log written to log.
+func newServerLogged(t *testing.T, wrap func(*fake.Provider) core.Provider, log *slog.Logger) (*httptest.Server, *fake.Provider) {
+	t.Helper()
 	prov := fake.New()
 	prov.Now = func() time.Time { return t0 }
 	tags := func(owner string) map[string]string {
@@ -59,7 +67,7 @@ func newServerOn(t *testing.T, wrap func(*fake.Provider) core.Provider) (*httpte
 	svc.Now = func() time.Time { return t0 }
 	hist := &audit.Memory{}
 	svc.SetAuditor(hist)
-	srv := New(svc, slog.New(slog.DiscardHandler), headerAuth{}, nil, hist)
+	srv := New(svc, log, headerAuth{}, nil, hist)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, prov
@@ -99,17 +107,6 @@ func doAs(t *testing.T, ts *httptest.Server, method, path, user string, admin, a
 
 func do(t *testing.T, ts *httptest.Server, method, path, user string, admin bool, form url.Values, htmx bool) (*http.Response, string) {
 	return doAs(t, ts, method, path, user, admin, false, form, htmx)
-}
-
-// versionIn reads the request version a page rendered into the forms of a
-// pending row, which is what a browser submits with the click.
-func versionIn(t *testing.T, body, name string) url.Values {
-	t.Helper()
-	m := regexp.MustCompile(`(?s)id="req-` + regexp.QuoteMeta(name) + `".*?name="version" value="([^"]+)"`).FindStringSubmatch(body)
-	if m == nil {
-		t.Fatalf("no version for %s in:\n%s", name, body)
-	}
-	return url.Values{"version": {m[1]}}
 }
 
 func TestUnauthenticatedIsSentToLogin(t *testing.T) {
@@ -190,9 +187,9 @@ func TestEmptyAccountsPanelHasNoTable(t *testing.T) {
 }
 
 // A failed load is not an empty fleet. The panel has its own note: the
-// problem as the title, then the error and the recovery. It shows no count.
-// The section still polls, so the next good poll fills it and clears the
-// note.
+// problem as the title, then the refusal text of the error and the recovery.
+// It shows no count. The section still polls, so the next good poll fills it
+// and clears the note.
 func TestFailedAccountLoadIsNotAnEmptyFleet(t *testing.T) {
 	pg := page{Viewer: Viewer{Email: "nobody@example.com"}, SignIn: true, Limits: core.DefaultConfig()}
 	render := func(errMsg string) (string, string) {
@@ -209,9 +206,9 @@ func TestFailedAccountLoadIsNotAnEmptyFleet(t *testing.T) {
 		return out.String(), section
 	}
 
-	_, section := render("list accounts: AccessDenied")
+	_, section := render(listFailure(&core.ProviderError{Op: "list playground accounts", Err: errors.New("AccessDenied")}))
 	want := `<div id="accounts-error" class="refusal">` + alertIcon + `<div class="note-text"><p class="note-title">The account list is unavailable.</p>` +
-		`<p class="note-body">List accounts: AccessDenied. The page tries again every 15 seconds.</p></div></div>`
+		`<p class="note-body">` + listFailed + ` The page tries again every 15 seconds.</p></div></div>`
 	if !strings.Contains(section, want) {
 		t.Errorf("the panel does not name the problem, the error and the recovery in its own note:\n%s", section)
 	}
@@ -240,7 +237,7 @@ func TestExtendIsCappedForEngineersNotAdmins(t *testing.T) {
 	// annas-box joined at t0 and expires in 3 days; 100 days pushes its
 	// lifetime past the 90 day ceiling.
 	res, body := do(t, ts, "POST", "/accounts/111111111111/extend", "anna@example.com", false, url.Values{"by": {"100d"}}, true)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, "past the ceiling of 90 days") {
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "annas-box can live at most 90 days. The latest expiry is "+t0.Add(90*24*time.Hour).Format("2006-01-02 15:04")+" UTC. An admin can override the limit.") {
 		t.Fatalf("engineer extend past the ceiling should be refused with an explanation, got %d:\n%s", res.StatusCode, body)
 	}
 	if exp := prov.Tags("111111111111")[core.TagExpires]; exp != t0.Add(72*time.Hour).Format(time.RFC3339) {
@@ -448,7 +445,7 @@ func TestRequestApprovalFlow(t *testing.T) {
 	}
 	// Bob cannot approve his own request even if he were an approver.
 	_, body = doAs(t, ts, "GET", "/", "bob@example.com", false, true, nil, false)
-	if _, body := doAs(t, ts, "POST", "/requests/bobs-box/approve", "bob@example.com", false, true, versionIn(t, body, "bobs-box"), true); !strings.Contains(body, "cannot approve it") {
+	if _, body := doAs(t, ts, "POST", "/requests/bobs-box/approve", "bob@example.com", false, true, refForm(refIn(t, body, "bobs-box")), true); !strings.Contains(body, "Not approved. You requested it, so another approver must approve it.") {
 		t.Fatalf("self-approval should be refused:\n%s", body)
 	}
 	// A configured approver (not admin) sees the queue and approves.
@@ -459,7 +456,7 @@ func TestRequestApprovalFlow(t *testing.T) {
 	if strings.Contains(body, "Sync with AWS") {
 		t.Fatal("an approver who is not admin must not get the sync button")
 	}
-	res, _ = doAs(t, ts, "POST", "/requests/bobs-box/approve", "lead@example.com", false, true, versionIn(t, body, "bobs-box"), true)
+	res, _ = doAs(t, ts, "POST", "/requests/bobs-box/approve", "lead@example.com", false, true, refForm(refIn(t, body, "bobs-box")), true)
 	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
 		t.Fatalf("approve = %d", res.StatusCode)
 	}
@@ -478,7 +475,7 @@ func TestRequestApprovalFlow(t *testing.T) {
 	// Deny path with a reason from the htmx prompt header; withdraw by requester.
 	do(t, ts, "POST", "/requests", "carl@example.com", false, url.Values{"name": {"carls-box"}}, true)
 	_, body = doAs(t, ts, "GET", "/", "lead@example.com", false, true, nil, false)
-	req, _ := http.NewRequest("POST", ts.URL+"/requests/carls-box/deny", strings.NewReader(versionIn(t, body, "carls-box").Encode()))
+	req, _ := http.NewRequest("POST", ts.URL+"/requests/carls-box/deny", strings.NewReader(refForm(refIn(t, body, "carls-box")).Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User", "lead@example.com")
 	req.Header.Set("X-Approver", "1")
@@ -492,7 +489,7 @@ func TestRequestApprovalFlow(t *testing.T) {
 	}
 	do(t, ts, "POST", "/requests", "carl@example.com", false, url.Values{"name": {"carls-two"}}, true)
 	_, body = do(t, ts, "GET", "/", "carl@example.com", false, nil, false)
-	carls := versionIn(t, body, "carls-two")
+	carls := refForm(refIn(t, body, "carls-two"))
 	if res, _ := do(t, ts, "POST", "/requests/carls-two/withdraw", "anna@example.com", false, carls, true); res.StatusCode != http.StatusForbidden {
 		t.Fatal("only the requester or an admin may withdraw")
 	}
@@ -529,7 +526,7 @@ func TestSelfApprovalSettingShowsTheButton(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(body, "/requests/solo/approve") || strings.Contains(body, ">Your request<") {
 		t.Fatalf("with self-approval on, the requester should see Approve:\n%s", body)
 	}
-	if res, _ := do(t, ts, "POST", "/requests/solo/approve", "", false, versionIn(t, body, "solo"), true); res.StatusCode != http.StatusOK {
+	if res, _ := do(t, ts, "POST", "/requests/solo/approve", "", false, refForm(refIn(t, body, "solo")), true); res.StatusCode != http.StatusOK {
 		t.Fatalf("approve = %d", res.StatusCode)
 	}
 	if q, _ := svc.PendingRequests(context.Background()); len(q) != 0 {
@@ -594,7 +591,7 @@ func TestAdminEditsPendingRequestInline(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(body, `value="bob@example.com"`) || !strings.Contains(body, `value="5"`) || !strings.Contains(body, `value="old"`) {
 		t.Fatalf("edit form should be prefilled:\n%s", body)
 	}
-	form := versionIn(t, body, "tweak")
+	form := refForm(refIn(t, body, "tweak"))
 	form.Set("owner", "bob@example.com")
 	form.Set("ttl", "12")
 	form.Set("budget", "40")
@@ -605,7 +602,7 @@ func TestAdminEditsPendingRequestInline(t *testing.T) {
 	}
 	// Saving the same form again is refused: it was filled from the old
 	// values and would undo the change just made.
-	if res, body := do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, form, true); res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "was edited after you loaded it") || !strings.Contains(body, `id="pending"`) {
+	if res, body := do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, form, true); res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "tweak changed after you loaded the page. Read the new values, then try again.") || !strings.Contains(body, `id="pending"`) {
 		t.Fatalf("stale edit form should be refused with a fresh pending card: %v\n%s", res.Header, body)
 	}
 	q, err := core.NewService(prov, nil, core.DefaultConfig(), nil).GetRequest(context.Background(), "tweak")
@@ -614,7 +611,7 @@ func TestAdminEditsPendingRequestInline(t *testing.T) {
 	}
 	// Over the ceiling without override is an error that keeps the form.
 	_, body = do(t, ts, "GET", "/requests/tweak/edit", "ops@example.com", true, nil, true)
-	over := versionIn(t, body, "tweak")
+	over := refForm(refIn(t, body, "tweak"))
 	over.Set("budget", "900")
 	res, body = do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, over, true)
 	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "exceeds the maximum") {
@@ -638,6 +635,35 @@ func TestAccountPageShowsHistory(t *testing.T) {
 	_, body = do(t, ts, "GET", "/accounts/222222222222", "ops@example.com", true, nil, false)
 	if strings.Contains(body, "extended annas-box") {
 		t.Fatal("history must be scoped to the account")
+	}
+}
+
+// flakyCosts fails every cost pull while fail is set, as a throttle of Cost
+// Explorer does.
+type flakyCosts struct {
+	core.Provider
+	fail atomic.Bool
+}
+
+func (p *flakyCosts) Costs(ctx context.Context, id string, from, to time.Time) ([]core.CostPoint, error) {
+	if p.fail.Load() {
+		return nil, errors.New("LimitExceededException: rate exceeded")
+	}
+	return p.Provider.Costs(ctx, id, from, to)
+}
+
+// A poll pull fails once, and AWS answers again at once. A person who opens
+// the account page then gets the spend, not $0.00. The poll waits after a
+// failed pull, but opening the page is a request of a person.
+func TestAccountPagePullsSpendThatIsNotKnown(t *testing.T) {
+	fc := &flakyCosts{}
+	ts, _ := newServerOn(t, func(p *fake.Provider) core.Provider { fc.Provider = p; return fc })
+	fc.fail.Store(true)
+	do(t, ts, "GET", "/accounts", "ops@example.com", true, nil, true)
+	fc.fail.Store(false)
+	_, body := do(t, ts, "GET", "/accounts/111111111111", "ops@example.com", true, nil, false)
+	if !strings.Contains(body, "<dt>spend, 30 days</dt><dd>$45.00</dd>") {
+		t.Errorf("the account page does not show the spend that AWS reports now:\n%s", body)
 	}
 }
 
@@ -844,7 +870,7 @@ func TestWithdrawButtonIgnoresEmailCase(t *testing.T) {
 	if !strings.Contains(body, "/requests/case-box/withdraw") {
 		t.Fatalf("withdraw button should show regardless of email case:\n%s", body)
 	}
-	if res, _ := do(t, ts, "POST", "/requests/case-box/withdraw", "bob@example.com", false, versionIn(t, body, "case-box"), true); res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
+	if res, _ := do(t, ts, "POST", "/requests/case-box/withdraw", "bob@example.com", false, refForm(refIn(t, body, "case-box")), true); res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
 		t.Fatalf("withdraw = %d", res.StatusCode)
 	}
 }
@@ -858,12 +884,12 @@ func TestEditRejectsBadNumbersAndKeepsOverride(t *testing.T) {
 	}
 	_, page := doAs(t, ts, "GET", "/requests/over/edit", "root@example.com", true, true, nil, true)
 	edit := func(v url.Values) url.Values {
-		v.Set("version", versionIn(t, page, "over").Get("version"))
+		v.Set("version", refIn(t, page, "over").Version)
 		return v
 	}
 	// A bad budget is an error, not a silently unchanged field.
 	res, body := doAs(t, ts, "POST", "/requests/over/edit", "root@example.com", true, true, edit(url.Values{"owner": {"carl@example.com"}, "budget": {"lots"}, "override": {"on"}}), true)
-	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "budget must be a positive number") {
+	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, "Budget must be a positive number.") {
 		t.Fatalf("bad budget should be reported: %v\n%s", res.Header, body)
 	}
 	// Unticking override while the budget is over the ceiling is refused.

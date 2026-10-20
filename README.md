@@ -115,10 +115,11 @@ See the [CLI reference](docs/cli.md) and [configuration reference](docs/configur
 ### Slack
 
 A configured channel receives requests made in the web UI, with **Approve**
-and **Deny** buttons. Decisions use the same queue and approver rules as the
-web UI. Lifecycle notices, such as the *approved*, *denied*, and *expiring*
-notices, go to the channel of `--slack-webhook`. playplace does not send them
-to people.
+and **Deny** buttons. Decisions use the same queue as the web UI. Slack
+refuses an approval by the requester or the owner. A Slack denial needs no
+reason, and the notice says "denied in Slack". Lifecycle notices, such as
+the *approved*, *denied*, and *expiring* notices, go to the channel of
+`--slack-webhook`. playplace does not send them to people.
 
 See [deployment instructions](deploy/README.md) and the
 [Slack setup](docs/configuration.md#slack).

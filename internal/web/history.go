@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"net/url"
 
@@ -76,7 +77,14 @@ func historyURL(u *url.URL, key, value string) string {
 	return copy.RequestURI()
 }
 
+// historyDetails writes the details of a history event. Core stores the raw
+// error of a failed budget call in the error detail, so the page shows the
+// text of storedFailure in its place.
 func historyDetails(e core.AuditEvent) string {
-	data, _ := json.MarshalIndent(e.Details, "", "  ")
+	details := maps.Clone(e.Details)
+	if text, ok := details["error"]; ok {
+		details["error"] = storedFailure(text)
+	}
+	data, _ := json.MarshalIndent(details, "", "  ")
 	return string(data)
 }

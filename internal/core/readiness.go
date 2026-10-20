@@ -36,7 +36,7 @@ func (s *Service) reconcileReadiness(ctx context.Context, a *Account) error {
 		// Persist before the best-effort history write, including after a crash
 		// between the provider's move and tag operations.
 		if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagHandoff: handoffPending}); err != nil {
-			return fmt.Errorf("record placement of %s: %w", a.Name, err)
+			return providerError("record placement of "+a.Name, err)
 		}
 		a.handoff = handoffPending
 		s.Invalidate()
@@ -93,7 +93,7 @@ func (s *Service) reconcileReadiness(ctx context.Context, a *Account) error {
 	// A failed durable write must not notify. Delivery itself stays best-effort:
 	// a crash or notifier failure after this write can lose, not repeat, a notice.
 	if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagHandoff: handoffComplete}); err != nil {
-		return fmt.Errorf("record initial handoff of %s: %w", a.Name, err)
+		return providerError("record initial handoff of "+a.Name, err)
 	}
 	a.handoff = handoffComplete
 	s.Invalidate()

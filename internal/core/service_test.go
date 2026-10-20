@@ -541,6 +541,8 @@ func TestSubmitApproveFlow(t *testing.T) {
 	}
 	if _, err := h.svc.SubmitRequest(ctx, core.RequestInput{Name: "req-two", Owner: "anna@example.com"}, "web"); err == nil || !strings.Contains(err.Error(), "limit is 1") {
 		t.Fatalf("per-owner limit should apply to pending requests too, got %v", err)
+	} else if limit := (core.OwnerLimitError{}); !errors.As(err, &limit) || limit != (core.OwnerLimitError{Owner: "anna@example.com", Held: 1, Limit: 1}) {
+		t.Fatalf("the per-owner refusal is not an OwnerLimitError with its facts: %#v", err)
 	}
 	// Self-approval is refused; another approver works.
 	if _, err := h.svc.Approve(ctx, h.ref(t, "req-one"), "anna@example.com"); err == nil {
@@ -736,6 +738,8 @@ func TestTTLAndBudgetCeilingsWithAdminOverride(t *testing.T) {
 	want := "edge would live 2161 hours, past the ceiling of 90 days; the latest expiry is " + limit.UTC().Format("2006-01-02 15:04") + " UTC and an admin can override"
 	if _, err := h.svc.Extend(ctx, acc.ID, limit.Add(time.Minute), "d@example.com", false); err == nil || err.Error() != want {
 		t.Fatalf("extend a minute past the ceiling = %v, want %q", err, want)
+	} else if ceiling := (core.LifetimeLimitError{}); !errors.As(err, &ceiling) || ceiling.Name != "edge" || ceiling.Max != 90*24*time.Hour || !ceiling.Latest.Equal(limit) {
+		t.Fatalf("the ceiling refusal is not a LifetimeLimitError with its facts: %#v", err)
 	}
 	if got, _ := h.svc.Get(ctx, acc.ID); !got.ExpiresAt.Equal(acc.ExpiresAt) {
 		t.Fatal("a refused extend must not change the expiry")
@@ -763,6 +767,8 @@ func TestUpdateRequestBeforeApproval(t *testing.T) {
 	// Moving the request to an owner at the limit is refused.
 	if _, err := h.svc.UpdateRequest(ctx, h.ref(t, "edit-me"), "ops@example.com", core.RequestEdit{Owner: "sam@example.com"}); err == nil {
 		t.Fatal("new owner at the limit should be refused")
+	} else if limit := (core.OwnerLimitError{}); !errors.As(err, &limit) || limit.Owner != "sam@example.com" {
+		t.Fatalf("the per-owner refusal of an edit is not an OwnerLimitError: %#v", err)
 	}
 	// Ceilings apply to edits unless overridden.
 	if _, err := h.svc.UpdateRequest(ctx, h.ref(t, "edit-me"), "ops@example.com", core.RequestEdit{BudgetUSD: 900}); err == nil {

@@ -173,9 +173,11 @@ templ accountsAnswer(pg page, rows []accountRow, errMsg, hash string) {
 // main swap, because htmx finds the morph extension from the form that
 // sent the request. An out-of-band part runs first and can take that form
 // out of the page. The accounts section and the count ride out of band.
-templ cardAnswer(pg page, rows []accountRow, hash string) {
+// errMsg is the refusal text of an account list that failed after the
+// decision, so the section shows its failed panel.
+templ cardAnswer(pg page, rows []accountRow, errMsg, hash string) {
 	@pendingCard(pg, false)
-	@accountsPanel(pg, rows, "", hash, true)
+	@accountsPanel(pg, rows, errMsg, hash, true)
 	if pg.Viewer.Approver && !pg.PendingFailed {
 		@queueCount(pg, true)
 	}
@@ -266,8 +268,8 @@ templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
 			</div>
 		</section>
 		@pendingCard(pg, false)
-		// errMsg comes only from a failed account load. The panel shows it,
-		// so the next good poll clears it.
+		// errMsg is the refusal text of a failed account load. The panel
+		// shows it, so the next good poll clears it.
 		@accountsPanel(pg, rows, errMsg, hash, false)
 		<p class="help">
 			if pg.SignIn && !pg.Viewer.Admin {
@@ -309,8 +311,13 @@ templ pendingCard(pg page, oob bool) {
 		</div>
 		@region()
 		// A refused decision on a row shows here, beside the rows, and not in
-		// the New request form.
-		<div id="pending-error" class="refusal"></div>
+		// the New request form. After a decision on several requests, the
+		// slot lists each one that the decision did not decide.
+		<div id="pending-error" class="refusal">
+			if len(pg.Undecided) > 0 {
+				@undecidedNote(pg.Undecided)
+			}
+		</div>
 		if pg.PendingFailed {
 			<p class="empty">The pending requests are unavailable. The page tries again every 15 seconds.</p>
 		} else if len(pg.Pending) == 0 {
@@ -328,6 +335,18 @@ templ pendingCard(pg page, oob bool) {
 			</div>
 		}
 	</section>
+}
+
+// undecidedNote fills the refusal slot of the pending card after a decision
+// on several requests. Each item names a request that the decision did not
+// decide, and the reason.
+templ undecidedNote(left []decision) {
+	@icon("alert")
+	<ul class="note-list">
+		for _, d := range left {
+			<li>{ d.Ref.Name + ": " + d.Why }</li>
+		}
+	</ul>
 }
 
 // pendingRow is one request in the queue. Each action button carries the
@@ -358,7 +377,7 @@ templ pendingRow(pg page, q core.Request) {
 							@busyWord("Approve", "Approving")<span class="vh">{ " " + q.Name }</span>
 						</button>
 					</form>
-					<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-prompt="Reason for denying (sent with the denied notice and kept in history)" hx-sync="this:drop" data-action="deny">
+					<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-prompt="Reason for denying, 1 to 500 characters. playplace sends it with the denied notice and keeps it in history." hx-sync="this:drop" data-action="deny">
 						@versionField(q)
 						<button type="submit">@busyWord("Deny", "Denying")<span class="vh">{ " " + q.Name }</span></button>
 					</form>
@@ -421,12 +440,12 @@ templ pendingEditRow(pg page, q core.Request) {
 }
 
 // accountsPanel is the accounts panel. When the list did not load, errMsg
-// holds the error, the head shows no count and the panel says the list is
-// unavailable. An empty list would look like a fleet with no accounts. The
-// section keeps polling, so the next good poll fills it. oob marks it as an
-// out-of-band part of an htmx answer. hash is the poll hash of this answer.
-// pollHash renders the section with no hash, so the hash never covers
-// itself.
+// holds the text of refusal for the error, the head shows no count and the
+// panel says the list is unavailable. An empty list would look like a fleet
+// with no accounts. The section keeps polling, so the next good poll fills
+// it. oob marks it as an out-of-band part of an htmx answer. hash is the
+// poll hash of this answer. pollHash renders the section with no hash, so
+// the hash never covers itself.
 templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 	<section
 		id="accounts"
@@ -455,13 +474,13 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 			</h2>
 			<label class="check" title="include accounts AWS explicitly reports CLOSED"><input id="show-closed" type="checkbox" name="all" value="1" checked?={ pg.ShowAll } hx-get="/accounts" hx-target="#accounts" hx-swap="morph" hx-trigger="change"/>Show closed</label>
 		</div>
-		// A failed load is one note: the problem, then the error and the
-		// recovery. An empty list is one plain line, as in the pending card.
-		// Neither has column heads. The head keeps Show closed, and the
-		// section keeps polling. The error note has an id, so a morph never
-		// pairs it with the table that replaces it.
+		// A failed load is one note: the problem, then the refusal text of
+		// the error and the recovery. An empty list is one plain line, as in
+		// the pending card. Neither has column heads. The head keeps Show
+		// closed, and the section keeps polling. The error note has an id, so
+		// a morph never pairs it with the table that replaces it.
 		if errMsg != "" {
-			<div id="accounts-error" class="refusal">@icon("alert")<div class="note-text"><p class="note-title">The account list is unavailable.</p><p class="note-body">{ sentence(errMsg) + " The page tries again every 15 seconds." }</p></div></div>
+			<div id="accounts-error" class="refusal">@icon("alert")<div class="note-text"><p class="note-title">The account list is unavailable.</p><p class="note-body">{ errMsg + " The page tries again every 15 seconds." }</p></div></div>
 		} else if len(rows) == 0 {
 			<p class="empty">
 				if pg.ShowAll {
@@ -548,13 +567,12 @@ templ accountTR(r accountRow) {
 	</tr>
 }
 
-// statusLabel is the icon and the word of an account status. A closing
-// account with an error is an overdue closure. Its box turns red, and the
-// qualifier "overdue" follows the word, because color alone never names a
-// state.
+// statusLabel is the icon and the word of an account status. An overdue
+// closure (core ClosureOverdue) turns its box red, and the qualifier
+// "overdue" follows the word, because color alone never names a state.
 templ statusLabel(a *core.Account) {
-	<span class={ "status", "status-" + string(a.Status), templ.KV("status-overdue", a.Status == core.StatusClosing && a.LastError != "") }>@icon(statusIcon(a.Status))<span>{ string(a.Status) }</span></span>
-	if a.Status == core.StatusClosing && a.LastError != "" {
+	<span class={ "status", "status-" + string(a.Status), templ.KV("status-overdue", a.ClosureOverdue()) }>@icon(statusIcon(a.Status))<span>{ string(a.Status) }</span></span>
+	if a.ClosureOverdue() {
 		<span class="qualifier">overdue</span>
 	}
 }
@@ -566,7 +584,7 @@ templ budgetLabel(health, errText string) {
 	<span
 		class={ "status", "budget-" + look.Tone }
 		if errText != "" {
-			title={ errText }
+			title={ storedFailure(errText) }
 		}
 	>@icon(look.Icon)<span>{ word }</span></span>
 	if look.Settling {
@@ -633,7 +651,7 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 						}
 					</dd>
 					if a.BudgetError != "" {
-						<dt>budget error</dt><dd class="error">@icon("alert")<span>{ a.BudgetError }</span></dd>
+						<dt>budget error</dt><dd class="error">@icon("alert")<span>{ storedFailure(a.BudgetError) }</span></dd>
 					}
 					<dt>spend, 30 days</dt><dd>{ fmt.Sprintf("$%.2f", total) }</dd>
 					// Every time on this page is in UTC, the same as the history

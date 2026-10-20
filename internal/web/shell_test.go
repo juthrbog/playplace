@@ -79,16 +79,16 @@ func TestQueueCountTracksPending(t *testing.T) {
 	}
 
 	// An approval updates the count with the card.
-	res, body = doAs(t, ts, "POST", "/requests/carls-req/approve", "lead@example.com", false, true, versionIn(t, page, "carls-req"), true)
+	res, body = doAs(t, ts, "POST", "/requests/carls-req/approve", "lead@example.com", false, true, refForm(refIn(t, page, "carls-req")), true)
 	if res.Header.Get("X-Form-Error") != "" || !strings.Contains(body, `<span id="queue-count" hx-swap-oob="true">`) || !strings.Contains(body, `>1<span class="vh"> pending requests`) {
 		t.Fatalf("approve should send the new count out of band: %v\n%s", res.Header, body)
 	}
 
 	// A refusal for a changed request renders the card again, and the count
 	// with it.
-	seen := versionIn(t, page, "bobs-req")
+	seen := refForm(refIn(t, page, "bobs-req"))
 	_, form := do(t, ts, "GET", "/requests/bobs-req/edit", "ops@example.com", true, nil, true)
-	edit := versionIn(t, form, "bobs-req")
+	edit := refForm(refIn(t, form, "bobs-req"))
 	edit.Set("owner", "bob@example.com")
 	edit.Set("budget", "40")
 	if res, body := do(t, ts, "POST", "/requests/bobs-req/edit", "ops@example.com", true, edit, true); res.Header.Get("X-Form-Error") != "" {
@@ -107,7 +107,7 @@ func TestQueueCountTracksPending(t *testing.T) {
 
 	// At zero the count is empty, so the shell shows no pill.
 	_, page = doAs(t, ts, "GET", "/", "lead@example.com", false, true, nil, false)
-	res, _ = doAs(t, ts, "POST", "/requests/bobs-req/approve", "lead@example.com", false, true, versionIn(t, page, "bobs-req"), true)
+	res, _ = doAs(t, ts, "POST", "/requests/bobs-req/approve", "lead@example.com", false, true, refForm(refIn(t, page, "bobs-req")), true)
 	if res.Header.Get("X-Form-Error") != "" {
 		t.Fatal("approving the current request should work")
 	}

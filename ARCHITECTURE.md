@@ -21,7 +21,7 @@ system of the web UI, see [DESIGN.md](DESIGN.md).
 - **Guardrails are data, not code paths.** Owner, expiry, budget, and the
   approval trail are tags. Ceilings and limits are configuration.
 - **Cost Explorer bills per call.** Nothing polls it. Views cache for an
-  hour; `list` never touches it.
+  hour and wait five minutes after a failed pull. `list` never touches it.
 
 ## No state file
 
@@ -68,6 +68,12 @@ wait for placement from the organization root, spend from Cost Explorer.
 Accounts that land in the OU without tags are adopted with defaults on the
 next refresh. Cost Explorer bills per call, so `list` never touches it;
 `show`, `costs`, the TUI, and the web UI cache results for an hour.
+Spend is known only while the last pull of the account succeeded
+(`CostState`). After a failed pull, a pull that is not forced waits five
+minutes. A forced pull tries at once: Sync in the web UI, an account page
+whose spend is not known, and `r` and `S` in the TUI. Pulls of one account
+can overlap, and the cost state keeps the answer of the newest one. `show`,
+`costs` and the TUI show unknown spend as `unavailable`, never as $0.
 
 ### Placement and the organization
 
@@ -321,6 +327,16 @@ the account owner, or `approvers` for a new request. The requester is not a
 recipient. When the requester or the owner must know, an approver tells them,
 or they read the channel.
 
+A notice never holds the raw text of a failed call to AWS, because that text
+holds AWS request IDs and Slack shows the notice. When a budget step fails in
+AWS, the budget notice says "The call to AWS failed. An admin can read the
+details in the playplace log." Core then writes the raw error to the log at
+Warn, with the name and the ID of the account. A refusal of core keeps its
+words in the notice. The budget error tag and the history details keep the
+raw error. The *creation failed* notice names the reason code that AWS
+returns, for example `EMAIL_ALREADY_EXISTS`. A reason code holds no request
+ID.
+
 `serve` logs one warning at startup when only the log carries notices. Other
 commands do not warn. They run on every operator call or, like `reconcile`,
 on a schedule, so the same warning would repeat on every run. The TUI moves
@@ -336,16 +352,18 @@ database. A request records owner, TTL, budget, purpose, who asked, and when.
 Approving marks the record approved first and requests the account second,
 so a second approver, in the same process or another, finds nothing pending.
 If AWS refuses the creation the mark is removed and the request is pending
-again. If AWS accepts the request and reports the creation as failed later,
-the approved record stays for 7 days. The first refresh or CLI wait that sees
-the failure sets an `f` flag in the record, then writes the *failed* history
-event and sends the *creation failed* notice. The flag comes first, so a
-crash can lose the notice but a later pass in the same process does not
-repeat it. Older binaries ignore the flag. Within one process the refresh pass and every change to the queue are
-serialized, so the worker, the web UI, and Slack never run the same pass or
-act on the same request at once. The account carries `requested-by` and
-`approved-by` tags for audit. Requests nobody acts on expire after
-`--request-ttl` (7 days).
+again. The removal also runs when the approver stops waiting, for example when
+the browser closes or a Slack click passes its deadline. It has a limit of 30
+seconds of its own. If AWS accepts the request and reports the creation as
+failed later, the approved record stays for 7 days. The first refresh or CLI
+wait that sees the failure sets an `f` flag in the record, then writes the
+*failed* history event and sends the *creation failed* notice. The flag comes
+first, so a crash can lose the notice but a later pass in the same process
+does not repeat it. Older binaries ignore the flag. Within one process the
+refresh pass and every change to the queue are serialized, so the worker, the
+web UI, and Slack never run the same pass or act on the same request at once.
+The account carries `requested-by` and `approved-by` tags for audit. Requests
+nobody acts on expire after `--request-ttl` (7 days).
 
 A decision names the request version that the actor saw, not only the
 request name. A request version is the journey id and a short digest of the
@@ -442,9 +460,12 @@ the exact budget, the exact lifetime, and the limit override, because its
 buttons bind to them. playplace does not update the message when someone
 edits, withdraws, or decides the request elsewhere. The buttons carry the
 request version that the message shows. After any of those changes,
-playplace refuses a click with a private reply that points to the web UI.
-Buttons from an older playplace carry only the name, and playplace refuses
-them the same way.
+playplace refuses a click with a private reply. The reply starts with "Not
+approved." or "Not denied.", and then gives the reason in the words of the
+web UI. A request that changed gets a reply that points to the web UI,
+because the message never shows the new values. Buttons from an older
+playplace carry only the name, and playplace refuses them with a reply that
+points to the web UI.
 
 
 ## Account readiness and initial handoff
@@ -550,6 +571,70 @@ or to the same button on the next row. The home
 page polls `GET /accounts` every 15 seconds. The poll sends the
 `X-Poll-Hash` header with the hash of what the page shows. If nothing
 changed, the server answers 204 No Content and the page stays as it is.
+
+A page never shows the raw text of a failed call to AWS, because that text
+holds AWS request IDs. Core returns the error of every provider call in a
+`core.ProviderError`. Its text stays the same, so the log, the CLI and the
+TUI do not change. The web UI and the Slack replies say "The call to AWS
+failed. Try again in a minute. If it fails again, ask an admin to read the
+playplace log." For a throttle or a time-out they say "AWS did not answer in
+time. Try again in a minute." The failed panel of the account list leaves
+out "Try again in a minute", because the page tries again by itself. The
+server log holds the raw error with the path, at the warn level. A stale
+request, a self-approval, a request that is no longer waiting, and the
+per-owner and lifetime limits get sentences of their own. Other refusals of
+core keep their words, written as sentences. Core also stores the raw error
+of a failed budget call, in the budget error tag and in the history details.
+A page shows the same failure text in its place. A notice has a safe text of
+its own, as [Lifecycle notices](#lifecycle-notices) describes.
+
+Approve and Deny in the web UI go through one decide function. `POST
+/requests/decide?action=approve` or `?action=deny` takes a list of requests.
+Each `req` field holds a request name and its version, in the same form as
+the value of a Slack button. The buttons of one row, `POST
+/requests/{name}/approve` and `/deny`, call the same function with one
+request. The checks run in order: the role of the viewer, then the form,
+then the reason of a denial, then core. The function reads the form only
+through a cap of 256 KB, and a larger body gets 413. A form with an unknown
+action or with no request gets 400 and decides nothing. So does a form with
+more than 10 approvals or 50 denials, or with a request that does not parse
+or whose name is not a valid request name. The function drops a second
+request with the same name. It decides the requests in queue order, oldest
+first. In the web UI, nobody can approve or deny a request that they asked
+for or that names them as the owner, unless `--allow-self-approval` is set.
+The function applies this rule to the version that the page showed. A
+request of another version changed, so core refuses it as changed.
+
+A denial in the web UI needs a reason of 1 to 500 characters. The reason
+goes into the notice, Slack and history, so playplace folds its line breaks
+and runs of spaces into single spaces. The reason cannot hold control
+characters or text direction characters. A notice in Slack shows Slack
+markup as plain text, so a reason cannot mention the whole channel.
+
+A decision on one request runs to its end, also when the browser goes
+away. A call that is cut can write the claim in AWS while playplace sees
+an error, and then nothing puts the request back. Only a call that AWS
+never answers ends, after 2 minutes. The AWS SDK sets no time limit on an
+answer, and core holds its lock for the whole decision. Without this limit,
+one hung call stops every other decision and the refresh pass. Core
+restores a failed approval with a time limit of its own.
+
+Each approval runs a forced inventory and CreateAccount, and a common proxy
+cuts an answer at 60 seconds. So before each request, the function checks a
+budget of 45 seconds, counted from the start of the post. After the budget,
+or after the first failed call to AWS, it does not try the rest. Any other
+refusal of one request never stops the others. When the server stops, it
+waits up to 60 seconds for the answers in flight. A Slack click answers
+Slack at once and decides after the answer, so the stop also waits for those
+decisions, in the same 60 seconds. So a stop does not cut a decision. Give
+the server at least 60 seconds to stop. [The deployment
+guide](deploy/README.md) names the setting for ECS, Kubernetes and systemd.
+
+The region says how many requests went through. The refusal slot of the
+pending card lists each request that did not, with the reason. If the
+account list fails after the decisions, the answer still holds every
+result. The server log has one line at the info level for each request,
+with the action, the name, the version and the result.
 
 The server needs management-account credentials, because AWS only allows
 CreateAccount and CloseAccount from there. Run it in the management account
@@ -722,6 +807,9 @@ terminal narrows: ACCOUNT first, then OWNER, then the spend bar.
 | closed | `○` | muted |
 
 Spend bar: success below 70 percent of budget, warning to 90, error above.
+Unknown spend shows as `unavailable` with no bar, and the header total says
+how many open accounts it leaves out. The TUI does not pull a closed
+account, so a closed account with no spend shows a muted `— / $200`.
 Two border treatments only: rounded on dialogs and forms, `─` rule for the
 pane. Selection is a `▌` bar plus a subtle background on every cell.
 
@@ -739,8 +827,9 @@ pane. Selection is a `▌` bar plus a subtle background on every cell.
 - Empty, loading, and error states each have a line of text in the table body.
 - Never print outside the frame. Warnings go through the notice feed, and
   action outcomes through `setFlash`, which is a notice too.
-- Cost Explorer bills per call. Costs come from the service's hourly cache;
-  only `S` (sync) and `r` (reload) force a pull.
+- Cost Explorer bills per call. Costs come from the service's hourly cache.
+  Only `S` (sync) and `r` (reload) force a pull. After a failed pull, the
+  timer waits five minutes before it pulls that account again.
 
 ### Checking a frame
 

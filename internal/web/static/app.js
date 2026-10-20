@@ -88,10 +88,12 @@ document.addEventListener("htmx:beforeSwap", function (ev) {
   swapSource = (ev.detail.requestConfig && ev.detail.requestConfig.elt) || null;
   // htmx does not swap a 4xx answer. A 403 refusal carries HX-Reswap: none
   // and only out-of-band parts, the slot and the region, so the page can
-  // take them. It is then not an error, and htmx logs nothing. X-Form-Error
-  // still keeps the form as the viewer filled it.
+  // take them. So does the 400 or 413 of a decision form that playplace
+  // refused. Such an answer is then not an error, and htmx logs nothing.
+  // X-Form-Error still keeps the form as the viewer filled it.
   var xhr = ev.detail.xhr;
-  if (xhr && xhr.status === 403 && xhr.getResponseHeader("HX-Reswap") === "none") {
+  var refused = xhr && (xhr.status === 400 || xhr.status === 403 || xhr.status === 413);
+  if (refused && xhr.getResponseHeader("HX-Reswap") === "none") {
     ev.detail.shouldSwap = true;
     ev.detail.isError = false;
   }

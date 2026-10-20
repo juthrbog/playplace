@@ -112,7 +112,7 @@ func (t theme) status(a *core.Account, now time.Time) (glyph, label string, c co
 	case core.StatusPending:
 		return "◇", "pending", t.warning
 	case core.StatusClosing:
-		if a.LastError != "" {
+		if a.ClosureOverdue() {
 			return "!", "closing !", t.danger
 		}
 		return "◌", "closing", t.busy

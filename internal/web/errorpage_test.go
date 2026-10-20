@@ -133,7 +133,7 @@ func TestForbiddenNamesTheRule(t *testing.T) {
 		t.Fatalf("request = %d:\n%s", res.StatusCode, body)
 	}
 	_, home := do(t, ts, "GET", "/", "bob@example.com", false, nil, false)
-	version := versionIn(t, home, "bobs-req")
+	version := refForm(refIn(t, home, "bobs-req"))
 	const home403 = "Go back to Home."
 	for _, c := range []struct {
 		name, method, path, user string

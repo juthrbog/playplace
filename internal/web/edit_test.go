@@ -24,7 +24,7 @@ import (
 // step refuses fails the test, because the browser would not submit the form.
 func editFormValues(t *testing.T, body, name string) url.Values {
 	t.Helper()
-	row := regexp.MustCompile(`(?s)<tr id="req-` + regexp.QuoteMeta(name) + `">.*?</tr>`).FindString(body)
+	row := slipIn(body, name)
 	if !strings.Contains(row, `name="ttl"`) {
 		t.Fatalf("no edit form for %s in:\n%s", name, body)
 	}

@@ -38,6 +38,10 @@ type Provider struct {
 	DailyCost   float64
 	CostCalls   int // how many times Costs was called, for tests that watch spend on Cost Explorer
 
+	// CostFailures makes Costs fail for an account: the key is the account
+	// id, and the value is the error text.
+	CostFailures map[string]string
+
 	// ActivationPolls is how many CreateStatus calls see a new account as
 	// PENDING_ACTIVATION, as AWS shows it for a few minutes. The count starts
 	// with the call that finishes the creation, or with the first call after
@@ -83,6 +87,7 @@ func New() *Provider {
 		BudgetStates: map[string]core.BudgetSnapshot{},
 		Recipients:   map[string]string{},
 		DailyCost:    1.5,
+		CostFailures: map[string]string{},
 		Users:        map[string]core.User{},
 		Grants:       map[string][]string{},
 		ouTags:       map[string]string{},
@@ -510,11 +515,15 @@ func (p *Provider) RetireBudgetAction(_ context.Context, id string, spec core.Bu
 	return false, nil      // Observe absence on the next pass, like the AWS provider.
 }
 
-func (p *Provider) Costs(_ context.Context, _ string, from, to time.Time) ([]core.CostPoint, error) {
+func (p *Provider) Costs(_ context.Context, id string, from, to time.Time) ([]core.CostPoint, error) {
 	p.mu.Lock()
 	p.CostCalls++
 	daily := p.DailyCost
+	failure := p.CostFailures[id]
 	p.mu.Unlock()
+	if failure != "" {
+		return nil, fmt.Errorf("%s", failure)
+	}
 	var out []core.CostPoint
 	for d := from; d.Before(to); d = d.Add(24 * time.Hour) {
 		out = append(out, core.CostPoint{Date: d, AmountUSD: daily})
