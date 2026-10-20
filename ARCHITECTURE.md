@@ -327,6 +327,16 @@ the account owner, or `approvers` for a new request. The requester is not a
 recipient. When the requester or the owner must know, an approver tells them,
 or they read the channel.
 
+A notice never holds the raw text of a failed call to AWS, because that text
+holds AWS request IDs and Slack shows the notice. When a budget step fails in
+AWS, the budget notice says "The call to AWS failed. An admin can read the
+details in the playplace log." Core then writes the raw error to the log at
+Warn, with the name and the ID of the account. A refusal of core keeps its
+words in the notice. The budget error tag and the history details keep the
+raw error. The *creation failed* notice names the reason code that AWS
+returns, for example `EMAIL_ALREADY_EXISTS`. A reason code holds no request
+ID.
+
 `serve` logs one warning at startup when only the log carries notices. Other
 commands do not warn. They run on every operator call or, like `reconcile`,
 on a schedule, so the same warning would repeat on every run. The TUI moves
@@ -575,7 +585,8 @@ request, a self-approval, a request that is no longer waiting, and the
 per-owner and lifetime limits get sentences of their own. Other refusals of
 core keep their words, written as sentences. Core also stores the raw error
 of a failed budget call, in the budget error tag and in the history details.
-A page shows the same failure text in its place.
+A page shows the same failure text in its place. A notice has a safe text of
+its own, as [Lifecycle notices](#lifecycle-notices) describes.
 
 Approve and Deny in the web UI go through one decide function. `POST
 /requests/decide?action=approve` or `?action=deny` takes a list of requests.

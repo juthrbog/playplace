@@ -247,7 +247,9 @@ func (s *Service) recordBudgetProtection(ctx context.Context, a *Account, spec B
 			// Finishing setup is not news: the ready notice covers a new
 			// account, and a repaired configuration changes nothing for people.
 			if state == "error" || state == "restricted" || state == "retired" || a.BudgetHealth == "restricted" || a.BudgetHealth == "recovering" || a.BudgetHealth == "error" {
-				body := "Budget protection is " + state + ". " + message
+				// The tag and history keep message, but the notice goes to
+				// Slack, so it never holds the raw text of a failed AWS call.
+				body := "Budget protection is " + state + ". " + s.noticeText(a, err)
 				switch {
 				case a.BudgetHealth == "error" && state == "setup-pending":
 					// The step from setup-pending to ready is silent, so this

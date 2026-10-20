@@ -1,9 +1,12 @@
 package core_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"testing"
@@ -125,6 +128,13 @@ func (f *failing) EnsureBudget(ctx context.Context, id string, spec core.BudgetS
 		return core.BudgetProtection{}, err
 	}
 	return f.Provider.EnsureBudget(ctx, id, spec)
+}
+
+func (f *failing) ExecuteBudgetAction(ctx context.Context, id string, spec core.BudgetSpec, actionID string, op core.BudgetActionOperation) error {
+	if err := f.fail("ExecuteBudgetAction"); err != nil {
+		return err
+	}
+	return f.Provider.ExecuteBudgetAction(ctx, id, spec, actionID, op)
 }
 
 // failingService is a second service on the provider of h, with the
@@ -370,5 +380,130 @@ func TestProviderFailuresAreProviderErrorsWithTheSameText(t *testing.T) {
 		if errors.As(err, &pe) {
 			t.Errorf("a refusal of core reads as a failed provider call: %+v in %v", pe, err)
 		}
+	})
+}
+
+// A budget notice goes to Slack, so it says a safe sentence for a failed
+// call to AWS. The log keeps the raw error with the account, and the budget
+// error tag keeps it too. A refusal of core keeps its words in the notice.
+func TestBudgetNoticeHidesTheTextOfAFailedAWSCall(t *testing.T) {
+	ctx := context.Background()
+	notice := func(t *testing.T, h *harness) string {
+		t.Helper()
+		for _, m := range h.note.msgs {
+			if m.Subject == "Playground budget: box" {
+				return m.Body
+			}
+		}
+		t.Fatalf("no budget notice in %+v", h.note.msgs)
+		return ""
+	}
+	// safe checks a notice of a failed call to AWS and the log line that keeps
+	// its raw text.
+	safe := func(t *testing.T, body, logged, raw string) {
+		t.Helper()
+		if want := "Budget protection is error. The call to AWS failed. An admin can read the details in the playplace log."; body != want {
+			t.Errorf("notice = %q, want %q", body, want)
+		}
+		for _, s := range []string{"RequestID", "operation error"} {
+			if strings.Contains(body, s) {
+				t.Errorf("notice holds %q: %q", s, body)
+			}
+		}
+		for line := range strings.Lines(logged) {
+			if strings.Contains(line, "level=WARN") && strings.Contains(line, "account=box") && strings.Contains(line, raw) {
+				return
+			}
+		}
+		t.Errorf("no warn line with the account and the raw error in the log:\n%s", logged)
+	}
+
+	t.Run("failed AWS call", func(t *testing.T) {
+		h := newHarness(t)
+		a := h.ready(t, "box", "anna@example.com", 10*24*time.Hour)
+		svc, f := failingService(h)
+		var logged bytes.Buffer
+		svc.SetLogger(slog.New(slog.NewTextHandler(&logged, nil)))
+		f.calls["EnsureBudget"] = true
+		h.note.msgs = nil
+		if _, err := svc.Refresh(ctx); !errors.Is(err, errAWS) {
+			t.Fatalf("refresh = %v, want the failed budget call", err)
+		}
+		body := notice(t, h)
+		if want := "Budget protection is error. The call to AWS failed. An admin can read the details in the playplace log."; body != want {
+			t.Errorf("notice = %q, want %q", body, want)
+		}
+		for _, raw := range []string{"RequestID", "operation error"} {
+			if strings.Contains(body, raw) {
+				t.Errorf("notice holds %q: %q", raw, body)
+			}
+		}
+		found := false
+		for line := range strings.Lines(logged.String()) {
+			if strings.Contains(line, "level=WARN") && strings.Contains(line, "account=box") && strings.Contains(line, errAWS.Error()) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no warn line with the account and the raw error in the log:\n%s", logged.String())
+		}
+		stored, err := base64.RawURLEncoding.DecodeString(h.prov.Tags(a.ID)[core.TagBudgetError])
+		if err != nil || !strings.HasPrefix(errAWS.Error(), string(stored)) || len(stored) == 0 {
+			t.Errorf("budget error tag = %q, %v, want the start of the raw error", stored, err)
+		}
+	})
+
+	t.Run("refusal of core", func(t *testing.T) {
+		h := newHarness(t)
+		enforceBudgets(h)
+		a := h.ready(t, "box", "anna@example.com", 10*24*time.Hour)
+		if err := h.prov.SetTags(ctx, a.ID, map[string]string{core.TagBudgetPolicy: "p-other"}); err != nil {
+			t.Fatal(err)
+		}
+		h.note.msgs = nil
+		if _, err := h.svc.Refresh(ctx); err == nil {
+			t.Fatal("the refusal did not fail the pass")
+		}
+		if got, want := notice(t, h), "Budget protection is error. budget enforcement configuration removed or changed; restore it before changing existing protection"; got != want {
+			t.Errorf("notice = %q, want the refusal of core %q", got, want)
+		}
+	})
+
+	// Retirement wraps the failed call in "budget action retirement: %w", so
+	// the notice must find the mark through that wrap.
+	t.Run("failed retirement", func(t *testing.T) {
+		h := newHarness(t)
+		enforceBudgets(h)
+		var logged bytes.Buffer
+		h.svc.SetLogger(slog.New(slog.NewTextHandler(&logged, nil)))
+		a := h.ready(t, "box", "anna@example.com", 48*time.Hour)
+		h.prov.RetireFailure = errAWS.Error()
+		h.note.msgs = nil
+		closed, err := h.svc.RequestClose(ctx, a.ID, "admin")
+		if err == nil || closed == nil || closed.Status != core.StatusClosed {
+			t.Fatalf("close = %+v, %v, want a closed account and the failed retirement", closed, err)
+		}
+		safe(t, notice(t, h), logged.String(), errAWS.Error())
+	})
+
+	// A recovery step after a budget increase calls ExecuteBudgetAction.
+	t.Run("failed recovery step", func(t *testing.T) {
+		h := newHarness(t)
+		enforceBudgets(h)
+		a := h.ready(t, "box", "anna@example.com", 48*time.Hour)
+		snap := h.prov.BudgetStates[a.ID]
+		snap.SpendUSD, snap.SpendKnown, snap.ActionStatus = 60, true, "EXECUTION_SUCCESS"
+		h.prov.BudgetStates[a.ID] = snap
+		svc, f := failingService(h)
+		var logged bytes.Buffer
+		svc.SetLogger(slog.New(slog.NewTextHandler(&logged, nil)))
+		f.calls["ExecuteBudgetAction"] = true
+		h.note.msgs = nil
+		_, setErr := svc.SetBudget(ctx, a.ID, 100, "admin", "raise", false)
+		_, refreshErr := svc.Refresh(ctx)
+		if !errors.Is(setErr, errAWS) && !errors.Is(refreshErr, errAWS) {
+			t.Fatalf("set = %v, refresh = %v, want the failed recovery step", setErr, refreshErr)
+		}
+		safe(t, notice(t, h), logged.String(), errAWS.Error())
 	})
 }

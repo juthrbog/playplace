@@ -467,6 +467,26 @@ func TestTheStopWaitsForADecisionPost(t *testing.T) {
 	}
 }
 
+// The time limits of a decision work together, and a test that shortens a
+// limit cannot see a change of its value. So this test pins each value, and
+// a change becomes a deliberate act. Change the value, its reason and the
+// docs together.
+func TestTheDecisionLimitsArePinned(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		got, want time.Duration
+		why       string
+	}{
+		{"decideRefLimit", decideRefLimit, 2 * time.Minute, "a normal approval takes 2 to 6 seconds, so only a call that AWS never answers reaches the limit"},
+		{"decideBudget", decideBudget, 45 * time.Second, "a common proxy cuts an answer at 60 seconds, and the last approval and the answer need the other 15 seconds"},
+		{"shutdownDrain", shutdownDrain, 60 * time.Second, "a stop waits for decideBudget and one more approval of up to 15 seconds"},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = %s, want %s, because %s", c.name, c.got, c.want, c.why)
+		}
+	}
+}
+
 // heldApproval holds each account creation until release closes, as a slow
 // call to AWS does. started receives a value when a creation begins.
 type heldApproval struct {
@@ -607,6 +627,51 @@ func TestDecideStopsAfterTheFirstAWSFailure(t *testing.T) {
 	}
 	if !logs.warned("/requests/decide") {
 		t.Errorf("the log has no warning with the raw error:\n%s", logs.String())
+	}
+}
+
+// leftStore stands for AWS with an identity store that the owner
+// gone@example.com left after the request arrived. Access is off until the
+// test sets on, so the requests can arrive first.
+type leftStore struct {
+	core.Provider
+	on atomic.Bool
+}
+
+func (p *leftStore) AccessEnabled() bool { return p.on.Load() }
+
+func (p *leftStore) LookupUser(_ context.Context, identity string) (core.User, error) {
+	if identity == "gone@example.com" {
+		return core.User{}, core.ErrUserNotFound
+	}
+	return core.User{ID: identity, UserName: identity, Email: identity}, nil
+}
+
+// A refusal of core that is not a failed call to AWS stops only its own
+// request, so playplace still decides the next request. The reason says the
+// refusal of core as sentences.
+func TestDecideGoesOnAfterARefusalOfCore(t *testing.T) {
+	store := &leftStore{}
+	d := newDesk(t, nil, func(p *fake.Provider) core.Provider { store.Provider = p; return store }, nil)
+	d.ask(t, "gone-box", "gone@example.com")
+	d.ask(t, "next-box", "next@example.com")
+	refs := d.refs(t, "gone-box", "next-box")
+	store.on.Store(true)
+	res, body := d.decide(t, "lead@example.com", true, actionApprove, decideForm("", refs...), true)
+	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
+		t.Fatalf("decide = %d %v\n%s", res.StatusCode, res.Header, body)
+	}
+	if got, _ := regionIn(body); got != checkIcon+"<span>Approved 1 of 2 requests. AWS is creating 1 account. The queue shows why 1 request was not approved.</span>" {
+		t.Errorf("region = %q", got)
+	}
+	if got, want := resultIn(body, "gone-box"), `Owner "gone@example.com" is not a user in the identity store. Use the engineer's email or user name.`; got != want {
+		t.Errorf("the reason for gone-box = %q, want %q", got, want)
+	}
+	if got := resultIn(body, "next-box"); got != "" {
+		t.Errorf("next-box has the reason %q, want none", got)
+	}
+	if !d.pending(t, "gone-box") || d.pending(t, "next-box") {
+		t.Errorf("gone-box pending = %v and next-box pending = %v, want only gone-box", d.pending(t, "gone-box"), d.pending(t, "next-box"))
 	}
 }
 
