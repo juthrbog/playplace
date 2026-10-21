@@ -90,8 +90,8 @@ func TestBarHeightLivesInARule(t *testing.T) {
 // it is the same sentence that the server writes. Then app.js drops the name
 // from the address. A reload after a decision shows no stale line, and the
 // browser finds no hash that takes the focus away from the name. A queue
-// that did not load cannot use the name, so the address keeps it, and a
-// reload opens the slip when the queue is back.
+// that did not load cannot use the name. The address keeps it, so a reload
+// opens the slip when the queue is back.
 func TestAddressOpensItsSlip(t *testing.T) {
 	js := staticText(t, "app.js")
 	holdsEach(t, "app.js", js,

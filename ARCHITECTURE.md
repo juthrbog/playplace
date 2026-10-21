@@ -578,17 +578,22 @@ same text into the region. While a request runs, its button sets
 When an answer takes the focused control out of the page, `app.js` moves
 the focus. After Edit, it goes to the first field of the edit form. After
 Save or Cancel, it goes to the Edit button. After Approve, Deny or
-Withdraw, the slip no longer waits. The focus then goes to the same button
-in the next waiting slip. When that slip does not show the button, the
-focus goes to its name button instead. This happens when its tools are
-closed, or when it shows the "Your request" chip in place of Approve and
-Deny. When no slip after it waits, the focus goes the same way to the
-waiting slip before it. With no waiting slip at all, it goes to the queue
-heading. When a poll takes the focused slip away, the focus goes to the
-name of the next waiting slip, never to Approve or Deny. If the focused
-slip left, the region says why. After an action, `app.js` writes the
-message of the region again once the focus moved, so a screen reader hears
-both.
+Withdraw, the focus stays in the same slip while that slip still waits,
+for example after a refusal. When the slip no longer waits, the focus goes
+to the same button in the next waiting slip. After an action, `app.js`
+writes the message of the region again once the focus moved, so a screen
+reader hears both.
+
+When the next waiting slip does not show that button, the focus goes to
+its name button instead. This happens when its tools are closed, or when
+it shows the "Your request" chip in place of Approve and Deny. An open
+edit slip has no name button, so the focus goes to its Save button. When
+no later slip waits, the focus goes the same way to the closest earlier
+waiting slip. With no waiting slip at all, it goes to the queue heading.
+
+When a poll takes the focused slip away, the focus goes the same way to
+the name of a waiting slip. It never goes to Approve or Deny. The region
+then says why the slip left.
 
 The home page polls `GET /accounts` every 15 seconds. The poll sends the
 `X-Poll-Hash` header with the hash of what the page shows. If nothing

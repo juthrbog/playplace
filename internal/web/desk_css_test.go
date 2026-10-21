@@ -186,9 +186,10 @@ func TestTextKeepsTheFiveSizes(t *testing.T) {
 // Above 640 px the bulk bar sticks to the top of the window. The root keeps
 // the height of the bar and 8 px clear, so a focused control and its ring
 // never scroll under it. At every width the root keeps 8 px clear above and
-// below a focused control, so its ring never ends past the window. On a
-// phone the bar scrolls with the queue, and a long list in it is no scroll
-// box.
+// below a focused control, so its ring never ends past the window. Both
+// root rules have the same layer and specificity, so the rule of the bar
+// wins above 640 px only when it comes later. On a phone the bar scrolls
+// with the queue, and a long list in it is no scroll box.
 func TestDeskBarSticksAboveThePhone(t *testing.T) {
 	tokens, _ := layerRules(t, "tokens")
 	wantDecls(t, "tokens", tokens, ":root", map[string]string{"--bar-h": "48px"})
@@ -198,6 +199,12 @@ func TestDeskBarSticksAboveThePhone(t *testing.T) {
 	layoutTop, layout := layerRules(t, "layout")
 	wantDecls(t, "layout", layoutTop, ":root", map[string]string{"scroll-padding-top": "var(--space-sm)", "scroll-padding-bottom": "var(--space-sm)"})
 	wantDecls(t, "layout (min-width: 641px)", layout["(min-width: 641px)"], ":root", map[string]string{"scroll-padding-top": "calc(var(--bar-h) + var(--space-sm))"})
+	css := appCSS(t)
+	base := strings.LastIndex(css, "scroll-padding-top: var(--space-sm);")
+	bar := strings.Index(css, "scroll-padding-top: calc(var(--bar-h) + var(--space-sm));")
+	if bar >= 0 && base > bar {
+		t.Error("app.css sets the 8 px scroll-padding-top after the rule of the bar, so it wins above 640 px")
+	}
 	wantDecls(t, "components", top, ".slip", map[string]string{"scroll-margin-top": "var(--space-sm)"})
 }
 
@@ -276,6 +283,17 @@ func TestNotesBreakALongName(t *testing.T) {
 	top, _ := layerRules(t, "components")
 	for _, sel := range []string{".notice", ".refusal", ".slip-note"} {
 		wantDecls(t, "components", top, sel, map[string]string{"overflow-wrap": "anywhere"})
+	}
+}
+
+// Every inline note puts its icon beside the first line of its text. A
+// message of many lines, such as a long name that breaks, keeps the icon at
+// the top in the live region too.
+func TestNoteIconsSitAtTheFirstLine(t *testing.T) {
+	top, _ := layerRules(t, "components")
+	for _, sel := range []string{".notice", ".refusal", ".slip-note", ".desk-empty"} {
+		wantDecls(t, "components", top, sel, map[string]string{"align-items": "flex-start"})
+		wantDecls(t, "components", top, sel+" .i", map[string]string{"margin-top": "2px"})
 	}
 }
 

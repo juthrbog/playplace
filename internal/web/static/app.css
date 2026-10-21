@@ -534,9 +534,11 @@
   .noauth .i {
     color: var(--red);
   }
+  /* As in every inline note, the icon sits beside the first line, so a
+     message of many lines keeps it at the top. */
   .notice {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: var(--space-sm);
     padding: 10px var(--space-md);
     background: var(--paper);
@@ -546,6 +548,7 @@
     overflow-wrap: anywhere;
   }
   .notice .i {
+    margin-top: 2px;
     color: var(--ink-2);
   }
   /* The check of a result is shelf ink, the healthy green. The Sync icon
