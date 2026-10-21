@@ -133,6 +133,7 @@ func (pg page) slips() []slipView {
 // request that left the queue has no place when the page did not send
 // its time. It has none either when a new request holds its name. When
 // the queue did not load, each line names its request and its result.
+// Last comes the request of the address that the queue does not list.
 func (pg page) left() []leftItem {
 	listed := map[string]bool{}
 	for _, q := range pg.Pending {
@@ -148,7 +149,20 @@ func (pg page) left() []leftItem {
 			out = append(out, leftItem{d.Ref.Name, refusal(core.ErrNotFound, d.Ref.Name)})
 		}
 	}
+	if pg.Missing != "" {
+		out = append(out, leftItem{pg.Missing, missingText(pg.Viewer, pg.Missing)})
+	}
 	return out
+}
+
+// missingText is the bar line for the request of the address when the
+// queue does not list it. Anyone but an approver sees only their own
+// requests, so their line says that too.
+func missingText(v Viewer, name string) string {
+	if v.Approver {
+		return refusal(core.ErrNotFound, name)
+	}
+	return name + " is not in Your requests. It is not yours, or it is no longer waiting."
 }
 
 // resultText is what the answer shows for the result d: the note of its

@@ -135,6 +135,11 @@ document.addEventListener("htmx:beforeSwap", function (ev) {
   if (xhr && xhr.pollSeq !== undefined && xhr.pollSeq !== actionSeq) {
     ev.detail.shouldSwap = false;
   }
+  // The focus rule runs after the swap, from the place that the focus
+  // has now.
+  if (ev.detail.shouldSwap) {
+    notePlace(xhr, swapSource);
+  }
 });
 
 // keepNode reports whether a morph leaves this node as it is. The live
@@ -308,11 +313,12 @@ document.addEventListener("htmx:afterRequest", function (ev) {
   }
 });
 
-// Some answers take the focused button out of the page. Approve, Deny and
-// Withdraw take the row out of the pending card. Edit opens the edit row,
-// and Save and Cancel close it again. Close turns the account to closing,
-// which takes its buttons away. focusNext names, for each action, the
-// control in the row that takes the focus then.
+// Some answers take the focused control out of the page. Approve, Deny
+// and Withdraw decide a request, so its slip turns into a decided slip
+// or leaves. Edit opens the edit slip, and Save and Cancel close it
+// again. Close turns the account to closing, which takes its buttons
+// away. focusNext names, for each action, the control that takes the
+// focus then.
 var focusNext = {
   approve: 'form[data-action="approve"] button',
   deny: 'form[data-action="deny"] button',
@@ -323,51 +329,128 @@ var focusNext = {
   close: "td a"
 };
 
-// The row keeps its id through Edit, Save, Cancel and Close, so the focus
-// goes to the control in that row. A row that left gives its place to the
-// next row, or to the row before when it was the last, and the focus goes
-// to the same control there, or to the first button. In an empty card it
-// goes to the heading. This happens only when the focus is lost, so a
-// viewer who moved on keeps their place.
-var leaving = null;
-document.addEventListener("htmx:beforeRequest", function (ev) {
-  var elt = ev.detail.requestConfig && ev.detail.requestConfig.elt;
-  var action = elt && elt.getAttribute && elt.getAttribute("data-action");
-  var row = action && focusNext[action] ? elt.closest("#pending li.slip, #accounts tbody > tr") : null;
-  if (ev.defaultPrevented || !row || !row.contains(document.activeElement)) {
+// The slips of the queue and the rows of the fleet.
+var slipRows = "#pending li.slip";
+var fleetRows = "#accounts tbody > tr";
+
+// focusPlace is where the focus was when an answer started to swap. It
+// holds the slip or the row and its place in the list. It also notes
+// whether the viewer acted on it, and the control to look for after the
+// swap. said is the last node of the region before the swap.
+var focusPlace = null;
+
+// notePlace notes focusPlace for the answer of xhr, from the element
+// that has the focus now. source is the element that sent the request.
+// The viewer acted on the slip or row only when source is a control of
+// focusNext inside it. After any other swap, a poll above all, the focus
+// goes to a control that decides nothing. That is the name of a slip,
+// the heading of a row of Your requests, or the account link of a fleet
+// row. It never goes to Approve or Deny, because the viewer did not act.
+function notePlace(xhr, source) {
+  focusPlace = null;
+  var active = document.activeElement;
+  var row = active && active.closest ? active.closest(slipRows + ", " + fleetRows) : null;
+  if (!row || !row.id) {
     return;
   }
-  leaving = {
-    xhr: ev.detail.xhr,
-    want: focusNext[action],
+  var action = source && source.getAttribute ? source.getAttribute("data-action") : null;
+  var acted = !!action && !!focusNext[action] && row.contains(source);
+  var slip = row.matches(slipRows);
+  var region = document.getElementById("notice");
+  focusPlace = {
+    xhr: xhr,
     row: row.id,
-    rows: row.closest("#pending") ? "#pending li.slip" : "#accounts tbody > tr",
-    index: Array.prototype.indexOf.call(row.parentNode.children, row)
+    rows: slip ? slipRows : fleetRows,
+    index: Array.prototype.indexOf.call(row.parentNode.children, row),
+    acted: acted,
+    want: acted ? focusNext[action] : (slip ? "button.slip-name, .slip-title[tabindex]" : "td a"),
+    said: region ? region.lastElementChild : null
   };
-});
+}
+
+// controlIn finds the control want in row, or else the first control
+// that shows. A control in a closed part does not show. Only a slip that
+// waits has controls, so a decided or gone slip gives none. A fleet row
+// has no data-state.
+function controlIn(row, want) {
+  if (!row || (row.hasAttribute("data-state") && row.getAttribute("data-state") !== "pending")) {
+    return null;
+  }
+  var picks = want ? [want, "button, a[href]"] : ["button, a[href]"];
+  for (var p = 0; p < picks.length; p++) {
+    var found = row.querySelectorAll(picks[p]);
+    for (var i = 0; i < found.length; i++) {
+      if (!found[i].closest("[hidden]")) {
+        return found[i];
+      }
+    }
+  }
+  return null;
+}
+
+// After a swap, the focus can be lost, or it can sit in a slip that no
+// longer waits. It then goes to the control of focusPlace in its own
+// slip or row. A slip that no longer waits gives its place to the next
+// slip that waits, then to the one before it. In a queue with no slip
+// that waits, the focus goes to the heading. A viewer who moved on keeps
+// their place. Every swap runs this rule, a poll too.
 document.addEventListener("htmx:afterSettle", function (ev) {
-  if (!leaving || ev.detail.xhr !== leaving.xhr) {
+  watchBar();
+  if (!focusPlace || ev.detail.xhr !== focusPlace.xhr) {
     return;
   }
-  var was = leaving;
-  leaving = null;
-  if (document.activeElement && document.activeElement !== document.body) {
+  var was = focusPlace;
+  focusPlace = null;
+  var active = document.activeElement;
+  var ended = active && active.closest && active.closest('li.slip:not([data-state="pending"])');
+  if (active && active !== document.body && !ended) {
     return;
   }
-  var row = was.row ? document.getElementById(was.row) : null;
-  var target = row && row.querySelector(was.want);
-  if (!target) {
-    var rows = document.querySelectorAll(was.rows);
-    var other = rows.length ? rows[Math.min(was.index, rows.length - 1)] : null;
-    target = other && (other.querySelector(was.want) || other.querySelector("button"));
+  var target = controlIn(document.getElementById(was.row), was.want);
+  var rows = document.querySelectorAll(was.rows);
+  var start = Math.min(was.index, rows.length - 1);
+  for (var i = start; !target && i >= 0 && i < rows.length; i++) {
+    target = controlIn(rows[i], was.want);
   }
-  if (!target && was.rows.indexOf("#pending") === 0) {
+  for (var j = start - 1; !target && j >= 0; j--) {
+    target = controlIn(rows[j], was.want);
+  }
+  if (!target && was.rows === slipRows) {
     target = document.getElementById("pending-title");
   }
-  if (target) {
-    target.focus();
+  if (!target) {
+    return;
+  }
+  target.focus();
+  // A slip that left while the viewer did nothing gets a message, so a
+  // screen reader user knows why the focus moved. After an action, the
+  // answer wrote the region, and the move of the focus cut it short.
+  if (!was.acted && was.rows === slipRows && !document.getElementById(was.row)) {
+    say(goneText(was.row.slice(4)));
+  } else if (was.acted) {
+    repeatRegion(was.said);
   }
 });
+
+// repeatRegion writes the message of the region again, once, 300 ms
+// after the focus moved. A screen reader stops reading the region when
+// the focus moves, so the message then comes after the name of the new
+// focus. before is the last node of the region before the swap, so the
+// function never repeats a message that this answer did not write. The
+// nodes, the text and the look stay the same.
+function repeatRegion(before) {
+  var region = document.getElementById("notice");
+  var last = region ? region.lastElementChild : null;
+  if (!last || last === before) {
+    return;
+  }
+  var text = last.textContent;
+  setTimeout(function () {
+    if (region.lastElementChild === last && last.textContent === text) {
+      last.textContent = text;
+    }
+  }, 300);
+}
 
 // The list holds only requests that htmx sends, so a request that another
 // listener cancels never blocks the poll. A poll notes the latest action
@@ -385,4 +468,141 @@ document.addEventListener("htmx:beforeSend", function (ev) {
     return xhr.readyState > 0 && xhr.readyState < 4;
   });
   running.push(ev.detail.xhr);
+});
+
+// barRule holds --bar-h, the height of the bulk bar. Above 640 px the
+// bar sticks to the top of the window. The stylesheet keeps that much
+// room and 8 px above a focused control. A long message wraps and makes
+// the bar taller. The CSP allows no inline style, so app.js adds one rule to
+// the end of app.css and changes that rule. A rule is not an inline
+// style, and the page keeps no style attribute.
+var barRule = null;
+function setBarHeight(px) {
+  if (!barRule) {
+    var link = document.querySelector('link[rel="stylesheet"]');
+    var sheet = link && link.sheet;
+    if (!sheet) {
+      return;
+    }
+    try {
+      barRule = sheet.cssRules[sheet.insertRule(":root {}", sheet.cssRules.length)];
+    } catch (err) {
+      return;
+    }
+  }
+  barRule.style.setProperty("--bar-h", px + "px");
+}
+
+// A morph keeps the bar node, and a page load makes a new one. So
+// watchBar looks for the bar on load and after each swap. A message that
+// makes the bar taller can cover the focused control, and the browser
+// scrolls only when the focus moves. So the observer scrolls the control
+// clear of the bar.
+var barSeen = null;
+var barWatch = typeof ResizeObserver === "function" ? new ResizeObserver(function (entries) {
+  var bar = entries[0].target;
+  setBarHeight(bar.offsetHeight);
+  var active = document.activeElement;
+  if (active && active !== document.body && !bar.contains(active)) {
+    var a = active.getBoundingClientRect();
+    var b = bar.getBoundingClientRect();
+    if (a.top < b.bottom && a.bottom > b.top) {
+      active.scrollIntoView({ block: "nearest" });
+    }
+  }
+}) : null;
+function watchBar() {
+  var bar = document.getElementById("desk-bar");
+  if (!barWatch || bar === barSeen) {
+    return;
+  }
+  if (barSeen) {
+    barWatch.unobserve(barSeen);
+  }
+  barSeen = bar;
+  if (bar) {
+    barWatch.observe(bar);
+  }
+}
+
+// requestName is the pattern of a request name, so a crafted address
+// cannot put other text into a message.
+var requestName = /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/;
+
+// openFromAddress opens the slip that the address names and moves the
+// focus to its name. A link from Slack or a notice is
+// /?req=NAME#req-NAME: the query survives sign-in, and the hash scrolls
+// to the slip. On a hash change only the hash counts, so the Queue link
+// to #pending does not open the slip of the query again. A name with no
+// slip that waits gets the focus on the heading. A message follows only
+// when the page does not say why already. A slip that no longer waits
+// shows why, and a queue that did not load says so. On a page visit the
+// server writes a bar line for the name.
+function openFromAddress(useQuery) {
+  var name = null;
+  if (location.hash.indexOf("#req-") === 0) {
+    name = location.hash.slice(5);
+  } else if (useQuery) {
+    name = new URLSearchParams(location.search).get("req");
+  }
+  if (!name || !requestName.test(name) || !document.getElementById("pending")) {
+    return;
+  }
+  var slip = document.getElementById("req-" + name);
+  if (slip && slip.getAttribute("data-state") === "pending") {
+    var button = slip.querySelector("button.slip-name");
+    if (button) {
+      setOpen(button, true);
+      button.focus();
+    } else {
+      var title = slip.querySelector(".slip-title");
+      if (title) {
+        title.focus();
+      }
+    }
+    return;
+  }
+  var heading = document.getElementById("pending-title");
+  if (heading) {
+    heading.focus();
+  }
+  if (slip || document.getElementById("pending-failed") ||
+      document.querySelector('#pending-error [data-name="' + name + '"]')) {
+    return;
+  }
+  say(document.querySelector("#pending.desk") ? goneText(name)
+    : name + " is not in Your requests. It is not yours, or it is no longer waiting.");
+}
+
+// goneText is the sentence of the server for a request that no longer
+// waits (refusal.go).
+function goneText(name) {
+  return name + " is no longer waiting. Someone else decided it, the owner withdrew it, or playplace dropped it.";
+}
+
+// say writes a message into the live region with the alert icon, as an
+// answer of the server does. The text goes in as text, never as markup.
+function say(text) {
+  var region = document.getElementById("notice");
+  if (!region) {
+    return;
+  }
+  var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "i");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  var use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", "#i-alert");
+  svg.appendChild(use);
+  var span = document.createElement("span");
+  span.textContent = text;
+  region.replaceChildren(svg, span);
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  watchBar();
+  openFromAddress(true);
+});
+window.addEventListener("hashchange", function () {
+  openFromAddress(false);
 });

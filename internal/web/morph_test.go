@@ -194,9 +194,11 @@ func TestEditFormIsMarked(t *testing.T) {
 	}
 }
 
-// The morph extension in app.js needs no eval, writes no style, and never
-// throws into htmx. A focused field keeps its value through the value guard,
-// not through ignoreActiveValue, which also freezes a focused button.
+// The morph extension in app.js needs no eval, writes no inline style, and
+// never throws into htmx. A focused field keeps its value through the value
+// guard, not through ignoreActiveValue, which also freezes a focused button.
+// The one style that app.js writes is the height of the bulk bar, in a rule
+// that it adds to app.css.
 func TestMorphExtensionNeedsNoEval(t *testing.T) {
 	js := staticText(t, "app.js")
 	for _, want := range []string{`htmx.defineExtension("morph"`, `Idiomorph.morph(`, `style === "morph"`, "catch", `"pending-error"`, `node.id === "notice"`, "form[data-editing]", `node.tagName === "LI"`, "openState(name, node)"} {
@@ -228,9 +230,12 @@ func TestMorphExtensionNeedsNoEval(t *testing.T) {
 	if !strings.Contains(b, "openState(name, node)") {
 		t.Errorf("beforeAttributeUpdated does not guard the open state of a slip:\n%s", b)
 	}
-	for _, bad := range []string{"Function(", "eval(", ".style.", `setAttribute("style"`, "ignoreActiveValue", `classList.contains("refusal")`} {
+	for _, bad := range []string{"Function(", "eval(", `setAttribute("style"`, ".cssText", "ignoreActiveValue", `classList.contains("refusal")`} {
 		if strings.Contains(js, bad) {
 			t.Errorf("app.js holds %s", bad)
 		}
+	}
+	if n := strings.Count(js, ".style."); n != 1 || !strings.Contains(js, `barRule.style.setProperty("--bar-h"`) {
+		t.Errorf("app.js writes a style %d times, want once, for the bar height in its own rule", n)
 	}
 }

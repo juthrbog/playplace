@@ -208,6 +208,9 @@ type page struct {
 	// InSlack marks a deployment that posts new requests to Slack, through
 	// the approval bot or the notice webhook.
 	InSlack bool
+	// Missing names the request of the address (?req=) when the queue
+	// that loaded does not list it. The bar then says why no slip opens.
+	Missing string
 }
 
 // regionInCard is pg for the home page layout.
@@ -346,8 +349,10 @@ func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMs
 	// The open state of a slip belongs to the viewer, so the hash leaves it
 	// out. A page that renders a slip opened then gets 204 from its first
 	// poll. The results of a decision post are in the hash, so the poll
-	// after a decision answers 200 and redraws the queue without them.
-	pg.Open = ""
+	// after a decision answers 200 and redraws the queue without them. The
+	// bar line of a missing request belongs to the page visit, so the hash
+	// leaves it out too.
+	pg.Open, pg.Missing = "", ""
 	if errMsg != "" {
 		errMsg = "unavailable"
 	}
@@ -587,8 +592,17 @@ func (s *Server) withdraw(w http.ResponseWriter, r *http.Request) {
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	pg := s.pageFor(r)
 	// A link from Slack or a notice names its request, and the page renders
-	// that slip opened. The name is only compared with request names.
+	// that slip opened. The name is only compared with request names, and
+	// the bar below names it only when it is a valid request name.
 	pg.Open = r.URL.Query().Get("req")
+	// A link names a request that can be gone by the time someone opens
+	// it. The bar says why, on the server, because screen readers often
+	// skip a live region that changes while the page loads. A queue that
+	// did not load names nothing.
+	if pg.Open != "" && !pg.PendingFailed && core.ValidateName(pg.Open) == nil &&
+		!slices.ContainsFunc(pg.Pending, func(q core.Request) bool { return q.Name == pg.Open }) {
+		pg.Missing = pg.Open
+	}
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
 	var msg string
 	if err != nil {

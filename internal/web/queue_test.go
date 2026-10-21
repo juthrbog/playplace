@@ -522,6 +522,18 @@ func TestSlipTexts(t *testing.T) {
 	if got := shown.changes(now); got != nil {
 		t.Errorf("changes without shown values = %q, want nil", got)
 	}
+
+	for _, c := range []struct {
+		v    Viewer
+		want string
+	}{
+		{Viewer{Email: "lead@example.com", Approver: true}, goneText("gone-box")},
+		{Viewer{Email: "bob@example.com"}, "gone-box is not in Your requests. It is not yours, or it is no longer waiting."},
+	} {
+		if got := missingText(c.v, "gone-box"); got != c.want {
+			t.Errorf("missingText(approver %v) = %q, want %q", c.v.Approver, got, c.want)
+		}
+	}
 }
 
 // A stamp keeps its turn wherever its slip moves, because the turn comes
@@ -847,6 +859,51 @@ func TestASlipComesBackOpen(t *testing.T) {
 	}
 }
 
+// A link can name a request that no longer waits by the time someone opens
+// it. The bulk bar then says why, from the server, because a screen reader
+// often skips a live region that changes while the page loads. A name that
+// is not a request name, and a queue that did not load, name nothing.
+func TestAddressNamesAMissingRequest(t *testing.T) {
+	ts, _ := newServer(t)
+	_, home := doAs(t, ts, "GET", "/?req=gone-box", "lead@example.com", false, true, nil, false)
+	if want := `<div id="pending-error" class="refusal">` + alertIcon + `<span data-name="gone-box">` + goneText("gone-box") + `</span></div>`; !strings.Contains(home, want) {
+		t.Errorf("the bar lacks the line of gone-box:\n%s", home)
+	}
+	// The line belongs to the page visit, so the first poll still matches.
+	if res, body := poll(t, ts, "/accounts", "lead@example.com", false, true, pollHashIn(t, home)); res.StatusCode != http.StatusNoContent {
+		t.Errorf("the first poll of a page with the line = %d, want 204:\n%s", res.StatusCode, body)
+	}
+
+	if res, body := do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"bobs-box"}}, true); res.Header.Get("X-Form-Error") != "" {
+		t.Fatalf("submit = %s", body)
+	}
+	_, bob := do(t, ts, "GET", "/?req=other-box", "bob@example.com", false, nil, false)
+	if want := `<span data-name="other-box">other-box is not in Your requests. It is not yours, or it is no longer waiting.</span>`; !strings.Contains(bob, want) {
+		t.Errorf("the bar of bob lacks the line of other-box:\n%s", bob)
+	}
+	_, listed := doAs(t, ts, "GET", "/?req=bobs-box", "lead@example.com", false, true, nil, false)
+	if strings.Contains(listed, "data-name") || !strings.Contains(listed, `<div class="slip-details" id="details-bobs-box">`) {
+		t.Errorf("the page of a request that waits has a bar line, or its slip is closed:\n%s", listed)
+	}
+	if _, bad := doAs(t, ts, "GET", "/?req=Bad%20Name", "lead@example.com", false, true, nil, false); strings.Contains(bad, "data-name") {
+		t.Errorf("the bar names an address that is not a request name:\n%s", bad)
+	}
+
+	// The line comes last, after the results of a decision post.
+	gone := undecided(actionApprove, core.RequestRef{Name: "gone-x", Version: "01OLD.v1"}, core.ErrNotFound)
+	pg := page{Viewer: Viewer{Email: "lead@example.com", Approver: true}, Results: []decision{gone}, Missing: "gone-y"}
+	if got, want := pg.left(), []leftItem{{"gone-x", goneText("gone-x")}, {"gone-y", goneText("gone-y")}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("left = %v, want %v", got, want)
+	}
+
+	flaky := &flakyList{}
+	failing, _ := newServerOn(t, func(p *fake.Provider) core.Provider { flaky.Provider = p; return flaky })
+	flaky.fail.Store(true)
+	if _, home := do(t, failing, "GET", "/?req=gone-box", "ops@example.com", true, nil, false); strings.Contains(home, "data-name") || !strings.Contains(home, `id="pending-failed"`) {
+		t.Errorf("a queue that did not load names the request of the address:\n%s", home)
+	}
+}
+
 // One page never holds two elements with the same id, so the morph pairs
 // every slip, bar and part with its own new node.
 func TestQueueIDsAreUnique(t *testing.T) {
@@ -877,16 +934,7 @@ func TestQueueIDsAreUnique(t *testing.T) {
 // morph.
 func TestSlipOpenStateIsTheViewers(t *testing.T) {
 	js := staticText(t, "app.js")
-	body := func(head string) string {
-		t.Helper()
-		_, rest, ok := strings.Cut(js, head)
-		if !ok {
-			t.Fatalf("app.js has no %s", head)
-		}
-		b, _, _ := strings.Cut(rest, "\n}")
-		return b
-	}
-	open := body("function openState(name, node) {")
+	open := funcBody(t, js, "function openState(name, node) {")
 	for _, want := range []string{`name === "aria-expanded"`, `"slip-name"`, `name === "hidden"`, `"slip-details"`, `"slip-tools"`} {
 		if !strings.Contains(open, want) {
 			t.Errorf("openState lacks %s:\n%s", want, open)
@@ -899,7 +947,7 @@ func TestSlipOpenStateIsTheViewers(t *testing.T) {
 	if !clicked {
 		t.Error("no click listener opens a slip from its name button")
 	}
-	set := body("function setOpen(button, open) {")
+	set := funcBody(t, js, "function setOpen(button, open) {")
 	for _, want := range []string{`(button.getAttribute("aria-controls") || "").split(" ")`, `setAttribute("aria-expanded", open ? "true" : "false")`, `removeAttribute("hidden")`, `setAttribute("hidden", "")`} {
 		if !strings.Contains(set, want) {
 			t.Errorf("setOpen lacks %s:\n%s", want, set)
@@ -908,7 +956,7 @@ func TestSlipOpenStateIsTheViewers(t *testing.T) {
 	if !strings.Contains(js, "#pending li.slip") || strings.Contains(js, "#pending tbody") {
 		t.Error("the focus code does not find the slips of the queue")
 	}
-	if !strings.Contains(body("function keepNode(node) {"), `node.tagName === "LI"`) || strings.Contains(js, `node.tagName === "TR"`) {
+	if !strings.Contains(funcBody(t, js, "function keepNode(node) {"), `node.tagName === "LI"`) || strings.Contains(js, `node.tagName === "TR"`) {
 		t.Error("keepNode does not keep an open edit slip")
 	}
 }
