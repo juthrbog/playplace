@@ -87,7 +87,9 @@ func TestBarHeightLivesInARule(t *testing.T) {
 // focuses the slip of that name, on load and on a hash change. A name with
 // no slip that waits moves the focus to the heading. A message follows only
 // when the page does not say why already. The message goes in as text, and
-// it is the same sentence that the server writes.
+// it is the same sentence that the server writes. Then app.js drops the name
+// from the address. A reload after a decision shows no stale line, and the
+// browser finds no hash that takes the focus away from the name.
 func TestAddressOpensItsSlip(t *testing.T) {
 	js := staticText(t, "app.js")
 	holdsEach(t, "app.js", js,
@@ -107,6 +109,18 @@ func TestAddressOpensItsSlip(t *testing.T) {
 	for _, bad := range []string{"innerHTML", "insertAdjacentHTML"} {
 		if strings.Contains(say, bad) {
 			t.Errorf("say writes markup with %s:\n%s", bad, say)
+		}
+	}
+	holdsEach(t, "forgetAddress", funcBody(t, js, "function forgetAddress() {"),
+		`url.searchParams.delete("req")`, `url.hash = ""`, `history.replaceState(history.state, "", url.pathname + url.search + url.hash)`)
+	for _, l := range []struct{ head, open string }{
+		{`document.addEventListener("DOMContentLoaded", function () {`, "openFromAddress(true);"},
+		{`window.addEventListener("hashchange", function () {`, "openFromAddress(false);"},
+	} {
+		_, rest, _ := strings.Cut(js, l.head)
+		body, _, _ := strings.Cut(rest, "\n});")
+		if open, forget := strings.Index(body, l.open), strings.Index(body, "forgetAddress();"); open < 0 || forget < open {
+			t.Errorf("the listener %s does not call %s and then forgetAddress():%s", l.head, l.open, body)
 		}
 	}
 	holdsEach(t, "goneText", funcBody(t, js, "function goneText(name) {"), strings.TrimPrefix(goneText("x"), "x"))

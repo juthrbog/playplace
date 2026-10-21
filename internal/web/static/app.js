@@ -143,11 +143,11 @@ document.addEventListener("htmx:beforeSwap", function (ev) {
 });
 
 // keepNode reports whether a morph leaves this node as it is. The live
-// region in the pending card stays, so a morph of the card never clears the
+// region in the queue panel stays, so a morph of the panel never clears the
 // message that an answer just wrote into it. An open edit slip stays through
 // every answer but the one to its own form, so a poll or another row's
-// action never drops what the admin typed. A filled refusal in the pending
-// card stays through a poll, so the viewer can still read it. The rules use
+// action never drops what the admin typed. A filled refusal slot of the
+// queue stays through a poll, so the viewer can still read it. The rules use
 // ids, not classes, so a node that idiomorph pairs by shape is never kept by
 // mistake.
 function keepNode(node) {
@@ -213,9 +213,9 @@ htmx.defineExtension("morph", {
             if (node.nodeType === 1 && name === "aria-busy") {
               return false;
             }
-            // The open state of a slip is the viewer's. The server renders
-            // every slip closed, so the morph keeps it, on an update and on
-            // a removal of the attribute.
+            // The open state of a slip is the viewer's, and the server does
+            // not know it. So the morph keeps it, on an update and on a
+            // removal of the attribute.
             if (node.nodeType === 1 && openState(name, node)) {
               return false;
             }
@@ -531,10 +531,11 @@ var requestName = /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/;
 
 // openFromAddress opens the slip that the address names and moves the
 // focus to its name. A link from Slack or a notice is
-// /?req=NAME#req-NAME: the query survives sign-in, and the hash scrolls
-// to the slip. On a hash change only the hash counts, so the Queue link
-// to #pending does not open the slip of the query again. A name with no
-// slip that waits gets the focus on the heading. A message follows only
+// /?req=NAME#req-NAME: the query survives sign-in. Without script the
+// hash scrolls to the slip. With script the focus does. On a hash change
+// only the hash counts, so the Queue link to #pending does not open the
+// slip of the query again. A name with no slip that waits gets the focus
+// on the heading. A message follows only
 // when the page does not say why already. A slip that no longer waits
 // shows why, and a queue that did not load says so. On a page visit the
 // server writes a bar line for the name.
@@ -599,10 +600,31 @@ function say(text) {
   region.replaceChildren(svg, span);
 }
 
+// forgetAddress drops the request name from the address once the page
+// has used it. A reload after a decision then shows the queue, and not a
+// line that says someone else decided the request. Without the hash, the
+// focus also stays on the name. After the DOMContentLoaded listeners, the
+// browser goes to the hash of a new page. The slip cannot take the focus,
+// so that step clears the focus.
+function forgetAddress() {
+  var url = new URL(location.href);
+  var hash = url.hash.indexOf("#req-") === 0;
+  if (!hash && !url.searchParams.has("req")) {
+    return;
+  }
+  url.searchParams.delete("req");
+  if (hash) {
+    url.hash = "";
+  }
+  history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+}
+
 document.addEventListener("DOMContentLoaded", function () {
   watchBar();
   openFromAddress(true);
+  forgetAddress();
 });
 window.addEventListener("hashchange", function () {
   openFromAddress(false);
+  forgetAddress();
 });

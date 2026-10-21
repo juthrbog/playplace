@@ -13,19 +13,25 @@ import (
 // A sign-in returns only to a path on this host. localPath refuses an
 // address with a scheme or a host, and a path that a browser reads as
 // another host. It also refuses a control character, a fragment, a long
-// path and the sign-in pages.
+// path and the sign-in pages. A dot segment or an escape does not hide a
+// sign-in page, and the length counts the JSON form that the flow cookie
+// stores.
 func TestLocalPathKeepsTheSignInOnThisHost(t *testing.T) {
-	for _, s := range []string{"/", "/?req=box", "/accounts/111111111111?history_cursor=x", "/%2F%2Fevil.example"} {
+	for _, s := range []string{
+		"/", "/?req=box", "/accounts/111111111111?history_cursor=x", "/%2F%2Fevil.example", "/authors",
+		"/" + strings.Repeat("a", maxReturnPath-1),
+	} {
 		if got := localPath(s); got != s {
-			t.Errorf("localPath(%q) = %q, want it kept", s, got)
+			t.Errorf("localPath(%.60q) = %.60q, want it kept", s, got)
 		}
 	}
 	// url.Parse finds no host in "///evil.example" and accepts the C1
 	// control U+0085, so only the checks before it refuse those two.
 	for _, s := range []string{
 		"", "box", "//evil.example", "///evil.example", "https://evil.example/", "/\\evil.example",
-		"/auth/login", "/auth/callback?x=1", "/x\r\nSet-Cookie: a=b", "/x\u0085y", "/x#frag",
-		"/" + strings.Repeat("a", maxReturnPath),
+		"/auth", "/auth/login", "/auth/callback?x=1", "/./auth/login", "/x/../auth/login", "/%61uth/callback",
+		"/auth%2Flogin", "/x\r\nSet-Cookie: a=b", "/x\u0085y", "/x#frag",
+		"/" + strings.Repeat("a", maxReturnPath), "/?" + strings.Repeat("&", 200),
 	} {
 		if got := localPath(s); got != "" {
 			t.Errorf("localPath(%.60q) = %.60q, want it refused", s, got)

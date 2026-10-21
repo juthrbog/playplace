@@ -376,10 +376,10 @@ TUI takes it from the loaded row. The CLI prints the request and uses the
 version that it printed. A web slip shows the first 6 characters of the
 digest as the version. Its forms carry the whole version. Every view where
 an approver decides shows the exact budget and lifetime that the version
-binds: the CLI prompt, the TUI dialog, the web queue slip, Slack, and the
-notices. A lifetime that is not a whole number of days shows in hours, for
-example `36 hours`, never as `1 day`. The TUI grid keeps its compact money
-format, for example `$1.3k`.
+binds. These views are the CLI prompt, the TUI dialog, the web queue slip,
+Slack, and the notices. A lifetime that is not a whole number of days shows
+in hours, for example `36 hours`, never as `1 day`. The TUI grid keeps its
+compact money format, for example `$1.3k`.
 
 Approve, deny, withdraw, and edit refuse a version that no longer matches,
 and the refusal tells the actor to look again. A refusal also drops the
@@ -576,14 +576,15 @@ same text into the region. While a request runs, its button sets
 `aria-busy` and shows its verb in progress, for example Approving.
 
 When an answer takes the focused control out of the page, `app.js` moves
-the focus to a control in the same slip. After Approve, Deny or Withdraw,
-that is the same button. After Edit, it is the first field of the edit
-form, and after Save or Cancel, it is the Edit button. If that slip no
-longer waits, the focus goes to the next waiting slip, then the one before
-it, then the queue heading. After a poll, the focus goes to the name of a
-slip, never to Approve or Deny. If the focused slip left, the region says
-why. After an action, `app.js` writes the message of the region again once
-the focus moved, so a screen reader hears both.
+the focus. After Edit, it goes to the first field of the edit form. After
+Save or Cancel, it goes to the Edit button. After Approve, Deny or
+Withdraw, the slip no longer waits. The focus then goes to the same button
+in the next waiting slip, then in the one before it, then to the queue
+heading. When a poll takes the focused slip away, the focus goes to the
+name of the next waiting slip, never to Approve or Deny. If the focused
+slip left, the region says why. After an action, `app.js` writes the
+message of the region again once the focus moved, so a screen reader hears
+both.
 
 The home page polls `GET /accounts` every 15 seconds. The poll sends the
 `X-Poll-Hash` header with the hash of what the page shows. If nothing
@@ -594,13 +595,14 @@ slip in place with every deciding fact. The server renders every slip
 closed, with three exceptions. They are the slip that the address names
 (`?req=`), the slip that Cancel puts back, and the slip that an admin just
 saved. The morph extension keeps the open state that the viewer chose,
-because the server never renders it.
+because the server does not know it.
 
 Notices and Slack link to `BASE/?req=<name>#req-<name>`. A page visit
 without a session passes its path and query to the sign-in as `next`. The
 flow cookie carries it, and the callback returns there when it is a path on
-this host. `app.js` opens and focuses the slip that the address names. If
-the queue does not list that name, the server writes the reason into the
+this host. `app.js` opens and focuses the slip that the address names. It
+then drops the name from the address, so a reload shows the queue. If the
+queue does not list that name, the server writes the reason into the
 refusal slot of the queue.
 
 A page never shows the raw text of a failed call to AWS, because that text

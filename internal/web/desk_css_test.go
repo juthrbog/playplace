@@ -185,15 +185,18 @@ func TestTextKeepsTheFiveSizes(t *testing.T) {
 
 // Above 640 px the bulk bar sticks to the top of the window. The root keeps
 // the height of the bar and 8 px clear, so a focused control and its ring
-// never scroll under it. On a phone the bar scrolls with the queue, and a
-// long list in it is no scroll box.
+// never scroll under it. At every width the root keeps 8 px clear above and
+// below a focused control, so its ring never ends past the window. On a
+// phone the bar scrolls with the queue, and a long list in it is no scroll
+// box.
 func TestDeskBarSticksAboveThePhone(t *testing.T) {
 	tokens, _ := layerRules(t, "tokens")
 	wantDecls(t, "tokens", tokens, ":root", map[string]string{"--bar-h": "48px"})
 	top, media := layerRules(t, "components")
 	wantDecls(t, "components", top, ".desk-bar", map[string]string{"position": "sticky", "top": "0", "background": "var(--card)"})
 	wantDecls(t, "components (max-width: 640px)", media["(max-width: 640px)"], ".desk-bar", map[string]string{"position": "static", "max-height": "none", "overflow-y": "visible"})
-	_, layout := layerRules(t, "layout")
+	layoutTop, layout := layerRules(t, "layout")
+	wantDecls(t, "layout", layoutTop, ":root", map[string]string{"scroll-padding-top": "var(--space-sm)", "scroll-padding-bottom": "var(--space-sm)"})
 	wantDecls(t, "layout (min-width: 641px)", layout["(min-width: 641px)"], ":root", map[string]string{"scroll-padding-top": "calc(var(--bar-h) + var(--space-sm))"})
 	wantDecls(t, "components", top, ".slip", map[string]string{"scroll-margin-top": "var(--space-sm)"})
 }
@@ -253,15 +256,27 @@ func TestRefusedSlipHasTheRedInkFrame(t *testing.T) {
 
 // The facts that decide stay beside Approve at every width. They are 16 px
 // bold in row 1 above 1000 px, and one line under the purpose at 1000 px
-// and below. The opened parts, the note and the outcome take the whole row.
+// and below. There the labels and the values share the last line, so an old
+// value sits above its new value and the line stays even. The opened parts,
+// the note and the outcome take the whole row.
 func TestFactsStayBesideApprove(t *testing.T) {
 	top, media := layerRules(t, "components")
 	wantDecls(t, "components", top, ".fact-now", map[string]string{"font-size": "16px", "font-weight": "700"})
 	wantDecls(t, "components", top, ".slip-actions", map[string]string{"grid-column": "3", "grid-row": "1"})
 	wantDecls(t, "components", top, ".slip-note, .slip-outcome, .slip-details, .slip-tools", map[string]string{"grid-column": "1 / -1"})
 	narrow := media["(max-width: 1000px)"]
-	wantDecls(t, "components (max-width: 1000px)", narrow, ".slip-facts", map[string]string{"display": "flex", "grid-column": "1", "grid-row": "2"})
+	wantDecls(t, "components (max-width: 1000px)", narrow, ".slip-facts", map[string]string{"display": "flex", "grid-column": "1", "grid-row": "2", "align-items": "last baseline"})
+	wantDecls(t, "components (max-width: 1000px)", narrow, ".fact", map[string]string{"display": "flex", "align-items": "last baseline"})
 	wantDecls(t, "components (max-width: 1000px)", narrow, ".slip-actions", map[string]string{"grid-row": "1 / span 2"})
+}
+
+// A request name can have 50 letters and no hyphen. Each note that can hold
+// a name breaks it anywhere, so a phone page never scrolls sideways.
+func TestNotesBreakALongName(t *testing.T) {
+	top, _ := layerRules(t, "components")
+	for _, sel := range []string{".notice", ".refusal", ".slip-note"} {
+		wantDecls(t, "components", top, sel, map[string]string{"overflow-wrap": "anywhere"})
+	}
 }
 
 // The hidden attribute closes the two opened parts of a slip. An author

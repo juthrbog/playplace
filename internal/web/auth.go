@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 	"unicode"
@@ -181,11 +182,22 @@ const maxReturnPath = 1024
 // sign-in pages.
 func localPath(s string) string {
 	if s == "" || len(s) > maxReturnPath || !strings.HasPrefix(s, "/") || strings.HasPrefix(s, "//") ||
-		strings.HasPrefix(s, "/auth/") || strings.ContainsRune(s, '\\') || strings.ContainsFunc(s, unicode.IsControl) {
+		strings.ContainsRune(s, '\\') || strings.ContainsFunc(s, unicode.IsControl) {
+		return ""
+	}
+	// The flow cookie stores the JSON form, which writes &, < and > as six
+	// bytes each. The bound counts that form and its two quotes, so the
+	// cookie stays under 4 KB.
+	if b, _ := json.Marshal(s); len(b) > maxReturnPath+2 {
 		return ""
 	}
 	u, err := url.Parse(s)
 	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil || u.Opaque != "" || u.Fragment != "" {
+		return ""
+	}
+	// http.Redirect cleans dot segments and the mux decodes escapes, so
+	// the check on the sign-in pages reads the clean, decoded path.
+	if p := path.Clean(u.Path); p == "/auth" || strings.HasPrefix(p, "/auth/") {
 		return ""
 	}
 	return s

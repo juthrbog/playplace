@@ -6,10 +6,11 @@ Approvers are named when playplace is set up. Admins are approvers too.
 
 Sign in to the web UI. The *Approval queue* lists every request that waits,
 oldest first. A slip shows the name, the purpose, who asked and for whom,
-the exact lifetime and budget, and the request version. Select the name to
-open the slip. The open slip shows every fact that decides it: when it
-arrived, the ceilings, the per-owner limit, the whole purpose, and when
-playplace drops it. The slip stays open while the page updates.
+the exact lifetime and budget, and the request version. Click the name, or
+press Enter on it, to open the slip. The open slip shows every fact that
+decides it: when it arrived, the ceilings, the per-owner limit, the whole
+purpose, and when playplace drops it. The slip stays open while the page
+updates.
 
 - **Approve** creates the account, and AWS takes a few minutes. playplace
   sends an *approved* [notice](#notices). You cannot undo an approval. The
