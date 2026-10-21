@@ -538,7 +538,10 @@ var requestName = /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/;
 // on the heading. A message follows only
 // when the page does not say why already. A slip that no longer waits
 // shows why, and a queue that did not load says so. On a page visit the
-// server writes a bar line for the name.
+// server writes a bar line for the name. The function returns true when
+// the page used the name: it opened the slip, or it said why no slip
+// waits. A queue that did not load cannot use the name, so it returns
+// false.
 function openFromAddress(useQuery) {
   var name = null;
   if (location.hash.indexOf("#req-") === 0) {
@@ -547,7 +550,7 @@ function openFromAddress(useQuery) {
     name = new URLSearchParams(location.search).get("req");
   }
   if (!name || !requestName.test(name) || !document.getElementById("pending")) {
-    return;
+    return false;
   }
   var slip = document.getElementById("req-" + name);
   if (slip && slip.getAttribute("data-state") === "pending") {
@@ -561,18 +564,20 @@ function openFromAddress(useQuery) {
         title.focus();
       }
     }
-    return;
+    return true;
   }
   var heading = document.getElementById("pending-title");
   if (heading) {
     heading.focus();
   }
-  if (slip || document.getElementById("pending-failed") ||
-      document.querySelector('#pending-error [data-name="' + name + '"]')) {
-    return;
+  if (document.getElementById("pending-failed")) {
+    return false;
   }
-  say(document.querySelector("#pending.desk") ? goneText(name)
-    : name + " is not in Your requests. It is not yours, or it is no longer waiting.");
+  if (!slip && !document.querySelector('#pending-error [data-name="' + name + '"]')) {
+    say(document.querySelector("#pending.desk") ? goneText(name)
+      : name + " is not in Your requests. It is not yours, or it is no longer waiting.");
+  }
+  return true;
 }
 
 // goneText is the sentence of the server for a request that no longer
@@ -600,12 +605,14 @@ function say(text) {
   region.replaceChildren(svg, span);
 }
 
-// forgetAddress drops the request name from the address once the page
-// has used it. A reload after a decision then shows the queue, and not a
-// line that says someone else decided the request. Without the hash, the
-// focus also stays on the name. After the DOMContentLoaded listeners, the
-// browser goes to the hash of a new page. The slip cannot take the focus,
-// so that step clears the focus.
+// forgetAddress drops the request name from the address. The listeners
+// call it only when openFromAddress used the name. A reload after a
+// decision then shows the queue, and not a line that says someone else
+// decided the request. Without the hash, the focus also stays on the
+// name. After the DOMContentLoaded listeners, the browser goes to the
+// hash of a new page. The slip cannot take the focus, so that step clears
+// the focus. A queue that did not load leaves the name in the address, so
+// a reload opens the slip when the queue is back.
 function forgetAddress() {
   var url = new URL(location.href);
   var hash = url.hash.indexOf("#req-") === 0;
@@ -621,10 +628,12 @@ function forgetAddress() {
 
 document.addEventListener("DOMContentLoaded", function () {
   watchBar();
-  openFromAddress(true);
-  forgetAddress();
+  if (openFromAddress(true)) {
+    forgetAddress();
+  }
 });
 window.addEventListener("hashchange", function () {
-  openFromAddress(false);
-  forgetAddress();
+  if (openFromAddress(false)) {
+    forgetAddress();
+  }
 });

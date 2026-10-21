@@ -579,7 +579,11 @@ When an answer takes the focused control out of the page, `app.js` moves
 the focus. After Edit, it goes to the first field of the edit form. After
 Save or Cancel, it goes to the Edit button. After Approve, Deny or
 Withdraw, the slip no longer waits. The focus then goes to the same button
-in the next waiting slip, then in the one before it, then to the queue
+in the next waiting slip. When that slip does not show the button, the
+focus goes to its name button instead. This happens when its tools are
+closed, or when it shows the "Your request" chip in place of Approve and
+Deny. When no slip after it waits, the focus goes the same way to the
+waiting slip before it. With no waiting slip at all, it goes to the queue
 heading. When a poll takes the focused slip away, the focus goes to the
 name of the next waiting slip, never to Approve or Deny. If the focused
 slip left, the region says why. After an action, `app.js` writes the
@@ -601,9 +605,10 @@ Notices and Slack link to `BASE/?req=<name>#req-<name>`. A page visit
 without a session passes its path and query to the sign-in as `next`. The
 flow cookie carries it, and the callback returns there when it is a path on
 this host. `app.js` opens and focuses the slip that the address names. It
-then drops the name from the address, so a reload shows the queue. If the
-queue does not list that name, the server writes the reason into the
-refusal slot of the queue.
+then drops the name from the address, so a reload shows the queue. When
+the queue did not load, the address keeps the name, so a reload opens the
+slip once the queue is back. If the queue does not list that name, the
+server writes the reason into the refusal slot of the queue.
 
 A page never shows the raw text of a failed call to AWS, because that text
 holds AWS request IDs. Core returns the error of every provider call in a

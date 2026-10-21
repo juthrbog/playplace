@@ -89,7 +89,9 @@ func TestBarHeightLivesInARule(t *testing.T) {
 // when the page does not say why already. The message goes in as text, and
 // it is the same sentence that the server writes. Then app.js drops the name
 // from the address. A reload after a decision shows no stale line, and the
-// browser finds no hash that takes the focus away from the name.
+// browser finds no hash that takes the focus away from the name. A queue
+// that did not load cannot use the name, so the address keeps it, and a
+// reload opens the slip when the queue is back.
 func TestAddressOpensItsSlip(t *testing.T) {
 	js := staticText(t, "app.js")
 	holdsEach(t, "app.js", js,
@@ -100,10 +102,16 @@ func TestAddressOpensItsSlip(t *testing.T) {
 		`/^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/`,
 		`setOpen(button, true)`,
 		`getElementById("pending-title")`)
-	holdsEach(t, "openFromAddress", funcBody(t, js, "function openFromAddress(useQuery) {"),
+	open := funcBody(t, js, "function openFromAddress(useQuery) {")
+	holdsEach(t, "openFromAddress", open,
 		`slip.getAttribute("data-state") === "pending"`,
-		`getElementById("pending-failed")`,
+		"if (document.getElementById(\"pending-failed\")) {\n    return false;\n  }",
 		`'#pending-error [data-name="' + name + '"]'`)
+	// Every way out says whether the page used the name. Only a name that
+	// the page cannot use and a queue that did not load give false.
+	if n := strings.Count(open, "return false;"); strings.Contains(open, "return;") || n != 2 {
+		t.Errorf("openFromAddress has a bare return or %d returns of false, want 2:\n%s", n, open)
+	}
 	say := funcBody(t, js, "function say(text) {")
 	holdsEach(t, "say", say, "span.textContent = text", "region.replaceChildren(svg, span)")
 	for _, bad := range []string{"innerHTML", "insertAdjacentHTML"} {
@@ -114,13 +122,14 @@ func TestAddressOpensItsSlip(t *testing.T) {
 	holdsEach(t, "forgetAddress", funcBody(t, js, "function forgetAddress() {"),
 		`url.searchParams.delete("req")`, `url.hash = ""`, `history.replaceState(history.state, "", url.pathname + url.search + url.hash)`)
 	for _, l := range []struct{ head, open string }{
-		{`document.addEventListener("DOMContentLoaded", function () {`, "openFromAddress(true);"},
-		{`window.addEventListener("hashchange", function () {`, "openFromAddress(false);"},
+		{`document.addEventListener("DOMContentLoaded", function () {`, "openFromAddress(true)"},
+		{`window.addEventListener("hashchange", function () {`, "openFromAddress(false)"},
 	} {
 		_, rest, _ := strings.Cut(js, l.head)
 		body, _, _ := strings.Cut(rest, "\n});")
-		if open, forget := strings.Index(body, l.open), strings.Index(body, "forgetAddress();"); open < 0 || forget < open {
-			t.Errorf("the listener %s does not call %s and then forgetAddress():%s", l.head, l.open, body)
+		want := "if (" + l.open + ") {\n    forgetAddress();\n  }"
+		if !strings.Contains(body, want) || strings.Count(body, "forgetAddress()") != 1 {
+			t.Errorf("the listener %s does not call forgetAddress() only when %s is true:%s", l.head, l.open, body)
 		}
 	}
 	holdsEach(t, "goneText", funcBody(t, js, "function goneText(name) {"), strings.TrimPrefix(goneText("x"), "x"))
