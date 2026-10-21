@@ -39,7 +39,13 @@ type Server struct {
 	slack   *Slack // optional approval messages with buttons
 	history History
 	mux     *http.ServeMux
+
+	noticesInSlack bool // lifecycle notices go to a Slack channel
 }
+
+// SetNoticesInSlack tells the pages that lifecycle notices go to a
+// Slack channel, so an empty queue can say where new requests show.
+func (s *Server) SetNoticesInSlack(on bool) { s.noticesInSlack = on }
 
 // New wires routes. A nil auth means NoAuth; a nil slack disables Slack;
 // a nil history hides the history card.
@@ -177,15 +183,31 @@ type page struct {
 	// SignedOut marks a page for nobody, such as a failed sign-in. The shell
 	// then shows only the brand.
 	SignedOut bool
-	// PendingFailed marks a queue that did not load. The card then says so,
-	// and a poll leaves the card on the page as it is.
+	// PendingFailed marks a queue that did not load. The queue panel then
+	// says so, and a poll leaves the panel on the page as it is.
 	PendingFailed bool
 	// RegionInCard marks the home page, which holds the live region in the
-	// pending card. The layout then leaves out its own.
+	// queue panel. The layout then leaves out its own.
 	RegionInCard bool
-	// Undecided are the requests of a decision post that it did not decide,
-	// with the reasons. The pending card lists them in its refusal slot.
-	Undecided []decision
+	// Open names the request whose slip the page renders opened. That is
+	// the request of the address (?req=), the slip that Cancel puts back,
+	// or the request that an admin just saved. Every other slip renders
+	// closed, and app.js keeps the state that the viewer chose.
+	Open string
+	// Results are the results of the decision post that the answer
+	// answers, in queue order. The queue shows each one in the slip of its
+	// request, a gone slip in the old place included. A result with no
+	// place shows in the bulk bar.
+	Results []decision
+	// Holds lists, for each owner in lower case, the open accounts and
+	// pending requests of that owner. The opened slip says how the owner
+	// stands against the per-owner limit. HoldsFailed marks a list that
+	// did not load.
+	Holds       map[string][]string
+	HoldsFailed bool
+	// InSlack marks a deployment that posts new requests to Slack, through
+	// the approval bot or the notice webhook.
+	InSlack bool
 }
 
 // regionInCard is pg for the home page layout.
@@ -197,7 +219,7 @@ func regionInCard(pg page) page {
 func (s *Server) pageFor(r *http.Request) page {
 	// "all" arrives as a query parameter on GET and, thanks to hx-include on
 	// the switch, in the body of every action, so the view survives actions.
-	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), ShowAll: r.FormValue("all") == "1", Limits: s.svc.Config(), Path: r.URL.Path}
+	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), ShowAll: r.FormValue("all") == "1", Limits: s.svc.Config(), Path: r.URL.Path, InSlack: s.slack != nil || s.noticesInSlack}
 	all, err := s.svc.PendingRequests(r.Context())
 	if err != nil {
 		s.log.Warn("pending requests", "err", err)
@@ -214,6 +236,17 @@ func (s *Server) pageFor(r *http.Request) page {
 	slices.SortStableFunc(pg.Pending, func(a, b core.Request) int {
 		return cmp.Or(a.RequestedAt.Compare(b.RequestedAt), strings.Compare(a.Name, b.Name))
 	})
+	// The opened slip says how the owner stands against the per-owner
+	// limit. The list comes from the same cached inventory as the queue.
+	if pg.Viewer.Approver {
+		accounts, err := s.svc.List(r.Context(), core.ListFilter{})
+		if err != nil {
+			s.log.Warn("accounts for the per-owner limit", "path", r.URL.Path, "err", err)
+			pg.HoldsFailed = true
+		} else {
+			pg.Holds = ownerHolds(accounts)
+		}
+	}
 	return pg
 }
 
@@ -282,11 +315,13 @@ func (s *Server) rows(ctx context.Context, v Viewer, showAll bool, force bool) (
 }
 
 // pendingAndTable re-renders the table and the pending section for htmx
-// responses. fromCard is true for a decision made in the pending card, which
-// gets the card as its main swap. result is the message for the live region,
-// which says what the action did.
-func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request, fromCard bool, result string) {
+// responses. fromCard is true for a decision made in the queue panel, which
+// gets the panel as its main swap. open names the slip that the answer
+// renders opened, such as the slip that an admin just saved. result is the
+// message for the live region, which says what the action did.
+func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request, fromCard bool, open, result string) {
 	pg := s.pageFor(r)
+	pg.Open = open
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
 	if err != nil {
 		s.fail(w, r, err)
@@ -300,7 +335,7 @@ func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request, fromCar
 const pollHashHeader = "X-Poll-Hash"
 
 // pollHash is the hash of what a poll answer shows: the accounts section
-// without its own hash, then the pending card and the count. The home page,
+// without its own hash, then the queue panel and the count. The home page,
 // the poll and every action answer use it, so the section always carries
 // the hash of what the page shows. It is empty if the render fails, and the
 // section then carries none, so every poll gets the full answer. The hash
@@ -308,6 +343,11 @@ const pollHashHeader = "X-Poll-Hash"
 // example from a throttle to another failure. The same outage then answers
 // 204.
 func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMsg string) string {
+	// The open state of a slip belongs to the viewer, so the hash leaves it
+	// out. A page that renders a slip opened then gets 204 from its first
+	// poll. The results of a decision post are in the hash, so the poll
+	// after a decision answers 200 and redraws the queue without them.
+	pg.Open = ""
 	if errMsg != "" {
 		errMsg = "unavailable"
 	}
@@ -320,8 +360,8 @@ func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMs
 }
 
 // writeAccounts answers with the accounts section, which carries hash for
-// the next poll, and the pending card. fromCard makes the card the main
-// swap, for a decision made in the card. after holds parts that follow,
+// the next poll, and the queue panel. fromCard makes the panel the main
+// swap, for a decision made in the panel. after holds parts that follow,
 // such as the Sync message.
 func (s *Server) writeAccounts(w http.ResponseWriter, r *http.Request, pg page, rows []accountRow, errMsg, hash string, fromCard bool, after ...templ.Component) {
 	main := accountsAnswer(pg, rows, errMsg, hash)
@@ -372,7 +412,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 			s.log.Warn("slack post", "err", err)
 		}
 	}
-	s.pendingAndTable(w, r, false, "Sent the request for "+q.Name+".")
+	s.pendingAndTable(w, r, false, "", "Sent the request for "+q.Name+".")
 }
 
 // requestRef is the request a form acts on: the name from the path and the
@@ -382,8 +422,8 @@ func requestRef(r *http.Request) core.RequestRef {
 }
 
 // failRequest reports a refused decision on a request. The refusal shows in
-// the pending card, beside the rows, not in the New request form. When the
-// request changed or ended after the page was loaded, the pending card is
+// the queue panel, beside the slips, not in the New request form. When the
+// request changed or ended after the page was loaded, the queue panel is
 // rendered again first, so the viewer sees what is waiting now. The log
 // holds the raw error, and the slot holds the text of refusal.
 func (s *Server) failRequest(w http.ResponseWriter, r *http.Request, err error) {
@@ -400,14 +440,14 @@ func (s *Server) failRequest(w http.ResponseWriter, r *http.Request, err error) 
 		// request up before core sees the version, so a request that is gone
 		// arrives here with the cache untouched.
 		s.svc.Invalidate()
-		// htmx swaps out-of-band parts in order. The fresh card lands
+		// htmx swaps out-of-band parts in order. The fresh queue lands
 		// first with an empty slot, and the refusal then fills it.
 		s.render(w, r, pendingUpdate(s.pageFor(r)))
 	}
 	s.render(w, r, errorFragment("pending-error", refusal(err, r.PathValue("name"))))
 }
 
-// editForm swaps a pending row for an inline form. Admins only.
+// editForm swaps a slip for an inline form. Admins only.
 func (s *Server) editForm(w http.ResponseWriter, r *http.Request) {
 	pg := s.pageFor(r)
 	if !pg.Viewer.Admin {
@@ -419,11 +459,12 @@ func (s *Server) editForm(w http.ResponseWriter, r *http.Request) {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.render(w, r, pendingEditRow(pg, q))
+	s.render(w, r, slipEdit(pg, q))
 }
 
-// editCancel puts the plain row back. The row shows the request's details,
-// so the viewer must be someone who would see it in the pending card.
+// editCancel puts the plain slip back. Edit sits in the opened slip, so the
+// slip comes back opened. The slip shows the request's details, so the
+// viewer must be someone who would see it in the queue panel.
 func (s *Server) editCancel(w http.ResponseWriter, r *http.Request) {
 	pg := s.pageFor(r)
 	q, err := s.svc.GetRequest(r.Context(), r.PathValue("name"))
@@ -435,7 +476,8 @@ func (s *Server) editCancel(w http.ResponseWriter, r *http.Request) {
 		s.forbid(w, r, notYourRequest)
 		return
 	}
-	s.render(w, r, pendingRow(pg, q))
+	pg.Open = q.Name
+	s.render(w, r, requestSlip(pg, q))
 }
 
 // canSeeRequest reports whether the viewer may see a pending request:
@@ -444,7 +486,8 @@ func canSeeRequest(v Viewer, q core.Request) bool {
 	return v.Approver || strings.EqualFold(q.Owner, v.Email) || strings.EqualFold(q.RequestedBy, v.Email)
 }
 
-// editSave applies an admin's changes and re-renders the pending card and table.
+// editSave applies an admin's changes and re-renders the queue panel and
+// table, with the saved slip opened.
 func (s *Server) editSave(w http.ResponseWriter, r *http.Request) {
 	v := ViewerFrom(r.Context())
 	if !v.Admin {
@@ -472,7 +515,7 @@ func (s *Server) editSave(w http.ResponseWriter, r *http.Request) {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r, true, "Saved "+q.Name+".")
+	s.pendingAndTable(w, r, true, q.Name, "Saved "+q.Name+".")
 }
 
 // RequestEditFromForm reads owner, days, budget, purpose, and override from
@@ -523,7 +566,7 @@ func (s *Server) withdraw(w http.ResponseWriter, r *http.Request) {
 	// page is stale can fail the permission check because the request
 	// changed hands: an admin gave it to another owner, or it ended and
 	// someone else submitted a new one with the same name. That viewer gets
-	// the stale-page refusal and a fresh card, not a 403. The message names
+	// the stale-page refusal and a fresh queue, not a 403. The message names
 	// nobody, because not every such viewer is allowed to see the request.
 	ref := requestRef(r)
 	if !canWithdraw(v, q) {
@@ -538,11 +581,14 @@ func (s *Server) withdraw(w http.ResponseWriter, r *http.Request) {
 		s.failRequest(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r, true, "Withdrew the request for "+ref.Name+".")
+	s.pendingAndTable(w, r, true, "", "Withdrew the request for "+ref.Name+".")
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	pg := s.pageFor(r)
+	// A link from Slack or a notice names its request, and the page renders
+	// that slip opened. The name is only compared with request names.
+	pg.Open = r.URL.Query().Get("req")
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
 	var msg string
 	if err != nil {
@@ -698,7 +744,7 @@ func (s *Server) extend(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r, false, "Extended "+a.Name+" to "+extended.ExpiresAt.UTC().Format("Jan 2 15:04 MST")+".")
+	s.pendingAndTable(w, r, false, "", "Extended "+a.Name+" to "+extended.ExpiresAt.UTC().Format("Jan 2 15:04 MST")+".")
 }
 
 func (s *Server) close(w http.ResponseWriter, r *http.Request) {
@@ -710,7 +756,7 @@ func (s *Server) close(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r, false, "Requested closure of "+a.Name+".")
+	s.pendingAndTable(w, r, false, "", "Requested closure of "+a.Name+".")
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, c templ.Component) {
@@ -721,8 +767,8 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, c templ.Componen
 }
 
 // forbid answers 403 with the reason, which names the rule that refused the
-// viewer. Every route under /requests/ acts from the pending card, so its
-// refusal fills the slot of the card. A page visit gets the styled 403 page.
+// viewer. Every route under /requests/ acts from the queue panel, so its
+// refusal fills the slot of the panel. A page visit gets the styled 403 page.
 func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why string) {
 	s.log.Warn("forbidden", "path", r.URL.Path, "viewer", ViewerFrom(r.Context()).Email, "why", why)
 	if r.Header.Get("HX-Request") == "true" {

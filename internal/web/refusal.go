@@ -66,7 +66,7 @@ func refusal(err error, request string) string {
 		}
 		return "You requested " + request + ", so you cannot approve it. Another approver must approve it."
 	case request != "" && errors.Is(err, core.ErrNotFound):
-		return request + " is no longer waiting. Someone else decided it, the owner withdrew it, or it was dropped."
+		return request + " is no longer waiting. Someone else decided it, the owner withdrew it, or playplace dropped it."
 	// The limits start with an email or a name, which keep their letters.
 	case errors.As(err, &owner):
 		held := fmt.Sprintf("%d open accounts or requests", owner.Held)

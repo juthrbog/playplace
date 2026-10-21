@@ -24,7 +24,7 @@ import (
 const tweakChanged = "tweak changed after you loaded the page. Read the new values, then try again."
 
 // An approver's page loaded before an admin edit must not approve the new
-// values; the refusal re-renders the pending card with what is there now.
+// values; the refusal re-renders the queue with what is there now.
 func TestStaleApproveFromThePageIsRefused(t *testing.T) {
 	ts, prov := newServer(t)
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"tweak"}, "budget": {"20"}}, true)
@@ -40,15 +40,12 @@ func TestStaleApproveFromThePageIsRefused(t *testing.T) {
 	}
 
 	res, body := doAs(t, ts, "POST", "/requests/tweak/approve", "lead@example.com", false, true, seen, true)
-	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, tweakChanged) || !strings.Contains(body, "$400") {
+	if res.Header.Get("X-Form-Error") != "1" || !queueAnswer(body) || resultIn(body, "tweak") != staleText(actionApprove, "tweak") || !strings.Contains(slipIn(body, "tweak"), "$400") {
 		t.Fatalf("stale approve should be refused with the current values: %v\n%s", res.Header, body)
 	}
-	// The refusal sits in the pending card, beside the row, not under New
-	// request. htmx swaps in order, so the card comes before the message
-	// that fills its slot.
-	card, slot := strings.Index(body, `id="pending"`), strings.Index(body, `<div id="pending-error" hx-swap-oob="innerHTML">`)
-	if strings.Contains(body, `id="form-error"`) || card < 0 || slot < card {
-		t.Fatalf("the refusal should fill the pending card's slot after the card:\n%s", body)
+	// The refusal sits in the slip of the request, not under New request.
+	if strings.Contains(body, `id="form-error"`) {
+		t.Fatalf("the refusal should sit in the queue:\n%s", body)
 	}
 	if creates, _ := prov.ListCreateRequests(context.Background()); len(creates) != 0 {
 		t.Fatal("a stale approve created an account")
@@ -88,7 +85,7 @@ func TestStaleDenyAndWithdrawFromThePageAreRefused(t *testing.T) {
 	// The reason rule runs before core, so the stale deny sends a reason.
 	approverSaw.Set("reason", "no budget left")
 	res, body := doAs(t, ts, "POST", "/requests/tweak/deny", "lead@example.com", false, true, approverSaw, true)
-	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, tweakChanged) || !pending() {
+	if res.Header.Get("X-Form-Error") != "1" || resultIn(body, "tweak") != staleText(actionDeny, "tweak") || !pending() {
 		t.Fatalf("stale deny should be refused and keep the request: %v\n%s", res.Header, body)
 	}
 	res, body = do(t, ts, "POST", "/requests/tweak/withdraw", "bob@example.com", false, requesterSaw, true)
@@ -141,8 +138,8 @@ func TestPendingRowShowsTheExactValues(t *testing.T) {
 		t.Fatalf("submit = %s", body)
 	}
 	_, page := do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
-	if !strings.Contains(page, "<td>2 hours</td>") || !strings.Contains(page, "<td>$412.50</td>") {
-		t.Fatalf("the pending row should show 2 hours and $412.50:\n%s", page)
+	if lifetime, budget := factsIn(t, page, "short"); lifetime != "2 hours" || budget != "$412.50" {
+		t.Fatalf("the pending row should show 2 hours and $412.50, not %s and %s:\n%s", lifetime, budget, page)
 	}
 }
 
@@ -361,7 +358,7 @@ func TestCrossProcessChangeShowsTheCurrentRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	res, body := doAs(t, ts, "POST", "/requests/tweak/approve", "lead@example.com", false, true, seen, true)
-	if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, tweakChanged) || !strings.Contains(body, "$400") {
+	if res.Header.Get("X-Form-Error") != "1" || resultIn(body, "tweak") != staleText(actionApprove, "tweak") || !strings.Contains(body, "$400") {
 		t.Fatalf("the refusal should show the edited request:\n%s", body)
 	}
 	fresh := refForm(refIn(t, body, "tweak"))

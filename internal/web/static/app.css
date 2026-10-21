@@ -754,24 +754,6 @@
   td a {
     font-weight: 600;
   }
-  .pending td:first-child {
-    font-weight: 600;
-  }
-  /* 9rem still holds "example.com" after the break at the @, and it
-     keeps the queue inside its panel at 1440 px. */
-  .pending td.wrap {
-    white-space: normal;
-    overflow-wrap: anywhere;
-    min-width: 9rem;
-  }
-  .pending td[colspan] {
-    white-space: normal;
-  }
-  .pending .via {
-    display: block;
-    color: var(--ink-2);
-    font-size: 12px;
-  }
   .history td.wrap {
     white-space: normal;
     min-width: 16rem;
@@ -1011,9 +993,9 @@
   .i + .word > .busy {
     translate: 3.5px 0;
   }
-  /* In a panel with no body, such as the pending card, the refusal sits
-     under the head at the row inset. On the home page the live region sits
-     there too, above the refusal. */
+  /* In a panel with no body, such as Your requests, the refusal sits
+     under the head at the row inset. On the home page of a viewer who is
+     not an approver, the live region sits there too, above the refusal. */
   .panel > .refusal,
   .panel > .notice {
     margin: 0 var(--space-lg) var(--space-md);

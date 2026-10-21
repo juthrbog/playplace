@@ -80,6 +80,39 @@ document.addEventListener("keydown", function (ev) {
   }
 });
 
+// A click on the name of a slip opens or closes its details. Enter and
+// Space click a button, so the keyboard needs no listener of its own.
+document.addEventListener("click", function (ev) {
+  var button = ev.target && ev.target.closest && ev.target.closest("button.slip-name");
+  if (button) {
+    setOpen(button, button.getAttribute("aria-expanded") !== "true");
+  }
+});
+
+// setOpen opens or closes the slip of a name button: each part that its
+// aria-controls names, the details and the tools.
+function setOpen(button, open) {
+  var ids = (button.getAttribute("aria-controls") || "").split(" ");
+  var parts = [];
+  for (var i = 0; i < ids.length; i++) {
+    var part = ids[i] ? document.getElementById(ids[i]) : null;
+    if (part) {
+      parts.push(part);
+    }
+  }
+  if (!parts.length) {
+    return;
+  }
+  button.setAttribute("aria-expanded", open ? "true" : "false");
+  for (var j = 0; j < parts.length; j++) {
+    if (open) {
+      parts[j].removeAttribute("hidden");
+    } else {
+      parts[j].setAttribute("hidden", "");
+    }
+  }
+}
+
 // The element that sent the request whose answer htmx is about to swap. In
 // htmx:beforeSwap, detail.elt is the target, so the source comes from the
 // request config. The keep rules below read it.
@@ -106,7 +139,7 @@ document.addEventListener("htmx:beforeSwap", function (ev) {
 
 // keepNode reports whether a morph leaves this node as it is. The live
 // region in the pending card stays, so a morph of the card never clears the
-// message that an answer just wrote into it. An open edit row stays through
+// message that an answer just wrote into it. An open edit slip stays through
 // every answer but the one to its own form, so a poll or another row's
 // action never drops what the admin typed. A filled refusal in the pending
 // card stays through a poll, so the viewer can still read it. The rules use
@@ -116,13 +149,21 @@ function keepNode(node) {
   if (node.id === "notice") {
     return true;
   }
-  if (node.tagName === "TR" && node.querySelector("form[data-editing]")) {
+  if (node.tagName === "LI" && node.querySelector("form[data-editing]")) {
     return !(swapSource && node.contains(swapSource));
   }
   if (node.id === "pending-error" && node.firstChild) {
     return !!swapSource && swapSource.id === "accounts";
   }
   return false;
+}
+
+// openState reports whether the attribute name of node holds the open
+// state of a slip. That is aria-expanded on its name button, or hidden
+// on its details or its tools.
+function openState(name, node) {
+  return (name === "aria-expanded" && node.classList.contains("slip-name")) ||
+    (name === "hidden" && (node.classList.contains("slip-details") || node.classList.contains("slip-tools")));
 }
 
 // The morph swap, for hx-swap="morph" and hx-swap-oob="morph". It lives here
@@ -165,6 +206,12 @@ htmx.defineExtension("morph", {
               return false;
             }
             if (node.nodeType === 1 && name === "aria-busy") {
+              return false;
+            }
+            // The open state of a slip is the viewer's. The server renders
+            // every slip closed, so the morph keeps it, on an update and on
+            // a removal of the attribute.
+            if (node.nodeType === 1 && openState(name, node)) {
               return false;
             }
             return true;
@@ -286,7 +333,7 @@ var leaving = null;
 document.addEventListener("htmx:beforeRequest", function (ev) {
   var elt = ev.detail.requestConfig && ev.detail.requestConfig.elt;
   var action = elt && elt.getAttribute && elt.getAttribute("data-action");
-  var row = action && focusNext[action] ? elt.closest("#pending tbody > tr, #accounts tbody > tr") : null;
+  var row = action && focusNext[action] ? elt.closest("#pending li.slip, #accounts tbody > tr") : null;
   if (ev.defaultPrevented || !row || !row.contains(document.activeElement)) {
     return;
   }
@@ -294,7 +341,7 @@ document.addEventListener("htmx:beforeRequest", function (ev) {
     xhr: ev.detail.xhr,
     want: focusNext[action],
     row: row.id,
-    rows: row.closest("#pending") ? "#pending tbody > tr" : "#accounts tbody > tr",
+    rows: row.closest("#pending") ? "#pending li.slip" : "#accounts tbody > tr",
     index: Array.prototype.indexOf.call(row.parentNode.children, row)
   };
 });

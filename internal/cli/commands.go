@@ -926,6 +926,7 @@ issuer or preset are an error.`,
 				hist = a.history
 			}
 			srv := web.New(a.svc, a.log, auth, sl, hist)
+			srv.SetNoticesInSlack(opts.deliversNotices())
 			go func() { errc <- srv.ListenAndServe(ctx, addr) }()
 			fmt.Fprintf(os.Stderr, "serving on %s (refresh every %s: %v, sign-in: %v)\n", addr, every, !noWorker, auth.Enabled())
 			err = <-errc

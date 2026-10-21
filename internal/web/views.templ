@@ -48,9 +48,8 @@ templ layout(pg page, title string) {
 // region is the page's one live region. The node stays from page load and
 // htmx writes into it, so screen readers keep listening to it. Nothing sits
 // inside it at rest. Most pages hold it at the top of main. The home page
-// holds it in the pending card, next to the decisions, because approvers
-// arrive from the BASE/#pending link, and the top of main is then out of
-// view.
+// holds it in the queue panel, next to the decisions. An approver has it in
+// the bulk bar, and anyone else has it under the head of Your requests.
 templ region() {
 	<p id="notice" class="notice" role="status" aria-live="polite"></p>
 }
@@ -147,19 +146,19 @@ templ queueCount(pg page, oob bool) {
 	</span>
 }
 
-// pendingUpdate is the pending card for an htmx answer. Approvers also get
+// pendingUpdate is the queue panel for an htmx answer. Approvers also get
 // the shell count, so the two never disagree. Other viewers have no Queue
 // link. A count with no target makes htmx log an error.
 templ pendingUpdate(pg page) {
-	@pendingCard(pg, true)
+	@queuePanel(pg, true)
 	if pg.Viewer.Approver {
 		@queueCount(pg, true)
 	}
 }
 
 // accountsAnswer answers the poll and every request from outside the
-// pending card: the accounts section is the main swap, and the pending card
-// rides out of band. When the queue did not load, the card and the count
+// queue panel: the accounts section is the main swap, and the queue panel
+// rides out of band. When the queue did not load, the panel and the count
 // stay out, so the page keeps the ones it shows. Rendered with no hash, it
 // is also what the poll hash covers.
 templ accountsAnswer(pg page, rows []accountRow, errMsg, hash string) {
@@ -169,14 +168,14 @@ templ accountsAnswer(pg page, rows []accountRow, errMsg, hash string) {
 	}
 }
 
-// cardAnswer answers a decision made in the pending card. The card is the
+// cardAnswer answers a decision made in the queue panel. The panel is the
 // main swap, because htmx finds the morph extension from the form that
 // sent the request. An out-of-band part runs first and can take that form
 // out of the page. The accounts section and the count ride out of band.
 // errMsg is the refusal text of an account list that failed after the
 // decision, so the section shows its failed panel.
 templ cardAnswer(pg page, rows []accountRow, errMsg, hash string) {
-	@pendingCard(pg, false)
+	@queuePanel(pg, false)
 	@accountsPanel(pg, rows, errMsg, hash, true)
 	if pg.Viewer.Approver && !pg.PendingFailed {
 		@queueCount(pg, true)
@@ -224,6 +223,8 @@ templ iconSprite() {
 		<symbol id="i-bell" viewBox="0 0 24 24"><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2h-14z"></path><path d="M10 21h4"></path></symbol>
 		<symbol id="i-bell-off" viewBox="0 0 24 24"><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2h-14z"></path><path d="M10 21h4"></path><path d="M4 4l16 16"></path></symbol>
 		<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"></path></symbol>
+		<symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"></path></symbol>
+		<symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"></path></symbol>
 	</svg>
 }
 
@@ -267,7 +268,7 @@ templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
 				</form>
 			</div>
 		</section>
-		@pendingCard(pg, false)
+		@queuePanel(pg, false)
 		// errMsg is the refusal text of a failed account load. The panel
 		// shows it, so the next good poll clears it.
 		@accountsPanel(pg, rows, errMsg, hash, false)
@@ -280,13 +281,331 @@ templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
 	}
 }
 
-// pendingCard is the queue. oob marks it as an out-of-band part of an htmx
-// answer, which htmx morphs into the card on the page. When the queue did
-// not load, the head shows no count and the card says so, as the accounts
-// panel does. An empty card would read as an empty queue. The card holds
-// the live region of the home page. Every answer renders the empty node, so
-// a morph pairs it by id, and app.js keeps the node as it is.
-templ pendingCard(pg page, oob bool) {
+// queuePanel is the queue of the home page. An approver gets the approval
+// desk, and anyone else gets Your requests. oob marks it as an out-of-band
+// part of an htmx answer, which htmx morphs into the panel on the page. The
+// panel holds the live region of the home page. Every answer renders the
+// empty node, so a morph pairs it by id, and app.js keeps the node as it is.
+templ queuePanel(pg page, oob bool) {
+	if pg.Viewer.Approver {
+		@approvalDesk(pg, oob)
+	} else {
+		@ownRequests(pg, oob)
+	}
+}
+
+// approvalDesk is the approval queue of an approver: card stock, the
+// bulk bar and the slips, oldest first. The bar holds the live region
+// and the refusal slot in every state, so a morph pairs them by id. A
+// queue that did not load says so, because an empty list reads as an
+// empty queue.
+templ approvalDesk(pg page, oob bool) {
+	{{ items, slips, line := pg.left(), pg.slips(), deskLine(pg) }}
+	<section
+		id="pending"
+		class="panel desk"
+		if oob {
+			hx-swap-oob="morph"
+		}
+		aria-labelledby="pending-title"
+	>
+		// app.js moves the focus to the heading when no slip waits, so the
+		// heading takes focus from script only.
+		<div class="panel-head">
+			<h2 id="pending-title" tabindex="-1">Approval queue</h2>
+			if line != "" {
+				<p class="panel-line">{ line }</p>
+			}
+		</div>
+		<div id="desk-bar" class="desk-bar">
+			@region()
+			<div id="pending-error" class="refusal">
+				if len(items) > 0 {
+					@leftNote(items)
+				}
+			</div>
+		</div>
+		if pg.PendingFailed {
+			@queueFailed()
+		} else if len(slips) == 0 {
+			<div id="pending-empty" class="desk-empty">
+				@icon("stamp")
+				<div class="note-text">
+					<p class="note-title">No requests are waiting.</p>
+					if pg.InSlack {
+						<p class="note-body">New requests appear here and in Slack.</p>
+					}
+				</div>
+			</div>
+		} else {
+			<ol class="slips" role="list">
+				for _, s := range slips {
+					@slip(pg, s)
+				}
+			</ol>
+		}
+	</section>
+}
+
+// leftNote fills the refusal slot of the queue with the lines that have
+// no slip. They are the results of a decision post that have no place,
+// and the request of the address that the queue does not list. Each line
+// names its request, because no slip gives it a place.
+templ leftNote(items []leftItem) {
+	@icon("alert")
+	if len(items) == 1 {
+		<span data-name={ items[0].Name }>{ items[0].Text }</span>
+	} else {
+		<ul class="note-list">
+			for _, it := range items {
+				<li data-name={ it.Name }>{ it.Text }</li>
+			}
+		</ul>
+	}
+}
+
+// queueFailed says that the queue did not load. It has an id, so a morph
+// never pairs it with the list that replaces it.
+templ queueFailed() {
+	<div id="pending-failed" class="refusal">@icon("alert")<div class="note-text"><p class="note-title">The pending requests are unavailable.</p><p class="note-body">The page tries again with the next live update.</p></div></div>
+}
+
+// slip is one slip of the approval desk. It shows a request that waits, a
+// request that this answer decided, or a request that left the queue. The
+// parts come in the order that a phone and a screen reader use, so every
+// deciding fact comes before Approve and Deny. The server has only the name
+// and the time of a request that left, so a gone slip shows the name and
+// the note. Each button names its request for screen readers. Each control
+// whose answer takes the focused button away names its action, so app.js
+// knows where the focus goes next.
+templ slip(pg page, s slipView) {
+	// Each state has its own li, so the parts of a slip are children of an
+	// element. In the body of an if, templ writes a space after a component.
+	if s.decided() {
+		<li id={ "req-" + s.Req.Name } class="slip" data-state={ s.state() } data-result={ s.Result.Kind.String() }>
+			<span class="slip-pick"></span>
+			<div class="slip-main">
+				<div class="slip-top">
+					<h3 class="slip-title"><span class="slip-name">{ s.Req.Name }</span></h3>
+					if s.Req.OverrideLimits {
+						<span class="flag" title="an admin allowed values above the ceilings">limits overridden</span>
+					}
+				</div>
+				@slipLines(pg.Viewer, s.Req)
+			</div>
+			@slipFacts(s)
+			<div class="slip-actions">
+				<span class={ "stamp", "stamp-word", "stamp-" + s.Result.Kind.String(), stampTurn(s.Req.Name), "stamp-new" }>{ s.Result.Kind.String() }</span>
+				<p class="slip-version">{ "by you at version " }<code>{ versionLabel(s.Result.Ref.Version) }</code></p>
+			</div>
+			if s.Result.Kind == decidedApproved {
+				<p class="slip-outcome">@icon("clock-arc")<span>AWS is creating the account. This takes a few minutes.</span></p>
+			} else {
+				<p class="slip-outcome"><span>{ "Reason: " + s.Result.Reason }</span></p>
+			}
+		</li>
+	} else if s.Gone {
+		<li id={ "req-" + s.Req.Name } class="slip" data-state={ s.state() } data-result={ s.Result.Kind.String() }>
+			<span class="slip-pick"></span>
+			<div class="slip-main">
+				<div class="slip-top">
+					<h3 class="slip-title"><span class="slip-name">{ s.Req.Name }</span></h3>
+				</div>
+			</div>
+			<div class="slip-note" id={ "result-" + s.Req.Name }>@icon("alert")<span>{ s.Note }</span></div>
+		</li>
+	} else {
+		<li
+			id={ "req-" + s.Req.Name }
+			class="slip"
+			data-state={ s.state() }
+			if s.Result != nil {
+				data-result={ s.Result.Kind.String() }
+			}
+		>
+			<span class="slip-pick"></span>
+			<div class="slip-main">
+				<div class="slip-top">
+					<h3 class="slip-title"><button type="button" id={ "name-" + s.Req.Name } class="slip-name" aria-expanded={ strconv.FormatBool(pg.Open == s.Req.Name) } aria-controls={ slipControls(pg, s) }>@chevrons()<span>{ s.Req.Name }</span></button></h3>
+					if s.changed() {
+						<span class="flag flag-changed">changed after you loaded the page</span>
+					}
+					if s.Req.OverrideLimits {
+						<span class="flag" title="an admin allowed values above the ceilings">limits overridden</span>
+					}
+				</div>
+				@slipLines(pg.Viewer, s.Req)
+			</div>
+			@slipFacts(s)
+			@slipDetails(pg, s)
+			<div class="slip-actions">
+				// The chip has no title, because a title never shows on a
+				// touch screen or to a keyboard. A hidden sentence after it
+				// says why, and so does the opened slip.
+				if canApprove(pg, s.Req) {
+					<div class="slip-decide">
+						<form class="inline" hx-post={ "/requests/" + s.Req.Name + "/approve" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-action="approve">
+							@versionField(s.Req)
+							@shownFields(s.Req)
+							<button
+								type="submit"
+								class="btn-approve"
+								if s.Note != "" {
+									aria-describedby={ "result-" + s.Req.Name }
+								}
+							>@icon("stamp")@busyWord("Approve", "Approving")<span class="vh">{ " " + s.Req.Name }</span></button>
+						</form>
+						<form class="inline" hx-post={ "/requests/" + s.Req.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-prompt="Reason for denying, 1 to 500 characters. playplace sends it with the denied notice and keeps it in history." hx-sync="this:drop" data-action="deny">
+							@versionField(s.Req)
+							@shownFields(s.Req)
+							<button
+								type="submit"
+								if s.Note != "" {
+									aria-describedby={ "result-" + s.Req.Name }
+								}
+							>@busyWord("Deny", "Denying")<span class="vh">{ " " + s.Req.Name }</span></button>
+						</form>
+					</div>
+				} else if pg.Viewer.Approver {
+					<div class="row-actions"><span class="chip-mine">Your request</span><span class="vh">{ " Another approver must decide this request." }</span></div>
+				}
+				<p class="slip-version">{ "version " }<code>{ versionLabel(s.Req.Version()) }</code>@sawVersion(s)</p>
+			</div>
+			if s.Note != "" {
+				<div class="slip-note" id={ "result-" + s.Req.Name }>@icon("alert")<span>{ s.Note }</span></div>
+			}
+			@slipTools(pg, s.Req)
+		</li>
+	}
+}
+
+// slipLines are the purpose of a request and the meta line under it.
+templ slipLines(v Viewer, q core.Request) {
+	if strings.TrimSpace(q.Purpose) != "" {
+		<p class="slip-purpose">{ q.Purpose }</p>
+	} else {
+		<p class="slip-purpose muted">The request has no purpose.</p>
+	}
+	<p class="slip-meta">{ metaLine(v, q) }</p>
+}
+
+// slipFacts are the facts that decide a request, beside Approve: the
+// lifetime and the budget. A request that changed after the page showed
+// it also shows the old value, struck.
+templ slipFacts(s slipView) {
+	<dl class="slip-facts">
+		<div class="fact"><dt>Lifetime</dt><dd>@factWas(s.wasLifetime())<span class="fact-now">{ core.Lifetime(s.Req.TTL) }</span></dd></div>
+		<div class="fact"><dt>Budget</dt><dd>@factWas(s.wasBudget())<span class="fact-now">{ core.Dollars(s.Req.BudgetUSD) }</span><span class="fact-unit">{ " a month" }</span></dd></div>
+	</dl>
+}
+
+// factWas is the value of a fact that the page showed, struck, when it
+// changed. It is a component, so templ writes no space after it.
+templ factWas(was string, ok bool) {
+	if ok {
+		<span class="fact-was">{ "was " }<s>{ was }</s><span class="vh">{ ", now" }</span></span>
+	}
+}
+
+// slipDetails is the opened part of a slip before its actions: every
+// fact that decides it. It renders hidden, except for the slip of
+// pg.Open. An approver who cannot decide the request reads why.
+templ slipDetails(pg page, s slipView) {
+	<div class="slip-details" id={ "details-" + s.Req.Name } hidden?={ pg.Open != s.Req.Name }>
+		<dl class="slip-dl">
+			<div><dt>Owner</dt><dd>@breakable(s.Req.Owner)</dd></div>
+			<div><dt>Requester</dt><dd>@breakable(s.Req.RequestedBy)</dd></div>
+			<div><dt>Channel</dt><dd>{ s.Req.Via }</dd></div>
+			<div><dt>Requested</dt><dd>@utcTime(s.Req.RequestedAt)</dd></div>
+			<div><dt>Lifetime</dt><dd>{ core.Lifetime(s.Req.TTL) }</dd></div>
+			<div><dt>Budget</dt><dd>{ core.Dollars(s.Req.BudgetUSD) + " a month" }</dd></div>
+			<div><dt>Limits check</dt><dd>{ limitsCheck(s.Req, pg.Limits) }</dd></div>
+			<div><dt>Per-owner limit</dt><dd>{ ownerStanding(pg, s.Req) }</dd></div>
+			if pg.Viewer.Admin {
+				<div><dt>Owner also holds</dt><dd>{ otherHoldings(pg, s.Req) }</dd></div>
+			}
+			<div class="wide">
+				<dt>Purpose</dt>
+				<dd>
+					if strings.TrimSpace(s.Req.Purpose) != "" {
+						{ s.Req.Purpose }
+					} else {
+						The request has no purpose.
+					}
+				</dd>
+			</div>
+			<div><dt>Version</dt><dd><code>{ versionLabel(s.Req.Version()) }</code></dd></div>
+			if pg.Limits.RequestTTL > 0 {
+				<div><dt>Decide by</dt><dd>@utcTime(s.Req.DropsAt(pg.Limits.RequestTTL))</dd></div>
+			}
+		</dl>
+		if pg.Viewer.Approver && !canApprove(pg, s.Req) {
+			<p class="slip-own">Another approver must decide this request.</p>
+		}
+	</div>
+}
+
+// slipTools is the opened part of a slip after its note: Edit and
+// Withdraw. It renders only for a viewer who has one of them, hidden
+// except for the slip of pg.Open.
+templ slipTools(pg page, q core.Request) {
+	if hasTools(pg, q) {
+		<div class="slip-tools" id={ "tools-" + q.Name } hidden?={ pg.Open != q.Name }>
+			if pg.Viewer.Admin {
+				<button hx-get={ "/requests/" + q.Name + "/edit" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML" title="change owner, days, budget, or purpose before approving" data-action="edit">Edit<span class="vh">{ " " + q.Name }</span></button>
+			}
+			if canWithdraw(pg.Viewer, q) {
+				@withdrawForm(q)
+			}
+		</div>
+	}
+}
+
+// withdrawForm is Withdraw for one request. It asks before it acts, and its
+// button names the request for screen readers.
+templ withdrawForm(q core.Request) {
+	<form class="inline" hx-post={ "/requests/" + q.Name + "/withdraw" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-confirm={ "Withdraw the request for " + q.Name + "?" } hx-sync="this:drop" data-action="withdraw">
+		@versionField(q)
+		<button type="submit">@busyWord("Withdraw", "Withdrawing")<span class="vh">{ " " + q.Name }</span></button>
+	</form>
+}
+
+// sawVersion names the version that the page showed, for a request that
+// changed after it. It is a component, so templ writes no space before
+// it.
+templ sawVersion(s slipView) {
+	if s.changed() {
+		{ ", you saw " }<s><code>{ versionLabel(s.Result.Ref.Version) }</code></s>
+	}
+}
+
+// utcTime writes a time in UTC as people read it, with the exact time
+// for machines.
+templ utcTime(t time.Time) {
+	<time datetime={ t.UTC().Format(time.RFC3339) }>{ t.UTC().Format("Jan 2, 15:04 UTC") }</time>
+}
+
+// chevrons are the two marks of a slip name: right while the slip is
+// closed, down while it is open. The stylesheet shows the one that
+// matches aria-expanded, because only stamps turn.
+templ chevrons() {
+	<svg class="i slip-closed" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg><svg class="i slip-opened" aria-hidden="true" focusable="false"><use href="#i-chevron-down"></use></svg>
+}
+
+// shownFields carry the values that the slip shows. A post that core
+// refuses as changed then names what changed. They decide nothing.
+templ shownFields(q core.Request) {
+	for _, f := range shownOf(q) {
+		<input type="hidden" name={ shownName(f.Field, q.Name) } value={ f.Value }/>
+	}
+}
+
+// ownRequests is the queue of a viewer who is not an approver: the
+// requests that the viewer asked for or owns, on paper. The region and the
+// refusal slot sit under the head in every state, so a morph pairs them by
+// id. A queue that did not load says so.
+templ ownRequests(pg page, oob bool) {
+	{{ items, line := pg.left(), ownLine(pg) }}
 	<section
 		id="pending"
 		class="panel"
@@ -295,110 +614,73 @@ templ pendingCard(pg page, oob bool) {
 		}
 		aria-labelledby="pending-title"
 	>
-		// app.js moves the focus to the heading when a decision takes the
-		// last row out, so the heading takes focus from script only.
+		// app.js moves the focus to the heading when no row waits, so the
+		// heading takes focus from script only.
 		<div class="panel-head">
-			<h2 id="pending-title" tabindex="-1">
-				if pg.Viewer.Approver {
-					Pending approvals
-				} else {
-					Your pending requests
-				}
-				if !pg.PendingFailed {
-					<span class="muted">({ fmt.Sprint(len(pg.Pending)) })</span>
-				}
-			</h2>
+			<h2 id="pending-title" tabindex="-1">Your requests</h2>
+			if line != "" {
+				<p class="panel-line">{ line }</p>
+			}
 		</div>
 		@region()
-		// A refused decision on a row shows here, beside the rows, and not in
-		// the New request form. After a decision on several requests, the
-		// slot lists each one that the decision did not decide.
 		<div id="pending-error" class="refusal">
-			if len(pg.Undecided) > 0 {
-				@undecidedNote(pg.Undecided)
+			if len(items) > 0 {
+				@leftNote(items)
 			}
 		</div>
 		if pg.PendingFailed {
-			<p class="empty">The pending requests are unavailable. The page tries again every 15 seconds.</p>
+			@queueFailed()
 		} else if len(pg.Pending) == 0 {
-			<p class="empty">Nothing waiting.</p>
+			<p class="empty">You have no requests waiting.</p>
 		} else {
-			<div class="scroll">
-				<table class="pending">
-					<thead><tr><th scope="col">Name</th><th scope="col">Owner</th><th scope="col">Requested by</th><th scope="col">TTL</th><th scope="col">Budget</th><th scope="col">Purpose</th><th scope="col">When</th><th scope="col"><span class="vh">Actions</span></th></tr></thead>
-					<tbody>
-						for _, q := range pg.Pending {
-							@pendingRow(pg, q)
-						}
-					</tbody>
-				</table>
-			</div>
+			<ol class="slips" role="list">
+				for _, q := range pg.Pending {
+					@ownSlip(pg, q)
+				}
+			</ol>
 		}
 	</section>
 }
 
-// undecidedNote fills the refusal slot of the pending card after a decision
-// on several requests. Each item names a request that the decision did not
-// decide, and the reason.
-templ undecidedNote(left []decision) {
-	@icon("alert")
-	<ul class="note-list">
-		for _, d := range left {
-			<li>{ d.Ref.Name + ": " + d.Why }</li>
-		}
-	</ul>
-}
-
-// pendingRow is one request in the queue. Each action button carries the
-// request name for screen readers, so "Approve" says which request. Each
-// control whose answer takes the focused button away names its action, so
-// app.js knows where the focus goes next.
-templ pendingRow(pg page, q core.Request) {
-	<tr id={ "req-" + q.Name }>
-		<td>{ q.Name }</td>
-		<td class="wrap">@breakable(q.Owner)</td>
-		<td class="wrap">@breakable(q.RequestedBy) <span class="muted via">via { q.Via }</span></td>
-		<td>{ core.Lifetime(q.TTL) }</td>
-		<td>{ core.Dollars(q.BudgetUSD) }</td>
-		<td class="wrap">
-			{ q.Purpose }
-			if q.OverrideLimits {
-				<span class="flag" title="an admin allowed values above the ceilings">limits overridden</span>
-			}
-		</td>
-		<td title={ q.RequestedAt.UTC().Format(time.RFC3339) }>{ q.RequestedAt.UTC().Format("Jan 2 15:04 MST") }</td>
-		<td class="actions">
-			<div class="row-actions">
-				if canApprove(pg, q) {
-					<form class="inline" hx-post={ "/requests/" + q.Name + "/approve" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-action="approve">
-						@versionField(q)
-						<button type="submit" class="btn-approve">
-							@icon("stamp")
-							@busyWord("Approve", "Approving")<span class="vh">{ " " + q.Name }</span>
-						</button>
-					</form>
-					<form class="inline" hx-post={ "/requests/" + q.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-prompt="Reason for denying, 1 to 500 characters. playplace sends it with the denied notice and keeps it in history." hx-sync="this:drop" data-action="deny">
-						@versionField(q)
-						<button type="submit">@busyWord("Deny", "Denying")<span class="vh">{ " " + q.Name }</span></button>
-					</form>
-				} else if pg.Viewer.Approver {
-					<span class="chip-mine" title="you requested this; another approver must act">Your request</span>
-				}
-				if pg.Viewer.Admin {
-					<button hx-get={ "/requests/" + q.Name + "/edit" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML" title="change owner, days, budget, or purpose before approving" data-action="edit">Edit<span class="vh">{ " " + q.Name }</span></button>
-				}
-				if canWithdraw(pg.Viewer, q) {
-					<form class="inline" hx-post={ "/requests/" + q.Name + "/withdraw" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-confirm={ "Withdraw the request for " + q.Name + "?" } hx-sync="this:drop" data-action="withdraw">
-						@versionField(q)
-						<button type="submit">@busyWord("Withdraw", "Withdrawing")<span class="vh">{ " " + q.Name }</span></button>
-					</form>
+// ownSlip is one row of Your requests. It shows the facts, the time by
+// which an approver must decide, and Withdraw. It has no name button and no
+// details. The heading takes the focus from script only, so app.js can
+// focus the row of a link.
+templ ownSlip(pg page, q core.Request) {
+	<li id={ "req-" + q.Name } class="slip" data-state="pending">
+		<div class="slip-main">
+			<div class="slip-top">
+				<h3 class="slip-title" tabindex="-1"><span class="slip-name">{ q.Name }</span></h3>
+				if q.OverrideLimits {
+					<span class="flag" title="an admin allowed values above the ceilings">limits overridden</span>
 				}
 			</div>
-		</td>
-	</tr>
+			@slipLines(pg.Viewer, q)
+			if pg.Limits.RequestTTL > 0 {
+				<p class="slip-meta">{ "An approver must decide by " }@utcTime(q.DropsAt(pg.Limits.RequestTTL)), or playplace drops the request.</p>
+			}
+		</div>
+		@slipFacts(slipView{Req: q})
+		<div class="slip-actions">
+			if canWithdraw(pg.Viewer, q) {
+				<div class="row-actions">@withdrawForm(q)</div>
+			}
+			<p class="slip-version">{ "version " }<code>{ versionLabel(q.Version()) }</code></p>
+		</div>
+	</li>
 }
 
-// versionField binds a form to the request version this row shows, so the
+// requestSlip is the answer of GET /requests/{name}/row: the slip of an
+// approver, or the row of Your requests.
+templ requestSlip(pg page, q core.Request) {
+	if pg.Viewer.Approver {
+		@slip(pg, slipView{Req: q})
+	} else {
+		@ownSlip(pg, q)
+	}
+}
+
+// versionField binds a form to the request version this slip shows, so the
 // click is refused if the request changed or was replaced since.
 templ versionField(q core.Request) {
 	<input type="hidden" name="version" value={ q.Version() }/>
@@ -414,29 +696,27 @@ templ breakable(s string) {
 	}
 }
 
-// pendingEditRow is the inline edit form. Every field holds the exact stored
+// slipEdit is the inline edit form. Every field holds the exact stored
 // value, and editSave sends only the fields that differ from it. The days
 // input takes part of a day, such as 1.5 for 36 hours, and the budget input
-// takes cents. The server refuses zero days.
-templ pendingEditRow(pg page, q core.Request) {
-	<tr id={ "req-" + q.Name }>
-		<td>{ q.Name }</td>
-		<td colspan="6">
-			<form hx-post={ "/requests/" + q.Name + "/edit" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-editing data-action="save">
-				@versionField(q)
-				<div class="form-row">
-					<label class="field">owner<input name="owner" value={ q.Owner } size="24"/></label>
-					<label class="field">{ dayLabel(q.TTL) }<input name="ttl" type="number" min="0" step="any" value={ dayValue(q.TTL) } class="in-days"/></label>
-					<label class="field">budget $<input name="budget" type="number" min="0.01" step="0.01" value={ budgetValue(q.BudgetUSD) } class="in-budget"/></label>
-					<label class="field">purpose<input name="purpose" value={ q.Purpose } size="28" maxlength={ fmt.Sprint(core.MaxPurpose) } pattern={ tagPattern } title="letters, numbers, spaces, and _ . : / = + - @"/></label>
-					<label class="check" title="allow values above the ceilings"><input type="checkbox" name="override" checked?={ q.OverrideLimits }/>override limits</label>
-					<button type="submit" class="btn-primary">@busyWord("Save", "Saving")</button>
-					<button type="button" hx-get={ "/requests/" + q.Name + "/row" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML" data-action="cancel">Cancel</button>
-				</div>
-			</form>
-		</td>
-		<td></td>
-	</tr>
+// takes cents. The server refuses zero days. Its slip keeps the id of the
+// slip it replaces, so Save and Cancel put the slip back in its place.
+templ slipEdit(pg page, q core.Request) {
+	<li id={ "req-" + q.Name } class="slip slip-edit" data-state="pending">
+		<h3 class="slip-title"><span class="slip-name">{ q.Name }</span></h3>
+		<form hx-post={ "/requests/" + q.Name + "/edit" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-editing data-action="save">
+			@versionField(q)
+			<div class="form-row">
+				<label class="field">owner<input name="owner" value={ q.Owner } size="24"/></label>
+				<label class="field">{ dayLabel(q.TTL) }<input name="ttl" type="number" min="0" step="any" value={ dayValue(q.TTL) } class="in-days"/></label>
+				<label class="field">budget $<input name="budget" type="number" min="0.01" step="0.01" value={ budgetValue(q.BudgetUSD) } class="in-budget"/></label>
+				<label class="field">purpose<input name="purpose" value={ q.Purpose } size="28" maxlength={ fmt.Sprint(core.MaxPurpose) } pattern={ tagPattern } title="letters, numbers, spaces, and _ . : / = + - @"/></label>
+				<label class="check" title="allow values above the ceilings"><input type="checkbox" name="override" checked?={ q.OverrideLimits }/>override limits</label>
+				<button type="submit" class="btn-primary">@busyWord("Save", "Saving")</button>
+				<button type="button" hx-get={ "/requests/" + q.Name + "/row" } hx-target={ "#req-" + q.Name } hx-swap="outerHTML" data-action="cancel">Cancel</button>
+			</div>
+		</form>
+	</li>
 }
 
 // accountsPanel is the accounts panel. When the list did not load, errMsg
@@ -476,7 +756,7 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 		</div>
 		// A failed load is one note: the problem, then the refusal text of
 		// the error and the recovery. An empty list is one plain line, as in
-		// the pending card. Neither has column heads. The head keeps Show
+		// Your requests. Neither has column heads. The head keeps Show
 		// closed, and the section keeps polling. The error note has an id, so
 		// a morph never pairs it with the table that replaces it.
 		if errMsg != "" {
@@ -801,11 +1081,17 @@ templ noticeFragment(iconName, msg string) {
 }
 
 // errorFragment fills the refusal slot with this id: form-error under a form,
-// or pending-error in the pending card. It names what went wrong beside the
+// or pending-error in the queue panel. It names what went wrong beside the
 // thing it is about, with an alert icon. The live region gets the same text
 // as a hidden copy, so a screen reader hears it once and nobody sees it
 // twice.
 templ errorFragment(id, msg string) {
 	<div id={ id } hx-swap-oob="innerHTML">@icon("alert")<span>{ msg }</span></div>
+	@hiddenNotice(msg)
+}
+
+// hiddenNotice writes msg into the live region as a hidden copy. The
+// text that people see sits beside the thing it is about.
+templ hiddenNotice(msg string) {
 	<p id="notice" hx-swap-oob="innerHTML"><span class="vh">{ msg }</span></p>
 }
