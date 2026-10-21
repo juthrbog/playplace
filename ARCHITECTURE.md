@@ -373,19 +373,22 @@ same name. playplace computes the version from the record, so the version
 needs no storage. Every interface sends the version that it showed. The web
 forms carry it in a hidden field. Slack buttons carry it in their value. The
 TUI takes it from the loaded row. The CLI prints the request and uses the
-version that it printed. Every view where an approver decides shows the exact
-budget and lifetime that the version binds: the CLI prompt, the TUI dialog,
-the web pending row, Slack, and the notices. A lifetime that is not a whole
-number of days shows in hours, for example `36 hours`, never as `1 day`. The
-TUI grid keeps its compact money format, for example `$1.3k`.
+version that it printed. A web slip shows the first 6 characters of the
+digest as the version. Its forms carry the whole version. Every view where
+an approver decides shows the exact budget and lifetime that the version
+binds: the CLI prompt, the TUI dialog, the web queue slip, Slack, and the
+notices. A lifetime that is not a whole number of days shows in hours, for
+example `36 hours`, never as `1 day`. The TUI grid keeps its compact money
+format, for example `$1.3k`.
 
 Approve, deny, withdraw, and edit refuse a version that no longer matches,
 and the refusal tells the actor to look again. A refusal also drops the
 cached inventory, so the next view reads the queue live. The web UI shows the
-current pending card next to the error. The same check stops an edit form
-that was filled before another admin's edit from undoing that edit. Within
-one process the check is exact. Across processes a gap of about one AWS round
-trip stays open between the check and the write, because AWS tags have no
+current queue. A refused decision marks its slip as changed and names the
+values that changed. The same check stops an edit form that was filled
+before another admin's edit from undoing that edit. Within one process the
+check is exact. Across processes a gap of about one AWS round trip stays
+open between the check and the write, because AWS tags have no
 compare-and-swap (a write that fails when the value changed since the read).
 Only an upgraded CLI, TUI, or `serve` checks the version. The record format
 did not change, so an older binary still reads the queue and acts by name
@@ -559,18 +562,46 @@ inline style, inline script or inline event handler. Page behaviour lives in
 `app.js` holds the htmx morph extension. The extension uses idiomorph to
 merge each answer into the page, so focus, scroll and open forms stay. Every
 page has one live region, the `#notice` element with `aria-live="polite"`.
-The home page holds it in the pending card, under the card heading, so an
-approver who arrives from the `BASE/#pending` link sees each result. Every
-other page holds it at the top of `<main>`. Each action writes a short
-result message into it. A refusal fills its slot under the form or in the
-pending card, and writes a hidden copy of the same text into the region.
-While a request runs, its button sets `aria-busy` and shows its verb in
-progress, for example Approving. When an answer takes the focused button
-out of the page, `app.js` moves the focus to the next control of that row,
-or to the same button on the next row. The home
-page polls `GET /accounts` every 15 seconds. The poll sends the
+On the home page of an approver it sits in the bulk bar at the top of the
+approval queue. Above 640 px the bar sticks to the top of the window.
+`app.js` keeps the `--bar-h` property equal to its height, so the page
+never scrolls a focused control under the bar. `app.js` writes the property
+into one rule that it adds to `app.css`, because the CSP allows no inline
+style. On the home page of anyone else the region sits in Your requests,
+under its heading. Every other page holds it at the top of `<main>`.
+
+Each action writes a short result message into the region. A refusal shows
+under the form, in the bar or in its slip, and writes a hidden copy of the
+same text into the region. While a request runs, its button sets
+`aria-busy` and shows its verb in progress, for example Approving.
+
+When an answer takes the focused control out of the page, `app.js` moves
+the focus to a control in the same slip. After Approve, Deny or Withdraw,
+that is the same button. After Edit, it is the first field of the edit
+form, and after Save or Cancel, it is the Edit button. If that slip no
+longer waits, the focus goes to the next waiting slip, then the one before
+it, then the queue heading. After a poll, the focus goes to the name of a
+slip, never to Approve or Deny. If the focused slip left, the region says
+why. After an action, `app.js` writes the message of the region again once
+the focus moved, so a screen reader hears both.
+
+The home page polls `GET /accounts` every 15 seconds. The poll sends the
 `X-Poll-Hash` header with the hash of what the page shows. If nothing
 changed, the server answers 204 No Content and the page stays as it is.
+
+The queue lists each request as a slip, oldest first. The name opens the
+slip in place with every deciding fact. The server renders every slip
+closed, with three exceptions. They are the slip that the address names
+(`?req=`), the slip that Cancel puts back, and the slip that an admin just
+saved. The morph extension keeps the open state that the viewer chose,
+because the server never renders it.
+
+Notices and Slack link to `BASE/?req=<name>#req-<name>`. A page visit
+without a session passes its path and query to the sign-in as `next`. The
+flow cookie carries it, and the callback returns there when it is a path on
+this host. `app.js` opens and focuses the slip that the address names. If
+the queue does not list that name, the server writes the reason into the
+refusal slot of the queue.
 
 A page never shows the raw text of a failed call to AWS, because that text
 holds AWS request IDs. Core returns the error of every provider call in a
@@ -630,11 +661,18 @@ decisions, in the same 60 seconds. So a stop does not cut a decision. Give
 the server at least 60 seconds to stop. [The deployment
 guide](deploy/README.md) names the setting for ECS, Kubernetes and systemd.
 
-The region says how many requests went through. The refusal slot of the
-pending card lists each request that did not, with the reason. If the
-account list fails after the decisions, the answer still holds every
-result. The server log has one line at the info level for each request,
-with the action, the name, the version and the result.
+The region says how many requests went through. A request that went
+through keeps a slip with its stamp, the version and what happens next. A
+request that did not shows the reason in its slip. A request that left the
+queue keeps a slip in its old place with the reason. Each slip posts the
+time of its request as a shown field, which gives that place. A result with
+no place shows in the bulk bar.
+
+The answer carries the poll hash of what it shows, results included, so the
+next poll redraws the queue without them. If the account list fails after
+the decisions, the answer still holds every result. The server log has one
+line at the info level for each request, with the action, the name, the
+version and the result.
 
 The server needs management-account credentials, because AWS only allows
 CreateAccount and CloseAccount from there. Run it in the management account
