@@ -563,8 +563,8 @@ The main area has 16 px top padding, 24 px side gutters, 32 px bottom
 padding, a 16 px gap between panels, and a maximum width of 1600 px. On the
 admin home, the "Needs attention" ledger (300 to 384 px) sits beside the
 approval desk, and the fleet table runs full width below them. The ledger
-and the desk are not built yet. Until then, the New request panel, the
-pending card and the fleet table stack in one column.
+is not built yet. Until then, the New request panel, the approval desk and
+the fleet table stack in one column.
 
 Panels have a 48 px head with 10 px by 16 px padding, and a 16 px inset for
 rows. The fleet table has a minimum width of 1120 px inside a horizontal
@@ -578,7 +578,7 @@ The spacing scale is 2, 4, 8, 12, 16, 24 and 32 px. Gaps inside a row use
 6 to 10 px.
 
 There are two breakpoints:
-- At 1000 px and below, the top row stacks into one column, the desk slips hide their fact columns, and the shell hides the email address.
+- At 1000 px and below, the top row stacks into one column, and the shell hides the email address. The desk slips move their facts under the purpose as one 16 px line.
 - At 640 px and below, the shell and the main area use 16 px side gutters, the same as the phone frames. The main area has 12 px top padding and 24 px bottom padding. The search field takes its own row, and the Sync button shows only its icon.
 
 The phone frames are 390 px wide. The phone serves two quick tasks: approving
@@ -630,7 +630,7 @@ date, and a stale row.
 
 ### Named Rules
 
-**The Turned Stamp Rule.** Only stamps rotate. A stamp turns between 1 and 2 degrees (-1.8, 1.3 or -1 degrees, varied from row to row). Nothing else on the page is rotated.
+**The Turned Stamp Rule.** Only stamps rotate. A stamp turns between 1 and 2 degrees (-1.8, 1.3 or -1 degrees, varied from row to row). Nothing else on the page is rotated. The server picks the turn from the request name or the account ID, so a stamp keeps its turn when rows move.
 
 ## Components
 
@@ -646,17 +646,17 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 - **Deny (not built yet):** red ink with paper text. It appears only as the final button in a dialog that denies a request or returns an account. Red marks the step that cannot be undone, not the button that opens the dialog.
 - **Hover / Focus:** a hover changes the fill (pressed violet, selected card, paper tint, deep shelf or deep red ink). The plain button also turns its border to ink. Focus is a 2 px violet ring with a 2 px offset. On the shell the ring is card stock.
 - **Disabled and busy:** a disabled button has a soft-rule fill, pencil-grey text and a dashed control-rule border. A busy button keeps its size, sets `aria-busy`, and changes its word to a verb in progress: Approving, Sending, Denying, Syncing, Withdrawing or Saving. The word and its verb share one grid cell, and the verb has no width, so the button keeps the width of its word. A busy button keeps its colors and is never disabled. The +7d, Close, Edit and Cancel buttons set only `aria-busy` and keep their word.
-- **Sizes:** 30 px with 11 px padding in toolbars and pagers (not built yet). 44 px on the phone. The phone Approve and Deny buttons are 52 px with a 16 px label (not built yet).
+- **Sizes:** 30 px with 11 px padding in toolbars and pagers (not built yet). 44 px on the phone. The phone Approve and Deny buttons are 52 px with a 16 px label.
 
 ### Chips
 - **Count pill:** card stock with ink text, 12 px bold, beside Queue and Notices in the shell. A visually hidden word says what the number counts.
 - **Role badge:** the word "admin" in card text with a shelf-rule border, set as a 12 px word stamp (0.09em tracking) but not turned.
-- **Flag:** ink with card text, 12 px semibold, for "limits overridden". A changed value in a stale request uses a red-ink flag (not built yet).
-- **Your request:** a dashed control-rule chip in pencil grey that replaces the Approve and Deny buttons on a person's own request.
+- **Flag:** ink with card text, 12 px semibold, for "limits overridden". A request that changed after the page loaded gets a red-ink flag with paper text: "changed after you loaded the page".
+- **Your request:** a dashed control-rule chip in pencil grey that replaces the Approve and Deny buttons on a person's own request. On card stock its border is pencil grey.
 
 ### Cards / Containers
 - **Corner Style:** 8px for panels and the loan card, 6px for inline notes.
-- **Background:** paper for panels. Card stock for the approval desk and the loan card, which are not built yet.
+- **Background:** paper for panels. Card stock for the approval desk and the loan card. The loan card is not built yet.
 - **Shadow Strategy:** none. See Elevation & Depth.
 - **Border:** 1 px panel rule on paper, 1 px card rule on card stock.
 - **Internal Padding:** 16 px side inset. The panel head is 48 px tall.
@@ -701,7 +701,9 @@ month in capitals, the day with no leading zero, and the year.
 Decisions and outcomes are word stamps: Public Sans 700 capitals at 12 px
 with 0.09em tracking, the same border, corners and turn as a date stamp. The
 markup holds the word in lowercase and CSS sets the capitals, so a screen
-reader does not spell the word out. Word stamps are not built yet.
+reader does not spell the word out. APPROVED and DENIED are built: a slip
+that the viewer decided shows one, and it lands with the motion of the date
+stamp. The other word stamps are not built yet.
 
 - **APPROVED:** violet, on the request and in lifecycle history.
 - **DENIED:** ink, with the required reason beside it.
@@ -763,19 +765,39 @@ because the CSP does not allow inline `style` attributes.
 
 ### Approval desk
 
-The desk is a card-stock panel. It is not built yet. Each request is a slip,
-separated from the next by a dashed card rule. A slip shows a checkbox, the
-request name in 14 px bold with its purpose and requester, the lifetime and
-the budget as 16 px facts, the request version, and the actions. A slip under
-the pointer is card hover, a selected slip is selected card, and the focused
-slip gets a 2 px violet frame. The focused slip opens in place with every
-deciding fact.
+The desk is a card-stock panel. Each request is a slip, separated from the
+next by a dashed card rule. A slip shows a checkbox, the request name in
+14 px bold, its purpose and requester, and the actions. It also shows the
+lifetime and the budget as 16 px facts, and the request version. The
+checkbox comes with bulk decisions and is not built yet.
 
-The bulk bar is sticky at the top of the desk: 48 px, card stock with a
-card-rule top border, and selected card when anything is selected. Its result
-message is the page's one `aria-live="polite"` region. Phase 2 builds the bar
-and moves the region into it. Until then, the home page holds the region in
-the pending card, under its heading. Every other page holds it at the top of
+A slip under the pointer is card hover, and a selected slip is selected
+card. The slip that holds the focus gets a 2 px violet frame. Enter or a
+click on the name opens the slip in place with every deciding fact. On a
+phone the deciding facts come before Approve and Deny. The server renders
+every slip closed, except the slip of a link and the slip of an edit that
+just ended. A live update keeps the state that the viewer chose.
+
+A slip that the viewer decided shows its stamp, the decided version and what
+happens next. It stays until the next answer that redraws the queue. A
+refused slip has a 1 px dashed red-ink frame and names the reason in a note
+under the row. A request that left the queue keeps its slip in place until
+that redraw, with the same frame and the reason.
+
+The bulk bar sits at the top of the desk: card stock with a card-rule top
+border, and selected card when anything is selected. Above 640 px it is
+sticky. At 640 px and below it scrolls with the desk, so nothing is pinned
+to a phone screen. The page keeps the height of the bar and 8 px clear above
+a focused control.
+
+The bar holds the page's one `aria-live="polite"` region and the refusal
+slot of the queue. A result that has no slip shows in the refusal slot, as
+one line that names its request. A link to a request that no longer waits
+gets such a line too. With the bulk controls (not built yet) the bar is
+48 px tall. Until then, it takes no room while it shows nothing.
+
+On the home page of a person who is not an approver, the region sits in
+Your requests, under its heading. Every other page holds it at the top of
 the main area. Every action on the home page that changes a request or an
 account writes a short result message into it, and so does Sync. The message
 shows as a note with a check in shelf ink. A Sync result has the sync icon in
@@ -786,13 +808,13 @@ slot, so the region shows the refusal.
 
 ### Tables
 - **Head:** paper tint, 12 px semibold pencil-grey labels, 34 px tall, with panel rules above and below. A sortable head is a button. The sorted column turns ink and shows an arrow for its direction, and the `<th>` sets `aria-sort`. Sortable heads are not built yet.
-- **Rows:** a soft-rule line under each row. Hover is paper tint. A selected row is card stock with its due cell in selected card. A focused row has a 2 px violet frame. A stale or refused row has a 1 px dashed red-ink frame and shows the new values in place. Row selection and both frames are not built yet. Until then, a refused action on a pending row shows its refusal in the pending card, under its heading.
+- **Rows:** a soft-rule line under each row. Hover is paper tint. A selected row is card stock with its due cell in selected card. A focused row has a 2 px violet frame. A stale or refused row has a 1 px dashed red-ink frame and shows the new values in place. Row selection and both frames are not built yet on table rows. The desk slips have both frames, and slip selection comes with bulk decisions.
 - **Date due column (not built yet):** always on card stock with a card-rule line under each cell, in every row state.
 - **Account links:** 14 px semibold ink, underlined in the panel rule color with a 3 px offset, violet on hover.
 - **Mono values:** account IDs and versions in Courier Prime at the size of the text around them.
 
 ### Feedback
-- **Inline note:** paper with a panel-rule border, 6px corners, a 16 px icon, a semibold first line and a 13.5 px body. A refusal uses a red-ink border and an alert icon and names the recovery. In a slot under a form or in the pending card, a refusal has only the semibold first line. On an error page and in an unavailable accounts panel, the problem in semibold sits above a body with the recovery. An empty desk uses card stock.
+- **Inline note:** paper with a panel-rule border, 6px corners, a 16 px icon, a semibold first line and a 13.5 px body. A refusal uses a red-ink border and an alert icon and names the recovery. In a slot under a form, in the bulk bar or in a slip, a refusal has only the semibold first line. On an error page and in an unavailable accounts panel, the problem in semibold sits above a body with the recovery. An empty desk uses card stock.
 - **Error page:** a styled page with the title "Action refused" (400), "Not allowed" (403), "Page not found" or "Account not found" (404), or "Sign-in failed". The panel head holds the title, then the status code in pencil grey. Under it, a refusal note names the problem and the recovery, and one primary button leads back. A refused action on a page gets no error page, and its refusal shows on that page.
 - **Dialog (not built yet):** a native `<dialog>` on paper with a 1 px ink border, 8px corners and a maximum width of 640 px. The head and the footer are separated by panel rules, and the footer is paper tint. Only three tasks use it: the deny reason, the bulk approval summary, and the consequences of Return.
 - **Live update (not built yet):** an 8 px shelf ink dot and "Updated 12 seconds ago" in the footer. `app.js` resets the Updated time after each successful poll, also when nothing changed. The dot hides for one 90 ms step only when new data arrives, with no fade. Under `prefers-reduced-motion` it does not blink. The home page already polls every 15 seconds, and the server answers 204 when nothing changed.

@@ -422,7 +422,7 @@ func TestRequestApprovalFlow(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("request = %d %s", res.StatusCode, body)
 	}
-	if !strings.Contains(body, "bobs-box") || !strings.Contains(body, "Your pending requests") {
+	if !strings.Contains(body, "bobs-box") || !strings.Contains(body, "Your requests") {
 		t.Fatalf("requester should see the pending card:\n%s", body)
 	}
 	svc := core.NewService(prov, nil, core.DefaultConfig(), nil)
@@ -450,7 +450,7 @@ func TestRequestApprovalFlow(t *testing.T) {
 	}
 	// A configured approver (not admin) sees the queue and approves.
 	_, body = doAs(t, ts, "GET", "/", "lead@example.com", false, true, nil, false)
-	if !strings.Contains(body, "Pending approvals") || !strings.Contains(body, "bobs-box") || !strings.Contains(body, "/requests/bobs-box/approve") {
+	if !strings.Contains(body, "Approval queue") || !strings.Contains(body, "bobs-box") || !strings.Contains(body, "/requests/bobs-box/approve") {
 		t.Fatalf("approver should see the approve button:\n%s", body)
 	}
 	if strings.Contains(body, "Sync with AWS") {
@@ -597,8 +597,11 @@ func TestAdminEditsPendingRequestInline(t *testing.T) {
 	form.Set("budget", "40")
 	form.Set("purpose", "new")
 	res, body = do(t, ts, "POST", "/requests/tweak/edit", "ops@example.com", true, form, true)
-	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" || !strings.Contains(body, "<td>12 days</td>") || !strings.Contains(body, "<td>$40</td>") || !strings.Contains(body, ">new") {
+	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" || !strings.Contains(body, ">new") {
 		t.Fatalf("save should re-render the pending card with new values: %d %v\n%s", res.StatusCode, res.Header, body)
+	}
+	if lifetime, budget := factsIn(t, body, "tweak"); lifetime != "12 days" || budget != "$40" {
+		t.Fatalf("save shows %s and %s, want 12 days and $40:\n%s", lifetime, budget, body)
 	}
 	// Saving the same form again is refused: it was filled from the old
 	// values and would undo the change just made.

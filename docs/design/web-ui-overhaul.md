@@ -67,7 +67,8 @@ lead. The maintainer chose Date Due, the library circulation desk, on
 2026-10-11. The four declined challengers each gave the design one rule:
 
 - State changes step in two frames and never fade.
-- The focused queue row opens in place with every deciding fact.
+- A queue row opens in place with every deciding fact, from Enter or a
+  click on its name.
 - Every account, request and journey shows one ID in a fixed place.
 - One typeface at five fixed sizes, and each size has one job.
 
@@ -144,7 +145,7 @@ using that file.
 
 | Route | Content | Who |
 |---|---|---|
-| `/` | Home. Engineers see their accounts and requests first. Approvers see the approval desk first, then their own accounts and requests. Admins see what needs attention, the approval desk and the fleet. The fleet and Needs attention are admin views. The `#pending` anchor stays, because notices and Slack link to it. | Everyone |
+| `/` | Home. Engineers see their accounts and requests first. Approvers see the approval desk first, then their own accounts and requests. Admins see what needs attention, the approval desk and the fleet. The fleet and Needs attention are admin views. Notices and Slack link to `/?req=<name>#req-<name>`, which opens the slip of the request, also after sign-in. The `#pending` anchor stays for the Queue link. | Everyone |
 | `/accounts` | The fleet table with search, filters, sorting and pages. Parameters: `q`, `status`, `budget`, `owner`, `attention`, `sort`, `dir`, `page`. | Everyone, scoped by role |
 | `/accounts/{id}` | The account page. | Owner, admin |
 | `/requests/new` | The request form. | Everyone |

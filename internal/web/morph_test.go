@@ -109,7 +109,6 @@ func TestPendingCardAnswersWithTheCard(t *testing.T) {
 	deny := refForm(refIn(t, home, "to-deny"))
 	deny.Set("reason", "not now")
 
-	card := `<section id="pending" class="panel" aria-labelledby="pending-title">`
 	for _, tc := range []struct {
 		path string
 		form url.Values
@@ -123,7 +122,7 @@ func TestPendingCardAnswersWithTheCard(t *testing.T) {
 		if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
 			t.Fatalf("%s = %d %v\n%s", tc.path, res.StatusCode, res.Header, body)
 		}
-		if !strings.HasPrefix(body, card) {
+		if !queueAnswer(body) {
 			t.Errorf("%s: the answer does not start with the card as its main part:\n%s", tc.path, body)
 		}
 		_, section, ok := strings.Cut(body, `<section id="accounts"`)
@@ -152,7 +151,7 @@ func TestPendingCardAnswersWithTheCard(t *testing.T) {
 		if !strings.HasPrefix(body, `<section id="accounts"`) || strings.Contains(tag, "hx-swap-oob") {
 			t.Errorf("%s: the accounts section is not the main part: %s", tc.path, tag)
 		}
-		if !strings.Contains(body, `<section id="pending" class="panel" hx-swap-oob="morph"`) {
+		if !queueOOB(body) {
 			t.Errorf("%s: the pending card is not an out-of-band morph:\n%s", tc.path, body)
 		}
 	}
@@ -195,12 +194,14 @@ func TestEditFormIsMarked(t *testing.T) {
 	}
 }
 
-// The morph extension in app.js needs no eval, writes no style, and never
-// throws into htmx. A focused field keeps its value through the value guard,
-// not through ignoreActiveValue, which also freezes a focused button.
+// The morph extension in app.js needs no eval, writes no inline style, and
+// never throws into htmx. A focused field keeps its value through the value
+// guard, not through ignoreActiveValue, which also freezes a focused button.
+// The one style that app.js writes is the height of the bulk bar, in a rule
+// that it adds to app.css.
 func TestMorphExtensionNeedsNoEval(t *testing.T) {
 	js := staticText(t, "app.js")
-	for _, want := range []string{`htmx.defineExtension("morph"`, `Idiomorph.morph(`, `style === "morph"`, "catch", `"pending-error"`, `node.id === "notice"`, "form[data-editing]"} {
+	for _, want := range []string{`htmx.defineExtension("morph"`, `Idiomorph.morph(`, `style === "morph"`, "catch", `"pending-error"`, `node.id === "notice"`, "form[data-editing]", `node.tagName === "LI"`, "openState(name, node)"} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js lacks %s", want)
 		}
@@ -225,9 +226,16 @@ func TestMorphExtensionNeedsNoEval(t *testing.T) {
 			t.Errorf("the value guard lacks %s:\n%s", want, b)
 		}
 	}
-	for _, bad := range []string{"Function(", "eval(", ".style.", `setAttribute("style"`, "ignoreActiveValue", `classList.contains("refusal")`} {
+	// The open state of a slip belongs to the viewer, so the morph keeps it.
+	if !strings.Contains(b, "openState(name, node)") {
+		t.Errorf("beforeAttributeUpdated does not guard the open state of a slip:\n%s", b)
+	}
+	for _, bad := range []string{"Function(", "eval(", `setAttribute("style"`, ".cssText", "ignoreActiveValue", `classList.contains("refusal")`} {
 		if strings.Contains(js, bad) {
 			t.Errorf("app.js holds %s", bad)
 		}
+	}
+	if n := strings.Count(js, ".style."); n != 1 || !strings.Contains(js, `barRule.style.setProperty("--bar-h"`) {
+		t.Errorf("app.js writes a style %d times, want once, for the bar height in its own rule", n)
 	}
 }

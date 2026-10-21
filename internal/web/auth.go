@@ -11,8 +11,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -165,13 +168,46 @@ type flow struct {
 	Nonce    string    `json:"o"`
 	Verifier string    `json:"v"`
 	Exp      time.Time `json:"x"`
+	Next     string    `json:"r,omitempty"` // the path on this host that the sign-in returns to
+}
+
+// maxReturnPath bounds the address that a sign-in returns to. The
+// flow cookie carries it, and a cookie holds about 4 KB.
+const maxReturnPath = 1024
+
+// localPath returns s when it is a path on this host that a sign-in
+// can return to, and "" otherwise. It refuses an address with a scheme
+// or a host, and a path that a browser reads as another host (two
+// slashes or a backslash). It also refuses a control character and the
+// sign-in pages.
+func localPath(s string) string {
+	if s == "" || len(s) > maxReturnPath || !strings.HasPrefix(s, "/") || strings.HasPrefix(s, "//") ||
+		strings.ContainsRune(s, '\\') || strings.ContainsFunc(s, unicode.IsControl) {
+		return ""
+	}
+	// The flow cookie stores the JSON form, which writes &, < and > as six
+	// bytes each. The bound counts that form and its two quotes, so the
+	// cookie stays under 4 KB.
+	if b, _ := json.Marshal(s); len(b) > maxReturnPath+2 {
+		return ""
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil || u.Opaque != "" || u.Fragment != "" {
+		return ""
+	}
+	// http.Redirect cleans dot segments and the mux decodes escapes, so
+	// the check on the sign-in pages reads the clean, decoded path.
+	if p := path.Clean(u.Path); p == "/auth" || strings.HasPrefix(p, "/auth/") {
+		return ""
+	}
+	return s
 }
 
 func (a *OIDCAuth) login(w http.ResponseWriter, r *http.Request) {
-	f := flow{State: random(), Nonce: random(), Verifier: oauth2.GenerateVerifier(), Exp: time.Now().Add(10 * time.Minute)}
+	f := flow{State: random(), Nonce: random(), Verifier: oauth2.GenerateVerifier(), Exp: time.Now().Add(10 * time.Minute), Next: localPath(r.URL.Query().Get("next"))}
 	a.setSigned(w, r, flowCookie, f, f.Exp)
-	url := a.oauth.AuthCodeURL(f.State, oidc.Nonce(f.Nonce), oauth2.S256ChallengeOption(f.Verifier))
-	http.Redirect(w, r, url, http.StatusFound)
+	to := a.oauth.AuthCodeURL(f.State, oidc.Nonce(f.Nonce), oauth2.S256ChallengeOption(f.Verifier))
+	http.Redirect(w, r, to, http.StatusFound)
 }
 
 func (a *OIDCAuth) callback(w http.ResponseWriter, r *http.Request) {
@@ -229,7 +265,13 @@ func (a *OIDCAuth) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	s := session{Email: email, Name: claims.Name, Exp: time.Now().Add(a.cfg.SessionTTL)}
 	a.setSigned(w, r, sessionCookie, s, s.Exp)
-	http.Redirect(w, r, "/", http.StatusFound)
+	// The flow carries the page that sent the person to sign in. localPath
+	// checks it again, so the target is always a path on this host.
+	to := "/"
+	if next := localPath(f.Next); next != "" {
+		to = next
+	}
+	http.Redirect(w, r, to, http.StatusFound)
 }
 
 // signInAgain is the recovery line of a sign-in that a new attempt can fix.
