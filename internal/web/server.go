@@ -112,11 +112,31 @@ func (s *Server) Handler() http.Handler {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			http.Redirect(w, r, s.auth.LoginPath(), http.StatusFound)
+			// A page visit keeps its address through sign-in, so a link to a
+			// slip still opens the slip. The query escape keeps the address one
+			// value of the sign-in address.
+			to := s.auth.LoginPath()
+			if next := returnPath(r); next != "" {
+				to += "?next=" + url.QueryEscape(next)
+			}
+			http.Redirect(w, r, to, http.StatusFound)
 			return
 		}
 		s.route(w, r.WithContext(context.WithValue(r.Context(), viewerKey{}, v)))
 	}))
+}
+
+// returnPath is the address that a sign-in returns to: the path and
+// query of a page visit, when it is a path on this host. The home page
+// needs none, because the sign-in returns there by default.
+func returnPath(r *http.Request) string {
+	if r.Method != http.MethodGet {
+		return ""
+	}
+	if next := r.URL.RequestURI(); next != "/" {
+		return localPath(next)
+	}
+	return ""
 }
 
 // shutdownDrain is how long a stop waits for the answers in flight. A
