@@ -377,8 +377,10 @@ Phase 1 of the overhaul built the stylesheet `internal/web/static/app.css`
 from this file, and the Go templates use its classes. A Go test keeps the
 day and night colors of the stylesheet equal to the colors in this file. An
 `impeccable document` scan of the real stylesheet updated this file in
-phase 1. This file marks a component that a later phase builds as "not built
-yet".
+phase 1, and a second scan updated it on 2026-11-22, at the end of phase 2.
+The second scan also looked at the built pages in a browser, by day and at
+night, at 1280 and 390 px. This file marks a component that a later phase
+builds as "not built yet".
 
 ## Overview
 
@@ -517,8 +519,24 @@ screen blend for stamps at night. It gives 5.8:1 with no token change. The
 second fallback is night violet #AE9CE8. Night card stock is only 1.1:1 on
 paper (1.2:1 by day), so the desk and the date-due column stand out less at
 night. On 2026-10-19 the maintainer kept the night card stock as it is.
-The desk, the date-due column and the loan card are built now. The scan in
-PR 7 of phase 2 judges the night card stock again on these three parts.
+
+On 2026-11-22 the scan at the end of phase 2 judged the night card stock
+again, on night screenshots of the desk, the date-due column and the loan
+card at 1280 and 390 px. The night card stock stays, and stamps keep normal
+blending at night. The reasons:
+- The desk and the loan cards read as their own warm plane on the cool
+  night paper. Their card-rule border (1.7:1 on paper) closes them.
+- The date-due column reads as one warm band down the fleet table.
+- Violet and red-ink stamps on night card stock are crisp.
+- A selected slip reads through selected card, its checked box and the
+  count in the bulk bar. The violet focus frame is clear on every list.
+- No stamp sits on selected card yet. A checked slip loses its selection
+  when its APPROVED stamp lands, and table rows have no selection. So the
+  case of the first fallback does not occur, and both fallbacks wait for
+  row selection in phase 3.
+
+A slip under the pointer is almost invisible at night, as it is by day.
+Hover carries no information, so this is not a fault.
 
 ### Named Rules
 
@@ -728,7 +746,7 @@ in UTC, and the `title` of the stamp holds the full time, such as
 - **Last 3 days:** the stamp changes to red ink. After the due date passes, the stamp stays red, and "past due" in 12 px semibold red ink sits under it.
 - **Renewal:** after an extension, the old date stays above the new stamp as "extended from OCT 20", with the old date in Courier Prime at 13.5 px and struck through with a 1 px ink line.
 - **No date yet:** a pending request shows a dashed card-rule box that says "Stamped at approval" in 12 px pencil grey. An account that AWS is still creating and that has no approved record says "Set when it is ready". An approved account that AWS is still creating already has a due date from the approved record, so it shows the date stamp. The box stays upright, because it is not a stamp. Its token is `date-unset`. A damaged expiry shows "unknown" in the same box. A closed or failed account shows a dash in pencil grey.
-- **Motion:** when someone approves or extends, the stamp lands in two frames over 90 ms with no fade. Frame 1 (0 ms) shows it at 112 percent size and upright. Frame 2 (45 ms) shows it at full size, turned 1.8 degrees. Under `prefers-reduced-motion`, frame 1 is skipped. Today +7d lands the date stamp of its account. An approval lands the APPROVED word stamp on its slip, and the date stamp of the new account shows without motion.
+- **Motion:** when someone approves or extends, the stamp lands in two frames over 90 ms with no fade. Frame 1 (0 ms) shows it at 112 percent size and upright. Frame 2 (45 ms) shows it at full size, at its own turn (see The Turned Stamp Rule). Under `prefers-reduced-motion`, frame 1 is skipped. Today +7d lands the date stamp of its account. An approval lands the APPROVED word stamp on its slip, and the date stamp of the new account shows without motion.
 
 ### Word stamps
 
