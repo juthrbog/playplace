@@ -113,8 +113,14 @@ func (s *Server) Handler() http.Handler {
 		}
 		v, ok := s.auth.Authenticate(r)
 		if !ok {
+			// An htmx request, such as the poll of a page left open, names
+			// that page in HX-Current-URL. The sign-in then returns there.
 			if r.Header.Get("HX-Request") == "true" {
-				w.Header().Set("HX-Redirect", s.auth.LoginPath())
+				to := s.auth.LoginPath()
+				if next := htmxReturnPath(r); next != "" {
+					to += "?next=" + url.QueryEscape(next)
+				}
+				w.Header().Set("HX-Redirect", to)
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
@@ -140,6 +146,20 @@ func returnPath(r *http.Request) string {
 		return ""
 	}
 	if next := r.URL.RequestURI(); next != "/" {
+		return localPath(next)
+	}
+	return ""
+}
+
+// htmxReturnPath is the address that a sign-in returns to after an htmx
+// request: the path and query of the page in HX-Current-URL, when it is a
+// path on this host. The home page needs none.
+func htmxReturnPath(r *http.Request) string {
+	u, err := url.Parse(r.Header.Get("HX-Current-URL"))
+	if err != nil {
+		return ""
+	}
+	if next := u.RequestURI(); next != "/" {
 		return localPath(next)
 	}
 	return ""
@@ -378,7 +398,7 @@ const pollHashHeader = "X-Poll-Hash"
 
 // pollHash is the hash of what a poll answer shows: the accounts section
 // without its own hash, then, on the home page, the queue panel and the
-// count. Each page, its poll and every action answer to it use it, so the
+// count, and on the accounts page the count alone. Each page, its poll and every action answer to it use it, so the
 // section always carries the hash of what that page shows, and each page
 // gets its own 204. It is empty if the render fails, and the
 // section then carries none, so every poll gets the full answer. The hash
@@ -407,7 +427,8 @@ func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMs
 // writeAccounts answers with the accounts section, which carries hash for
 // the next poll, and on the home page the queue panel. fromCard makes the
 // panel the main swap, for a decision made in the panel. The accounts page
-// has no panel, so its answer is always the section. after holds parts that
+// has no panel, so its answer is always the section, with the count for an
+// approver. after holds parts that
 // follow, such as the Sync message.
 func (s *Server) writeAccounts(w http.ResponseWriter, r *http.Request, pg page, rows []accountRow, errMsg, hash string, fromCard bool, after ...templ.Component) {
 	main := accountsAnswer(pg, rows, errMsg, hash)

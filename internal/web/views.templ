@@ -190,12 +190,17 @@ templ pendingUpdate(pg page) {
 // queue panel: the accounts section is the main swap, and on the home page
 // the queue panel rides out of band. When the queue did not load, the panel
 // and the count stay out, so the page keeps the ones it shows. The accounts
-// page has no queue panel, so its answer is the section alone. Rendered with
+// page has no queue panel, but the shell shows an approver the count beside
+// Queue on every page, so that answer carries the count alone. Rendered with
 // no hash, it is also what the poll hash covers.
 templ accountsAnswer(pg page, rows []accountRow, errMsg, hash string) {
 	@accountsPanel(pg, rows, errMsg, hash, false)
-	if !pg.PendingFailed && !pg.onAccounts() {
-		@pendingUpdate(pg)
+	if !pg.PendingFailed {
+		if !pg.onAccounts() {
+			@pendingUpdate(pg)
+		} else if pg.Viewer.Approver {
+			@queueCount(pg, true)
+		}
 	}
 }
 

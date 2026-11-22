@@ -164,9 +164,10 @@ func TestAccountsPageByRole(t *testing.T) {
 }
 
 // On the accounts page, the poll and the row actions answer with the
-// accounts section alone. The page has no queue panel and no place for the
-// queue, so nothing rides out of band but the message. Each answer carries
-// the hash that the next poll of that page matches.
+// accounts section. The page has no queue panel, so the panel never rides
+// out of band. The shell shows an approver the count beside Queue, so an
+// approver gets the count out of band, and other viewers do not. Each answer
+// carries the hash that the next poll of that page matches.
 func TestAccountsPageAnswersHaveNoQueue(t *testing.T) {
 	ts, _ := newServer(t)
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"bobs-box"}}, true)
@@ -192,8 +193,11 @@ func TestAccountsPageAnswersHaveNoQueue(t *testing.T) {
 			if !strings.HasPrefix(body, `<section id="accounts"`) {
 				t.Errorf("the answer does not start with the accounts section:\n%s", body)
 			}
-			if queueOOB(body) || strings.Contains(body, `id="pending"`) || strings.Contains(body, `id="queue-count"`) {
+			if queueOOB(body) || strings.Contains(body, `id="pending"`) {
 				t.Errorf("the answer carries the queue, which has no place on the accounts page:\n%s", body)
+			}
+			if got := strings.Contains(body, `<span id="queue-count" hx-swap-oob="true">`); got != c.approver {
+				t.Errorf("the answer carries the count = %v, want %v:\n%s", got, c.approver, body)
 			}
 			if c.method == "POST" && !strings.Contains(body, `<p id="notice" hx-swap-oob="innerHTML">`) {
 				t.Errorf("the action answer does not say what it did:\n%s", body)
@@ -265,5 +269,21 @@ func TestEachPageGetsItsOwn204(t *testing.T) {
 				t.Errorf("a poll with no page address = %d, want the 204 of the home page", res.StatusCode)
 			}
 		})
+	}
+}
+
+// The accounts page shows an approver the count beside Queue. A new request
+// changes that count, so the next poll of the page answers 200 with the new
+// count and not 204.
+func TestAccountsPagePollKeepsTheCount(t *testing.T) {
+	ts, _ := newServer(t)
+	_, page := doAs(t, ts, "GET", "/accounts", "lead@example.com", false, true, nil, false)
+	if !strings.Contains(page, `<span id="queue-count"></span>`) {
+		t.Fatalf("the page does not show an empty count:\n%s", page)
+	}
+	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"bobs-box"}}, true)
+	res, body := fromPage(t, ts, "GET", "/accounts", "/accounts", "lead@example.com", false, true, nil, pollHashIn(t, page))
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, `<span id="queue-count" hx-swap-oob="true"><span class="count-pill">1<span class="vh"> pending requests</span></span></span>`) {
+		t.Errorf("the poll after a new request = %d, want 200 with the count 1:\n%s", res.StatusCode, body)
 	}
 }
