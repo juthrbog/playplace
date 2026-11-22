@@ -43,7 +43,7 @@ func TestSpendMeter(t *testing.T) {
 func TestOverBudgetMeterIsRed(t *testing.T) {
 	var buf bytes.Buffer
 	row := accountRow{Account: &core.Account{ID: "x", Name: "x", Status: core.StatusActive, BudgetUSD: 10}, Spend: 24, SpendKnown: true}
-	if err := accountTR(row, "#show-closed").Render(context.Background(), &buf); err != nil {
+	if err := accountTR(row, "", false).Render(context.Background(), &buf); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()

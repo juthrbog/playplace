@@ -189,7 +189,7 @@ func TestFleetControlsReplaceTheAddress(t *testing.T) {
 		{"page past the end", "/accounts?status=any&page=9", "/accounts", "fleet-next", "/accounts?status=any"},
 		{"segment", "/accounts?attention=any", "/accounts", "fleet-attention", "/accounts?attention=any"},
 		{"poll", "/accounts?q=anna", "/accounts?q=anna", "accounts", ""},
-		{"home", "/accounts?all=1", "/", "show-closed", ""},
+		{"home", "/accounts", "/", "accounts", ""},
 	} {
 		_, got := fromControl(t, ts, "GET", c.path, c.from, c.trigger, nil)
 		if got != c.want {
@@ -318,7 +318,8 @@ func TestFilterBarInEveryBranch(t *testing.T) {
 }
 
 // On the accounts page, +7d, Close and Sync send the filter bar and the
-// page, so the answer keeps the view. On home they send Show closed.
+// page, so the answer keeps the view. The home page has no view, so they
+// send nothing there.
 func TestActionsIncludeTheView(t *testing.T) {
 	ts, _ := newServer(t)
 	_, body := do(t, ts, "GET", "/accounts", "ops@example.com", true, nil, false)
@@ -329,8 +330,8 @@ func TestActionsIncludeTheView(t *testing.T) {
 		t.Error("a control on the accounts page includes Show closed, which is not there")
 	}
 	_, body = do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
-	if strings.Contains(body, "#fleet-view") || strings.Contains(body, "#fleet-page") {
-		t.Error("a control on home includes the fleet view")
+	if strings.Contains(body, "#fleet-view") || strings.Contains(body, "#fleet-page") || strings.Contains(body, "hx-include") {
+		t.Error("a control on home includes a view")
 	}
 }
 
@@ -356,23 +357,6 @@ func TestActionOnPageTwoKeepsThePage(t *testing.T) {
 	}
 	if t.Failed() {
 		t.Logf("body:\n%s", body)
-	}
-}
-
-// The home page of an admin links to the whole fleet with its search and
-// filters. Anyone else has no fleet to search.
-func TestHomeLinksToTheFleetSearch(t *testing.T) {
-	ts, _ := newServer(t)
-	_, body := do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
-	if !strings.Contains(body, `<a class="link" href="/accounts">Search and filter all accounts</a> <label class="check"`) {
-		t.Errorf("the home page of an admin lacks the link before Show closed:\n%s", body)
-	}
-	if strings.Contains(body, `id="fleet-view"`) {
-		t.Error("the home page has the filter bar")
-	}
-	_, body = do(t, ts, "GET", "/", "anna@example.com", false, nil, false)
-	if strings.Contains(body, "Search and filter all accounts") {
-		t.Error("an engineer gets the link to the fleet search")
 	}
 }
 

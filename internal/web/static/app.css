@@ -241,6 +241,13 @@
   :where(.desk) button:hover {
     border-color: var(--ink);
   }
+  /* The loan card is card stock too. */
+  :where(.loan) button {
+    border-color: var(--ink-2);
+  }
+  :where(.loan) button:hover {
+    border-color: var(--ink);
+  }
   input:not([type=checkbox]):not([type=radio]):not([type=hidden]) {
     height: var(--control-h);
     padding: 0 10px;
@@ -355,6 +362,19 @@
     max-width: 1600px;
     padding: var(--space-lg) var(--space-xl) var(--space-xxl);
   }
+  /* The top row of the admin home: the Needs attention ledger, 300 to
+     384 px, beside the approval desk. At 1000 px and below it stacks. */
+  .home-top {
+    display: grid;
+    grid-template-columns: minmax(300px, 384px) minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-lg);
+  }
+  @media (max-width: 1000px) {
+    .home-top {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
   /* The footer is a row under main, with the same side gutters. It has
      room for more controls later. */
   .foot {
@@ -396,8 +416,11 @@
       min-height: 56px;
       padding: 6px 6px 6px var(--space-lg);
     }
-    main {
+    main,
+    .home-top {
       gap: var(--space-md);
+    }
+    main {
       padding: var(--space-md) var(--space-lg) var(--space-xl);
     }
     .foot {
@@ -609,14 +632,8 @@
     min-height: 48px;
     padding: 10px var(--space-lg);
   }
-  .panel-head > .check,
   .panel-head > .link {
     margin-left: auto;
-  }
-  /* On the home page of an admin, the link to the fleet and Show closed sit
-     together on the right. */
-  .panel-head > .link + .check {
-    margin-left: 0;
   }
   .panel-head .muted {
     font-size: 13.5px;
@@ -677,6 +694,15 @@
     padding: 0 var(--space-lg) var(--space-lg);
     color: var(--ink-2);
     font-size: 13.5px;
+  }
+  /* The link under the fleet of the admin home and under the loan cards. */
+  .panel-foot {
+    padding: var(--space-md) var(--space-lg);
+    border-top: 1px solid var(--rule-soft);
+  }
+  .loans + .panel-foot {
+    padding-top: 0;
+    border-top: 0;
   }
   .help {
     margin-top: var(--space-sm);
@@ -792,6 +818,20 @@
     color: var(--card);
   }
 
+  /* The fleet of the admin home is compact: 4 px above and below the
+     content of a cell. */
+  .fleet-compact td {
+    padding-top: var(--space-xs);
+    padding-bottom: var(--space-xs);
+  }
+  /* The due cell is card stock with a card-rule line under it in every
+     row state. Hover keeps it. */
+  .fleet td.due,
+  .fleet tbody tr:hover td.due,
+  .fleet tbody tr:last-child td.due {
+    background: var(--card);
+    border-bottom: 1px solid var(--card-rule);
+  }
   /* Tables. Rows stay one line. The cells that hold free text wrap. */
   .fleet {
     min-width: 1120px;
@@ -1100,6 +1140,24 @@
   .spend + .status,
   .meter-line + .status {
     margin-top: var(--space-xs);
+  }
+  /* The full-width meter of a loan card: 6 px tall with 3 px corners. Its
+     label sits below it. */
+  .meter-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-xs);
+    margin-top: var(--space-xs);
+  }
+  .meter-full {
+    display: block;
+    width: 100%;
+    height: 6px;
+  }
+  .meter-block + .status,
+  .loan-spend > .spend + .status {
+    margin-top: var(--space-sm);
   }
 
   /* A refusal names the problem beside the form. It is empty until the
@@ -1744,6 +1802,57 @@
   .stamp-denied {
     color: var(--ink);
   }
+  /* A due date in the last 3 days, or past it, is red ink. */
+  .stamp-soon {
+    color: var(--red-ink);
+  }
+  /* The one due date of a loan card is the large stamp: 22 px with a
+     2 px border. */
+  .stamp-large {
+    padding: 7px 10px 5px;
+    border-width: 2px;
+    font-size: 22px;
+  }
+  /* A due date is the stamp, the earlier date above it after an
+     extension, and "past due" under a date that passed. */
+  .due-date {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-xs);
+  }
+  .due-from,
+  .due-past {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .due-from {
+    color: var(--ink-2);
+  }
+  .due-from > s {
+    color: var(--ink);
+    font-family: var(--font-stamp);
+    font-size: 13.5px;
+    text-decoration-line: line-through;
+    text-decoration-thickness: 1px;
+    text-decoration-color: var(--ink);
+  }
+  .due-past {
+    color: var(--red-ink);
+    font-weight: 600;
+  }
+  /* No due date yet: a dashed card-rule box with a note in pencil grey.
+     It stays upright, because it is not a stamp. */
+  .date-unset {
+    display: inline-block;
+    padding: 4px 7px 3px;
+    border: 1px dashed var(--card-rule);
+    border-radius: var(--r-stamp);
+    color: var(--ink-2);
+    font-size: 12px;
+    line-height: 1.35;
+    white-space: nowrap;
+  }
   .turn-1 {
     rotate: -1.8deg;
   }
@@ -1769,6 +1878,132 @@
     .stamp-new {
       animation: none;
     }
+  }
+
+  /* The Needs attention ledger is paper. Each row is a link to the
+     accounts page filtered to its kind: the icon, the count headline, up
+     to three names in 12 px, and a chevron. */
+  .ledger-rows {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .ledger-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    padding: 10px var(--space-lg);
+    border-top: 1px solid var(--rule-soft);
+    color: var(--ink);
+    text-decoration-line: none;
+  }
+  .ledger-row:hover {
+    background: var(--paper-tint);
+    color: var(--ink);
+  }
+  .ledger-row:focus-visible {
+    outline-offset: -2px;
+  }
+  .ledger-rows > li:last-child > .ledger-row {
+    border-radius: 0 0 calc(var(--r-panel) - 1px) calc(var(--r-panel) - 1px);
+  }
+  .ledger-icon {
+    display: inline-flex;
+    margin-top: 2px;
+  }
+  .ledger-text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: var(--space-hair);
+    min-width: 0;
+  }
+  .ledger-head {
+    font-weight: 600;
+  }
+  .ledger-row:hover .ledger-head {
+    color: var(--violet);
+  }
+  .ledger-names {
+    color: var(--ink-2);
+    font-size: 12px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+  .ledger-go {
+    margin-top: 2px;
+    color: var(--ink-2);
+  }
+  .tone-fault {
+    color: var(--red);
+  }
+  .tone-expiring {
+    color: var(--violet);
+  }
+  .tone-ink {
+    color: var(--ink);
+  }
+  /* A list that did not load says so in the ledger too, beside an alert. */
+  .ledger-note {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    padding: 0 var(--space-lg) var(--space-lg);
+    color: var(--ink);
+    font-size: 13.5px;
+  }
+  .ledger-note .i {
+    margin-top: 2px;
+    color: var(--red);
+  }
+
+  /* The per-owner limit line of Your requests sits under the head. */
+  .limit-line {
+    padding: 0 var(--space-lg) var(--space-sm);
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+
+  /* Loan cards: one card-stock block for each account of the viewer, with
+     8 px corners, a card-rule border and a 16 px inset. */
+  .loans {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+    gap: var(--space-md);
+    margin: 0;
+    padding: 0 var(--space-lg) var(--space-lg);
+    list-style: none;
+  }
+  .loan {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    min-width: 0;
+    padding: var(--space-lg);
+    background: var(--card);
+    border: 1px solid var(--card-rule);
+    border-radius: var(--r-panel);
+  }
+  .loan-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-xs) var(--space-md);
+  }
+  .loan-name {
+    min-width: 0;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+  .loan-id {
+    font-size: 13.5px;
+  }
+  .loan-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
   }
 
   /* The live line needs script, so it shows only under html.js. It is
@@ -2092,12 +2327,18 @@
     button.slip-name {
       min-height: var(--touch);
     }
+    /* The name of a loan card and a row of the ledger are links too. */
+    .loan-name a,
+    .ledger-row {
+      min-height: var(--touch);
+    }
     /* The group border adds 2 px, so the group is 44 px. */
     .segmented > a {
       height: calc(var(--touch) - 2px);
     }
     a.link,
-    td a {
+    td a,
+    .loan-name a {
       display: inline-flex;
       align-items: center;
     }

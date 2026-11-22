@@ -9,39 +9,22 @@ import (
 	"playplace/internal/core"
 )
 
-func tableURL(showAll bool) string {
-	if showAll {
-		return "/accounts?all=1"
-	}
-	return "/accounts"
-}
-
 // pollURL is the address that the accounts section polls. On the accounts
-// page it is the canonical address of the fleet view, and on the home page
-// the list with or without closed accounts.
+// page it is the canonical address of the fleet view. The home page has no
+// view of its own.
 func pollURL(pg page) string {
 	if pg.onAccounts() {
 		return fleetURL(pg.Fleet)
 	}
-	return tableURL(pg.ShowAll)
+	return pathAccounts
 }
 
 // accountCount is the count in the head of the accounts panel. On the
 // accounts page it counts every account that passes the filters, not only
-// the rows of the page.
-func accountCount(pg page, rows []accountRow) int {
-	if pg.onAccounts() {
-		return pg.Total
-	}
-	return len(rows)
-}
-
-// showClosed reports whether the panel lists closed accounts too.
-func showClosed(pg page) bool {
-	if pg.onAccounts() {
-		return pg.Fleet.Status == fleetStatusAny
-	}
-	return pg.ShowAll
+// the rows of the page. On the home page it counts every open account, also
+// those past the cut of the admin fleet.
+func accountCount(pg page) int {
+	return pg.Total
 }
 
 // emptyFleet is the line of an accounts panel with no rows. A filtered view
@@ -51,7 +34,7 @@ func emptyFleet(pg page) string {
 	switch {
 	case pg.onAccounts() && pg.Fleet.filtered():
 		return "No accounts match these filters."
-	case showClosed(pg):
+	case pg.onAccounts() && pg.Fleet.Status == fleetStatusAny:
 		return "No accounts."
 	}
 	return "No open accounts."
@@ -275,10 +258,10 @@ func limitsNote(pg page) string {
 
 // fleetInclude is the hx-include of Sync and the row actions, so their
 // answer keeps the view. On the accounts page that is the filter bar and the
-// page number, and on the home page Show closed.
+// page number. The home page has no view, so it includes nothing.
 func fleetInclude(pg page) string {
 	if pg.onAccounts() {
 		return "#fleet-view, #fleet-page"
 	}
-	return "#show-closed"
+	return ""
 }

@@ -131,7 +131,9 @@ templ shell(pg page) {
 						if hasAccountsSection(pg) {
 							hx-target="#accounts"
 							hx-swap="morph"
-							hx-include={ fleetInclude(pg) }
+							if fleetInclude(pg) != "" {
+								hx-include={ fleetInclude(pg) }
+							}
 						} else {
 							hx-target="#notice"
 							hx-swap="none"
@@ -188,13 +190,17 @@ templ pendingUpdate(pg page) {
 
 // accountsAnswer answers the poll and every request from outside the
 // queue panel: the accounts section is the main swap, and on the home page
-// the queue panel rides out of band. When the queue did not load, the panel
+// the queue panel rides out of band, with the Needs attention ledger for an
+// admin. When the queue did not load, the panel
 // and the count stay out, so the page keeps the ones it shows. The accounts
 // page has no queue panel, but the shell shows an approver the count beside
 // Queue on every page, so that answer carries the count alone. Rendered with
 // no hash, it is also what the poll hash covers.
 templ accountsAnswer(pg page, rows []accountRow, errMsg, hash string) {
 	@accountsPanel(pg, rows, errMsg, hash, false)
+	if hasLedger(pg) {
+		@attentionLedger(pg, errMsg, true)
+	}
 	if !pg.PendingFailed {
 		if !pg.onAccounts() {
 			@pendingUpdate(pg)
@@ -207,12 +213,16 @@ templ accountsAnswer(pg page, rows []accountRow, errMsg, hash string) {
 // cardAnswer answers a decision made in the queue panel. The panel is the
 // main swap, because htmx finds the morph extension from the form that
 // sent the request. An out-of-band part runs first and can take that form
-// out of the page. The accounts section and the count ride out of band.
+// out of the page. The accounts section, the ledger of an admin and the
+// count ride out of band.
 // errMsg is the refusal text of an account list that failed after the
 // decision, so the section shows its failed panel.
 templ cardAnswer(pg page, rows []accountRow, errMsg, hash string) {
 	@queuePanel(pg, false)
 	@accountsPanel(pg, rows, errMsg, hash, true)
+	if hasLedger(pg) {
+		@attentionLedger(pg, errMsg, true)
+	}
 	if pg.Viewer.Approver && !pg.PendingFailed {
 		@queueCount(pg, true)
 	}
@@ -279,43 +289,34 @@ type accountRow struct {
 
 
 // indexPage is the home page. The shell is the visible heading, so the page
-// h1 is for screen readers only.
+// h1 is for screen readers only. Each role gets its first job first. An
+// admin gets the Needs attention ledger beside the approval desk, then the
+// open fleet by due date. An approver gets the desk, then their loan cards.
+// Anyone else gets their loan cards, then Your requests. The New request
+// panel comes after them for everyone. The refusal slot above the accounts
+// holds a refused +7d or Close, outside the section that the poll redraws.
 templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
 	@layout(polling(regionInCard(pg)), "Home") {
 		<h1 class="vh">Home</h1>
-		<section class="panel" id="request" aria-labelledby="request-title">
-			<div class="panel-head"><h2 id="request-title">New request</h2></div>
-			<div class="panel-body">
-				<form hx-post="/requests" hx-target="#accounts" hx-swap="morph" hx-include="#show-closed" data-reset-on-success hx-sync="this:drop">
-					<div class="form-row">
-						<label class="field">name<input name="name" required pattern="[a-z0-9][a-z0-9\-]{1,48}[a-z0-9]" placeholder="dev-alex"/></label>
-						if pg.Viewer.Admin {
-							<label class="field">owner<input name="owner" placeholder="owner email" value={ ownerDefault(pg.Viewer) }/></label>
-						} else {
-							<label class="field">owner<input value={ pg.Viewer.Email } disabled title="requests are always in your name"/></label>
-						}
-						if pg.Viewer.Admin {
-							<label class="field">days<input name="ttl" type="number" min="1" placeholder={ dayCount(pg.Limits.DefaultTTL) } title={ "up to " + dayCount(pg.Limits.MaxTTL) + " unless overridden" } class="in-days"/></label>
-							<label class="field">budget $<input name="budget" type="number" min="1" placeholder={ fmt.Sprintf("%.0f", pg.Limits.DefaultBudgetUSD) } title={ fmt.Sprintf("up to $%.0f unless overridden", pg.Limits.MaxBudgetUSD) } class="in-budget"/></label>
-						} else {
-							<label class="field">days<input name="ttl" type="number" min="1" max={ dayCount(pg.Limits.MaxTTL) } placeholder={ dayCount(pg.Limits.DefaultTTL) } title={ "up to " + dayCount(pg.Limits.MaxTTL) } class="in-days"/></label>
-							<label class="field">budget $<input name="budget" type="number" min="1" max={ fmt.Sprintf("%.0f", pg.Limits.MaxBudgetUSD) } placeholder={ fmt.Sprintf("%.0f", pg.Limits.DefaultBudgetUSD) } title={ fmt.Sprintf("up to $%.0f", pg.Limits.MaxBudgetUSD) } class="in-budget"/></label>
-						}
-						<label class="field">purpose<input name="purpose" placeholder="what you will try" size="24" maxlength={ fmt.Sprint(core.MaxPurpose) } pattern={ tagPattern } title="letters, numbers, spaces, and _ . : / = + - @"/></label>
-						if pg.Viewer.Admin {
-							<label class="check" title="admins may exceed the ceilings; recorded on the request"><input type="checkbox" name="override"/>override limits</label>
-						}
-						<button type="submit" class="btn-primary">@busyWord("Request", "Sending")</button>
-					</div>
-					<div id="form-error" class="refusal"></div>
-					<p class="help">{ limitsNote(pg) }</p>
-				</form>
+		if pg.Viewer.Admin {
+			<div class="home-top">
+				@attentionLedger(pg, errMsg, false)
+				@queuePanel(pg, false)
 			</div>
-		</section>
-		@queuePanel(pg, false)
-		// errMsg is the refusal text of a failed account load. The panel
-		// shows it, so the next good poll clears it.
-		@accountsPanel(pg, rows, errMsg, hash, false)
+			<div id="account-error" class="refusal"></div>
+			// errMsg is the refusal text of a failed account load. The panel
+			// shows it, so the next good poll clears it.
+			@accountsPanel(pg, rows, errMsg, hash, false)
+		} else if pg.Viewer.Approver {
+			@queuePanel(pg, false)
+			<div id="account-error" class="refusal"></div>
+			@accountsPanel(pg, rows, errMsg, hash, false)
+		} else {
+			<div id="account-error" class="refusal"></div>
+			@accountsPanel(pg, rows, errMsg, hash, false)
+			@queuePanel(pg, false)
+		}
+		@requestPanel(pg)
 		if pg.Viewer.Approver {
 			@denyDialog()
 			@summaryDialog()
@@ -329,6 +330,75 @@ templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
 			Spend is month to date from Cost Explorer and lags about a day.
 		</p>
 	}
+}
+
+// requestPanel is the New request panel of the home page. The shell links
+// to it as /#request.
+templ requestPanel(pg page) {
+	<section class="panel" id="request" aria-labelledby="request-title">
+		<div class="panel-head"><h2 id="request-title">New request</h2></div>
+		<div class="panel-body">
+			<form hx-post="/requests" hx-target="#accounts" hx-swap="morph" data-reset-on-success hx-sync="this:drop">
+				<div class="form-row">
+					<label class="field">name<input name="name" required pattern="[a-z0-9][a-z0-9\-]{1,48}[a-z0-9]" placeholder="dev-alex"/></label>
+					if pg.Viewer.Admin {
+						<label class="field">owner<input name="owner" placeholder="owner email" value={ ownerDefault(pg.Viewer) }/></label>
+					} else {
+						<label class="field">owner<input value={ pg.Viewer.Email } disabled title="requests are always in your name"/></label>
+					}
+					if pg.Viewer.Admin {
+						<label class="field">days<input name="ttl" type="number" min="1" placeholder={ dayCount(pg.Limits.DefaultTTL) } title={ "up to " + dayCount(pg.Limits.MaxTTL) + " unless overridden" } class="in-days"/></label>
+						<label class="field">budget $<input name="budget" type="number" min="1" placeholder={ fmt.Sprintf("%.0f", pg.Limits.DefaultBudgetUSD) } title={ fmt.Sprintf("up to $%.0f unless overridden", pg.Limits.MaxBudgetUSD) } class="in-budget"/></label>
+					} else {
+						<label class="field">days<input name="ttl" type="number" min="1" max={ dayCount(pg.Limits.MaxTTL) } placeholder={ dayCount(pg.Limits.DefaultTTL) } title={ "up to " + dayCount(pg.Limits.MaxTTL) } class="in-days"/></label>
+						<label class="field">budget $<input name="budget" type="number" min="1" max={ fmt.Sprintf("%.0f", pg.Limits.MaxBudgetUSD) } placeholder={ fmt.Sprintf("%.0f", pg.Limits.DefaultBudgetUSD) } title={ fmt.Sprintf("up to $%.0f", pg.Limits.MaxBudgetUSD) } class="in-budget"/></label>
+					}
+					<label class="field">purpose<input name="purpose" placeholder="what you will try" size="24" maxlength={ fmt.Sprint(core.MaxPurpose) } pattern={ tagPattern } title="letters, numbers, spaces, and _ . : / = + - @"/></label>
+					if pg.Viewer.Admin {
+						<label class="check" title="admins may exceed the ceilings; recorded on the request"><input type="checkbox" name="override"/>override limits</label>
+					}
+					<button type="submit" class="btn-primary">@busyWord("Request", "Sending")</button>
+				</div>
+				<div id="form-error" class="refusal"></div>
+				<p class="help">{ limitsNote(pg) }</p>
+			</form>
+		</div>
+	</section>
+}
+
+// attentionLedger is the Needs attention ledger of the admin home: one row
+// for each kind that has accounts, in the order of core with over budget
+// last. Each row is a link to the accounts page filtered to its kind. A list
+// that did not load says so, because an empty ledger reads as a fleet that
+// needs nothing. oob marks it as an out-of-band part of an htmx answer.
+templ attentionLedger(pg page, errMsg string, oob bool) {
+	<section
+		id="attention"
+		class="panel ledger"
+		if oob {
+			hx-swap-oob="morph"
+		}
+		aria-labelledby="attention-title"
+	>
+		<div class="panel-head"><h2 id="attention-title">Needs attention</h2></div>
+		if errMsg != "" {
+			<p id="attention-failed" class="ledger-note">@icon("alert")<span>The account list is unavailable, so this list cannot say what needs attention.</span></p>
+		} else if len(pg.Ledger) == 0 {
+			<p class="empty">Nothing needs attention.</p>
+		} else {
+			<ul class="ledger-rows" role="list">
+				for _, l := range pg.Ledger {
+					<li id={ "attention-" + l.Kind }>
+						<a class="ledger-row" href={ templ.SafeURL(l.URL) }>
+							<span class={ "ledger-icon", "tone-" + l.Tone }>@icon(l.Icon)</span>
+							<span class="ledger-text"><span class="ledger-head">{ l.Headline }</span><span class="ledger-names">{ l.Names }</span></span>
+							<svg class="i ledger-go" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg>
+						</a>
+					</li>
+				}
+			</ul>
+		}
+	</section>
 }
 
 // queuePanel is the queue of the home page. An approver gets the approval
@@ -415,8 +485,8 @@ templ deskControls() {
 	<div class="desk-controls">
 		<label class="check desk-all"><input type="checkbox" id="desk-all"/><span class="vh">Select every request you can decide</span></label>
 		<span id="desk-count" class="desk-count">0 selected</span>
-		<button type="button" id="desk-approve" class="btn-approve" form="desk-form" hx-post={ "/requests/decide?action=" + actionApprove } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="#desk-form:drop" data-bulk={ actionApprove } data-dialog="summary" data-cap={ strconv.Itoa(maxApprovals) } data-cap-note={ capRefusal(actionApprove, maxApprovals) }>@icon("stamp")@busyWord("Approve selected", "Approving")</button>
-		<button type="button" id="desk-deny" form="desk-form" hx-post={ "/requests/decide?action=" + actionDeny } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="#desk-form:drop" data-bulk={ actionDeny } data-dialog="deny" data-cap={ strconv.Itoa(maxDenials) } data-cap-note={ capRefusal(actionDeny, maxDenials) }>@busyWord("Deny selected", "Denying")</button>
+		<button type="button" id="desk-approve" class="btn-approve" form="desk-form" hx-post={ "/requests/decide?action=" + actionApprove } hx-target="#pending" hx-swap="morph" hx-sync="#desk-form:drop" data-bulk={ actionApprove } data-dialog="summary" data-cap={ strconv.Itoa(maxApprovals) } data-cap-note={ capRefusal(actionApprove, maxApprovals) }>@icon("stamp")@busyWord("Approve selected", "Approving")</button>
+		<button type="button" id="desk-deny" form="desk-form" hx-post={ "/requests/decide?action=" + actionDeny } hx-target="#pending" hx-swap="morph" hx-sync="#desk-form:drop" data-bulk={ actionDeny } data-dialog="deny" data-cap={ strconv.Itoa(maxDenials) } data-cap-note={ capRefusal(actionDeny, maxDenials) }>@busyWord("Deny selected", "Denying")</button>
 	</div>
 }
 
@@ -623,7 +693,7 @@ templ slip(pg page, s slipView) {
 				// says why, and so does the opened slip.
 				if canApprove(pg, s.Req) {
 					<div class="slip-decide">
-						<form class="inline" hx-post={ "/requests/" + s.Req.Name + "/approve" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-action="approve">
+						<form class="inline" hx-post={ "/requests/" + s.Req.Name + "/approve" } hx-target="#pending" hx-swap="morph" hx-sync="this:drop" data-action="approve">
 							@versionField(s.Req)
 							@shownFields(s.Req)
 							<button
@@ -636,7 +706,7 @@ templ slip(pg page, s slipView) {
 						</form>
 						// Deny opens the deny dialog first. app.js copies the
 						// reason from the dialog into the hidden reason field.
-						<form class="inline" hx-post={ "/requests/" + s.Req.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-dialog="deny" data-request={ s.Req.Name } data-action="deny">
+						<form class="inline" hx-post={ "/requests/" + s.Req.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-sync="this:drop" data-dialog="deny" data-request={ s.Req.Name } data-action="deny">
 							@versionField(s.Req)
 							@shownFields(s.Req)
 							<input type="hidden" name="reason" value=""/>
@@ -746,7 +816,7 @@ templ slipTools(pg page, q core.Request) {
 // withdrawForm is Withdraw for one request. It asks before it acts, and its
 // button names the request for screen readers.
 templ withdrawForm(q core.Request) {
-	<form class="inline" hx-post={ "/requests/" + q.Name + "/withdraw" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-confirm={ "Withdraw the request for " + q.Name + "?" } hx-sync="this:drop" data-action="withdraw">
+	<form class="inline" hx-post={ "/requests/" + q.Name + "/withdraw" } hx-target="#pending" hx-swap="morph" hx-confirm={ "Withdraw the request for " + q.Name + "?" } hx-sync="this:drop" data-action="withdraw">
 		@versionField(q)
 		<button type="submit">@busyWord("Withdraw", "Withdrawing")<span class="vh">{ " " + q.Name }</span></button>
 	</form>
@@ -783,9 +853,10 @@ templ shownFields(q core.Request) {
 }
 
 // ownRequests is the queue of a viewer who is not an approver: the
-// requests that the viewer asked for or owns, on paper. The region and the
-// refusal slot sit under the head in every state, so a morph pairs them by
-// id. A queue that did not load says so.
+// requests that the viewer asked for or owns, on paper. Under the head, a
+// line says how the viewer stands against the per-owner limit. The region
+// and the refusal slot sit under the head in every state, so a morph pairs
+// them by id. A queue that did not load says so.
 templ ownRequests(pg page, oob bool) {
 	{{ items, line := pg.left(), ownLine(pg) }}
 	<section
@@ -804,6 +875,7 @@ templ ownRequests(pg page, oob bool) {
 				<p class="panel-line">{ line }</p>
 			}
 		</div>
+		<p class="limit-line">{ limitLine(pg) }</p>
 		@region()
 		<div id="pending-error" class="refusal">
 			if len(items) > 0 {
@@ -886,7 +958,7 @@ templ breakable(s string) {
 templ slipEdit(pg page, q core.Request) {
 	<li id={ "req-" + q.Name } class="slip slip-edit" data-state="pending">
 		<h3 class="slip-title"><span class="slip-name">{ q.Name }</span></h3>
-		<form hx-post={ "/requests/" + q.Name + "/edit" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-editing data-action="save">
+		<form hx-post={ "/requests/" + q.Name + "/edit" } hx-target="#pending" hx-swap="morph" hx-sync="this:drop" data-editing data-action="save">
 			@versionField(q)
 			<div class="form-row">
 				<label class="field">owner<input name="owner" value={ q.Owner } size="24"/></label>
@@ -932,6 +1004,10 @@ templ accountsPage(pg page, rows []accountRow, errMsg, hash string) {
 // the hash never covers itself. data-poll marks the section as the
 // poller of the page for app.js, and poll-now is the event that makes it
 // poll at once: on Resume, and when a hidden tab shows again.
+//
+// The accounts page shows the fleet table with its filter bar, sort heads
+// and pager. On the home page an admin gets the first open accounts by due
+// date in a compact table with plain heads, and anyone else gets loan cards.
 templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 	<section
 		id="accounts"
@@ -952,18 +1028,9 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 			<h2 id="accounts-title" tabindex="-1">
 				{ accountsTitle(pg) }
 				if errMsg == "" {
-					<span class="muted">({ fmt.Sprint(accountCount(pg, rows)) })</span>
+					<span class="muted">({ fmt.Sprint(accountCount(pg)) })</span>
 				}
 			</h2>
-			// The accounts page has the Status filter in place of Show closed.
-			// The home page keeps its plain list, and an admin gets the way to
-			// the whole fleet with its search and filters.
-			if !pg.onAccounts() {
-				if pg.Viewer.Admin {
-					<a class="link" href="/accounts">Search and filter all accounts</a>
-				}
-				<label class="check" title="include accounts AWS explicitly reports CLOSED"><input id="show-closed" type="checkbox" name="all" value="1" checked?={ showClosed(pg) } hx-get="/accounts" hx-target="#accounts" hx-swap="morph" hx-trigger="change"/>Show closed</label>
-			}
 		</div>
 		// The filter bar shows in every branch, so a viewer can always change
 		// or clear a filter. The page number sits outside its form: a filter
@@ -975,8 +1042,8 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 		}
 		// A failed load is one note: the problem, then the refusal text of
 		// the error and the recovery. An empty list is one plain line, as in
-		// Your requests. Neither has column heads. The head keeps Show
-		// closed or the filter bar, and the section keeps polling. The error note has an id, so
+		// Your requests. Neither has column heads. The head keeps the filter
+		// bar, and the section keeps polling. The error note has an id, so
 		// a morph never pairs it with the table that replaces it. data-stale
 		// tells app.js that the section shows no fresh data, so the Updated
 		// time does not reset. While the viewer paused live updates, the
@@ -984,6 +1051,8 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 		// recovery.
 		if errMsg != "" {
 			<div id="accounts-error" class="refusal" data-stale>@icon("alert")<div class="note-text"><p class="note-title">The account list is unavailable.</p><p class="note-body">{ errMsg + " " }<span class="retry-live">The page tries again every 15 seconds.</span><span class="retry-paused">Live updates are paused. Resume them to try again.</span></p></div></div>
+		} else if !pg.onAccounts() && !pg.Viewer.Admin {
+			@loanCards(pg, rows)
 		} else if len(rows) == 0 {
 			if pg.onAccounts() && pg.Fleet.filtered() {
 				<p class="empty">{ emptyFleet(pg) + " " }<a href="/accounts">Clear filters</a></p>
@@ -992,7 +1061,7 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 			}
 		} else {
 			<div class="scroll">
-				<table class="fleet">
+				<table class={ "fleet", templ.KV("fleet-compact", !pg.onAccounts()) }>
 					<thead>
 						<tr>
 							if pg.onAccounts() {
@@ -1000,23 +1069,81 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 									@sortHead(pg.Fleet, c)
 								}
 							} else {
-								<th scope="col">Name</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Account</th><th scope="col">Expires</th><th scope="col">Spend / Budget</th>
+								<th scope="col">Name</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Account</th><th scope="col">Due</th><th scope="col">Spend / Budget</th>
 							}
 							<th scope="col"><span class="vh">Actions</span></th>
 						</tr>
 					</thead>
 					<tbody>
 						for _, r := range rows {
-							@accountTR(r, fleetInclude(pg))
+							@accountTR(r, fleetInclude(pg), pg.Landed == r.Account.ID)
 						}
 					</tbody>
 				</table>
 			</div>
-			if pg.onAccounts() && fleetPages(pg.Total) > 1 {
+			if !pg.onAccounts() {
+				<p class="panel-foot"><a class="link" href="/accounts">{ allAccounts(pg.Total) }</a></p>
+			} else if fleetPages(pg.Total) > 1 {
 				@fleetPager(pg.Fleet, pg.Total)
 			}
 		}
 	</section>
+}
+
+// loanCards are the accounts of the viewer on the home page: one loan card
+// for each account that is open and not a pending request, by due date.
+// Your requests or the desk shows the pending ones. With no card, the
+// section points to the New request panel.
+templ loanCards(pg page, rows []accountRow) {
+	if len(rows) == 0 {
+		<p class="empty">You have no open accounts. <a href="#request">New request</a></p>
+	} else {
+		<ul class="loans" role="list">
+			for _, r := range rows {
+				@loanCard(r, pg.Landed == r.Account.ID)
+			}
+		</ul>
+		<p class="panel-foot"><a class="link" href="/accounts">All your accounts</a></p>
+	}
+}
+
+// loanCard is one account of the viewer on card stock: the name, the AWS
+// account ID, the status, the large due stamp, the spend on a full-width
+// meter, and +7d and Close when they are allowed. It keeps the id of the
+// fleet row, so a morph pairs it.
+templ loanCard(r accountRow, landed bool) {
+	<li id={ "acct-" + r.Account.ID } class="loan">
+		<div class="loan-head">
+			<h3 class="loan-name"><a href={ templ.SafeURL("/accounts/" + r.Account.ID) }>{ r.Account.Name }</a></h3>
+			if r.Account.ProviderID != "" {
+				<code class="loan-id">{ r.Account.ProviderID }</code>
+			} else {
+				<span class="loan-id muted">{ notCreated(r.Account) }</span>
+			}
+		</div>
+		<div class="loan-status">
+			@statusLines(r.Account)
+		</div>
+		<div class="loan-due">
+			@dueStamp(dueFor(r.Account, r.Now), r.Account.ID, true, landed)
+		</div>
+		<div class="loan-spend">
+			if !r.SpendKnown {
+				<p class="spend"><span class="muted">unavailable</span>{ " of " + budgetAmount(r.Account.BudgetUSD) + " a month" }</p>
+			} else {
+				<p class="spend">{ fmt.Sprintf("$%.2f of %s a month", r.Spend, budgetAmount(r.Account.BudgetUSD)) }</p>
+				if r.Account.BudgetUSD > 0 {
+					@meterFull(spendMeter(r.Spend, r.Account.BudgetUSD, 100), fmt.Sprintf("$%.2f of $%.2f", r.Spend, r.Account.BudgetUSD))
+				}
+			}
+			@budgetLabel(r.Account.BudgetHealth, r.Account.BudgetError)
+		</div>
+		if cardActions(r.Account) {
+			<div class="loan-actions">
+				@accountActions(r.Account, "")
+			</div>
+		}
+	</li>
 }
 
 // fleetBar is the filter bar of the accounts page. It is a form, so a row
@@ -1156,37 +1283,20 @@ templ pagerButton(f fleetView, id, label string, to int, ok bool) {
 // accountTR is one row of the fleet table. A placement wait is settling, not
 // a failure, so it is a qualifier with a clock. Errors are red with an alert.
 // include names what +7d and Close send along, so the answer keeps the view:
-// the filter bar and the page on the accounts page, Show closed on home.
-templ accountTR(r accountRow, include string) {
+// the filter bar and the page on the accounts page, and nothing on home.
+// landed marks the row that the viewer just extended, so its stamp lands.
+templ accountTR(r accountRow, include string, landed bool) {
 	<tr id={ "acct-" + r.Account.ID }>
 		<td><a href={ templ.SafeURL("/accounts/" + r.Account.ID) }>{ r.Account.Name }</a></td>
 		<td><span class="owner" title={ r.Account.Owner }>{ r.Account.Owner }</span></td>
 		<td>
-			@statusLabel(r.Account)
-			if r.Account.LastError != "" && r.Account.Status == core.StatusCreating {
-				<div class="qualifier">@icon("clock")<span>{ r.Account.LastError }</span></div>
-			} else if r.Account.LastError != "" {
-				<div class="error">@icon("alert")<span>{ r.Account.LastError }</span></div>
-			}
-			if r.Account.RepairError() != nil {
-				<div class="error">@icon("alert")<span>{ r.Account.RepairError().Error() }</span></div>
-			}
+			@statusLines(r.Account)
 		</td>
 		<td><code>{ r.Account.ProviderID }</code></td>
-		// A pending request counts its expiry from now, so the exact time
-		// would change on every read and every poll would get 200, not 204.
-		<td
-			if r.Account.Status != core.StatusPending {
-				title={ expiryDate(r.Account.ExpiresAt, time.RFC3339) }
-			}
-		>
-			if r.Account.Status == core.StatusActive || r.Account.Status == core.StatusExpiring || r.Account.Status == core.StatusClosing {
-				{ expiresIn(r.Account.ExpiresAt, r.Now) }
-			} else if !r.Account.ExpiresAt.IsZero() && r.Account.Status != core.StatusFailed && r.Account.Status != core.StatusClosed {
-				<span class="muted" title="once created">{ expiresIn(r.Account.ExpiresAt, r.Now) }</span>
-			} else {
-				<span class="muted">—</span>
-			}
+		// The due cell is card stock in every row state. A pending request
+		// shows no clock, so every poll of the same queue gets 204.
+		<td class="due">
+			@dueStamp(dueFor(r.Account, r.Now), r.Account.ID, false, landed)
 		</td>
 		<td>
 			if !r.SpendKnown {
@@ -1201,26 +1311,102 @@ templ accountTR(r accountRow, include string) {
 		</td>
 		<td class="actions">
 			<div class="row-actions">
-				if r.Account.CanExtend() {
-					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/extend" } hx-target="#accounts" hx-swap="morph" hx-include={ include } hx-sync="this:drop">
-						<input type="hidden" name="by" value="7d"/>
-						<button type="submit" title="extend by 7 days" class="btn-approve">
-							@icon("stamp")
-							+7d<span class="vh">{ " " + r.Account.Name }</span>
-						</button>
-					</form>
-				}
-				if r.Account.Status.CanClose() {
-					// Close opens the close dialog first. The data attributes
-					// carry what the dialog names: the account, its AWS
-					// account ID and its owner, as the row shows them.
-					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/close" } hx-target="#accounts" hx-swap="morph" hx-include={ include } hx-sync="this:drop" data-dialog="close" data-name={ r.Account.Name } data-account={ r.Account.ProviderID } data-owner={ r.Account.Owner } data-action="close">
-						<button type="submit">Close<span class="vh">{ " " + r.Account.Name }</span></button>
-					</form>
-				}
+				@accountActions(r.Account, include)
 			</div>
 		</td>
 	</tr>
+}
+
+// statusLines are the status label of an account and the lines under it: a
+// placement wait as a qualifier with a clock, an error in red with an
+// alert, and damaged tags.
+templ statusLines(a *core.Account) {
+	@statusLabel(a)
+	if a.LastError != "" && a.Status == core.StatusCreating {
+		<div class="qualifier">@icon("clock")<span>{ a.LastError }</span></div>
+	} else if a.LastError != "" {
+		<div class="error">@icon("alert")<span>{ a.LastError }</span></div>
+	}
+	if a.RepairError() != nil {
+		<div class="error">@icon("alert")<span>{ a.RepairError().Error() }</span></div>
+	}
+}
+
+// accountActions are +7d and Close for an account, when each is allowed.
+// Each button names its account for screen readers. include names what
+// the forms send along, or nothing.
+templ accountActions(a *core.Account, include string) {
+	if a.CanExtend() {
+		<form
+			class="inline"
+			hx-post={ "/accounts/" + a.ID + "/extend" }
+			hx-target="#accounts"
+			hx-swap="morph"
+			if include != "" {
+				hx-include={ include }
+			}
+			hx-sync="this:drop"
+		>
+			<input type="hidden" name="by" value="7d"/>
+			<button type="submit" title="extend by 7 days" class="btn-approve">
+				@icon("stamp")
+				+7d<span class="vh">{ " " + a.Name }</span>
+			</button>
+		</form>
+	}
+	if a.Status.CanClose() {
+		// Close opens the close dialog first. The data attributes carry
+		// what the dialog names: the account, its AWS account ID and its
+		// owner, as the row shows them.
+		<form
+			class="inline"
+			hx-post={ "/accounts/" + a.ID + "/close" }
+			hx-target="#accounts"
+			hx-swap="morph"
+			if include != "" {
+				hx-include={ include }
+			}
+			hx-sync="this:drop"
+			data-dialog="close"
+			data-name={ a.Name }
+			data-account={ a.ProviderID }
+			data-owner={ a.Owner }
+			data-action="close"
+		>
+			<button type="submit">Close<span class="vh">{ " " + a.Name }</span></button>
+		</form>
+	}
+}
+
+// dueStamp is the due date of an account: a violet date stamp, 15 px in a
+// table and 22 px on a loan card, turned by the account ID. In the last 3
+// days and after the due date it is red ink, and a passed date says "past
+// due" under it. After an extension, the earlier date sits above it, struck
+// through. A row with no date shows a dashed box with a note, upright,
+// because it is not a stamp. A closed or failed row shows a dash. The id
+// holds the date, so a new date is a new node, and a landed stamp lands
+// again on the next extension. key is the account ID.
+templ dueStamp(d due, key string, large, landed bool) {
+	if d.dated() {
+		<span class={ "due-date", templ.KV("due-large", large) }>
+			if !d.From.IsZero() {
+				<span class="due-from">extended from <s>{ stampShort(d.From) }</s></span>
+			}
+			<time
+				id={ "stamp-" + key + "-" + strconv.FormatInt(d.At.Unix(), 10) }
+				class={ "stamp", "stamp-date", templ.KV("stamp-large", large), templ.KV("stamp-soon", d.red()), stampTurn(key), templ.KV("stamp-new", landed) }
+				datetime={ d.At.UTC().Format(time.RFC3339) }
+				title={ stampTitle(d.At) }
+			>{ stampDate(d.At) }</time>
+			if d.Kind == duePast {
+				<span class="due-past">past due</span>
+			}
+		</span>
+	} else if d.Kind == dueNone {
+		<span class="muted">{ d.Note }</span>
+	} else {
+		<span class="date-unset">{ d.Note }</span>
+	}
 }
 
 // statusLabel is the icon and the word of an account status. An overdue
@@ -1254,6 +1440,23 @@ templ budgetLabel(health, errText string) {
 templ meterLine(m meter, title string) {
 	<div class={ "meter-line", "meter-" + m.Level } title={ title }>
 		<svg class="meter" width={ strconv.Itoa(meterWidth) } height="4" viewBox={ "0 0 " + strconv.Itoa(meterWidth) + " 4" } aria-hidden="true" focusable="false"><rect class="meter-track" width={ strconv.Itoa(meterWidth) } height="4" rx="2"></rect><rect class="meter-fill" width={ strconv.Itoa(m.Fill) } height="4" rx="2"></rect></svg>
+		if m.Label != "" {
+			<span class="meter-label">
+				if m.Level == "near" || m.Level == "over" {
+					@icon("alert")
+				}
+				{ m.Label }
+			</span>
+		}
+	</div>
+}
+
+// meterFull is the full-width 6 px spend meter of a loan card. The SVG
+// fills its box, and the fill is a percent width attribute, because the
+// CSP allows no inline style. The label sits below it.
+templ meterFull(m meter, title string) {
+	<div class={ "meter-block", "meter-" + m.Level } title={ title }>
+		<svg class="meter-full" width="100%" height="6" aria-hidden="true" focusable="false"><rect class="meter-track" width="100%" height="6" rx="3"></rect><rect class="meter-fill" width={ strconv.Itoa(m.Fill) + "%" } height="6" rx="3"></rect></svg>
 		if m.Label != "" {
 			<span class="meter-label">
 				if m.Level == "near" || m.Level == "over" {

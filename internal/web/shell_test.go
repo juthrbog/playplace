@@ -25,10 +25,10 @@ func TestShellByRole(t *testing.T) {
 	}{
 		{"engineer", "anna@example.com", false, false,
 			[]string{home, `<span class="person-email">anna@example.com</span>`},
-			[]string{`href="/#pending"`, `href="/accounts"`, "Sync with AWS", `class="badge"`}},
+			[]string{`href="/#pending"`, `<a class="nav-link" href="/accounts"`, "Sync with AWS", `class="badge"`}},
 		{"approver", "lead@example.com", false, true,
 			[]string{home, `href="/#pending"`},
-			[]string{`href="/accounts"`, "Sync with AWS", `class="badge"`}},
+			[]string{`<a class="nav-link" href="/accounts"`, "Sync with AWS", `class="badge"`}},
 		{"admin", "ops@example.com", true, true,
 			[]string{`href="/#pending"`, `<a class="nav-link" href="/accounts">Accounts</a>`, "Sync with AWS", `class="badge">admin<`},
 			[]string{">Home</a>", `href="/#accounts"`}},
@@ -167,16 +167,20 @@ func TestNoticeLivesInMain(t *testing.T) {
 func TestSyncOffTheHomePageWritesOnlyTheRegion(t *testing.T) {
 	ts, _ := newServer(t)
 	syncForm := regexp.MustCompile(`<form class="sync"[^>]*>`)
-	// Sync sends the view along, so its answer keeps it: Show closed on
-	// home, and the filter bar and the page on the accounts page.
+	// Sync sends the view along, so its answer keeps it: the filter bar and
+	// the page on the accounts page. The home page has no view, so its Sync
+	// includes nothing.
 	for _, c := range []struct{ path, include string }{
-		{"/", `hx-include="#show-closed"`},
+		{"/", `hx-sync="this:drop"`},
 		{"/accounts", `hx-include="#fleet-view, #fleet-page"`},
 		{"/accounts?all=1", `hx-include="#fleet-view, #fleet-page"`},
 	} {
 		_, page := do(t, ts, "GET", c.path, "ops@example.com", true, nil, false)
 		if tag := syncForm.FindString(page); !strings.Contains(tag, `hx-target="#accounts"`) || !strings.Contains(tag, `hx-swap="morph"`) || !strings.Contains(tag, c.include) {
 			t.Errorf("%s: Sync does not morph the accounts section with %s: %s", c.path, c.include, tag)
+		}
+		if tag := syncForm.FindString(page); c.path == "/" && strings.Contains(tag, "hx-include") {
+			t.Errorf("/: Sync on home includes a view: %s", tag)
 		}
 	}
 	for _, path := range []string{"/accounts/111111111111", "/nope"} {
