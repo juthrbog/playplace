@@ -9,12 +9,15 @@ import (
 	"playplace/internal/core"
 )
 
-// pollURL is the address that the accounts section polls. On the accounts
-// page it is the canonical address of the fleet view. The home page has no
-// view of its own.
+// pollURL is the address that the poller of the page polls. On the
+// accounts page it is the canonical address of the fleet view. An account
+// page polls its own address. The home page has no view of its own.
 func pollURL(pg page) string {
-	if pg.onAccounts() {
+	switch {
+	case pg.onAccounts():
 		return fleetURL(pg.Fleet)
+	case pg.onAccount():
+		return pg.Asker
 	}
 	return pathAccounts
 }
@@ -266,14 +269,72 @@ func fleetInclude(pg page) string {
 	return ""
 }
 
-// spendView is the 30-day spend of the account page. Known is false when
-// the pull from AWS failed: the page then says that spend is unavailable,
-// never $0.00. An account that AWS has not created has no spend to pull, so
-// its spend is known and zero.
+// spendView is the daily spend of the last 30 days on the account page.
+// Known is false when the pull from AWS failed: the page then says that
+// spend is unavailable, never $0.00. An account that AWS has not created
+// has no spend to pull, so its spend is known and zero.
 type spendView struct {
 	Known bool
 	Days  []core.CostPoint // oldest first
-	Total float64
+}
+
+// accountView is what the account section of the account page shows, and
+// what its refresh and its poll hash cover. Row holds the account and its
+// spend this month, as on a loan card.
+type accountView struct {
+	Row accountRow
+	// MaxTTL is the lifetime ceiling of the deployment. Latest is the latest
+	// due date that it allows, from core.LatestExpiry. HasLatest is false
+	// when there is no ceiling or the creation time is unknown.
+	MaxTTL    time.Duration
+	Latest    time.Time
+	HasLatest bool
+}
+
+// spendLine is the spend of an account this month against its monthly
+// budget, such as "$22.50 of $50.00 a month".
+func spendLine(spend, budget float64) string {
+	return fmt.Sprintf("$%.2f of %s a month", spend, budgetAmount(budget))
+}
+
+// leftThisMonth is what is left of the monthly budget, such as "$27.50 left
+// this month", or how far spend is over it. It is empty with no budget.
+func leftThisMonth(spend, budget float64) string {
+	if budget <= 0 {
+		return ""
+	}
+	if spend > budget {
+		return fmt.Sprintf("$%.2f over the budget this month", spend-budget)
+	}
+	return fmt.Sprintf("$%.2f left this month", budget-spend)
+}
+
+// lifetime is how long the account lives, from its creation to its due
+// date, such as "3 days". A span of a day or more is in whole days, rounded
+// up, because the creation time and the due date seldom differ by whole
+// days. A shorter span is in hours. It is empty when either time is
+// unknown.
+func lifetime(a *core.Account) string {
+	if a.CreatedAt.IsZero() || a.ExpiresAt.IsZero() || a.ExpiresAt.Before(a.CreatedAt) {
+		return ""
+	}
+	d := a.ExpiresAt.Sub(a.CreatedAt)
+	if d < 24*time.Hour {
+		return core.Lifetime(d)
+	}
+	if days := int(math.Ceil(d.Hours() / 24)); days > 1 {
+		return fmt.Sprintf("%d days", days)
+	}
+	return "1 day"
+}
+
+// lifetimeLimit names the lifetime ceiling, such as "the limit is 90
+// days". It is empty when the account has no fixed latest due date.
+func lifetimeLimit(v accountView) string {
+	if !v.HasLatest || v.MaxTTL <= 0 {
+		return ""
+	}
+	return "the limit is " + core.Lifetime(v.MaxTTL)
 }
 
 // spendUnavailable is the text of the daily spend panel when the pull from

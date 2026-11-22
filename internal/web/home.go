@@ -166,7 +166,7 @@ func limitLine(pg page) string {
 // hasLedger reports whether the answer carries the Needs attention ledger:
 // only the home page of an admin has it.
 func hasLedger(pg page) bool {
-	return pg.Viewer.Admin && !pg.onAccounts()
+	return pg.Viewer.Admin && !pg.onAccounts() && !pg.onAccount()
 }
 
 // allAccounts is the link under the fleet of the admin home, such as "All

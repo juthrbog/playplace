@@ -147,15 +147,19 @@ func TestForbiddenNamesTheRule(t *testing.T) {
 		{"edit save by an approver", "POST", "/requests/bobs-req/edit", "lead@example.com", true, version, adminsEditOnly, home403, "pending-error"},
 		{"row by a stranger", "GET", "/requests/bobs-req/row", "sam@example.com", false, nil, notYourRequest, "Go back to Home to see your own requests.", "pending-error"},
 		{"withdraw by a stranger", "POST", "/requests/bobs-req/withdraw", "sam@example.com", false, version, cannotWithdraw, home403, "pending-error"},
-		{"another's account", "GET", "/accounts/222222222222", "anna@example.com", false, nil, notYourAccount, "Go back to Home to see your own accounts.", "form-error"},
+		// The refresh of an account page answers with a plain notice, not
+		// a refusal, so only the page visit is checked here.
+		{"another's account", "GET", "/accounts/222222222222", "anna@example.com", false, nil, notYourAccount, "Go back to Home to see your own accounts.", ""},
 		{"sync by an engineer", "POST", "/refresh", "anna@example.com", false, url.Values{}, "only admins can sync with AWS", home403, "form-error"},
 		{"budget by an engineer", "POST", "/accounts/111111111111/budget", "anna@example.com", false, url.Values{"budget": {"60"}, "reason": {"more"}}, "only admins can change existing account budgets", home403, "form-error"},
 	} {
-		res, body := doAs(t, ts, c.method, c.path, c.user, false, c.approver, c.form, true)
-		if res.StatusCode != http.StatusForbidden || !strings.Contains(body, `<div id="`+c.slot+`" hx-swap-oob="innerHTML">`+alertIcon+`<span>`+c.why+`</span></div>`) {
-			t.Fatalf("%s (htmx) = %d, want 403 with %q in %s:\n%s", c.name, res.StatusCode, c.why, c.slot, body)
+		if c.slot != "" {
+			res, body := doAs(t, ts, c.method, c.path, c.user, false, c.approver, c.form, true)
+			if res.StatusCode != http.StatusForbidden || !strings.Contains(body, `<div id="`+c.slot+`" hx-swap-oob="innerHTML">`+alertIcon+`<span>`+c.why+`</span></div>`) {
+				t.Fatalf("%s (htmx) = %d, want 403 with %q in %s:\n%s", c.name, res.StatusCode, c.why, c.slot, body)
+			}
 		}
-		res, body = doAs(t, ts, c.method, c.path, c.user, false, c.approver, c.form, false)
+		res, body := doAs(t, ts, c.method, c.path, c.user, false, c.approver, c.form, false)
 		if res.StatusCode != http.StatusForbidden || !strings.Contains(body, note(sentence(c.why), c.recovery)) {
 			t.Fatalf("%s = %d, want the 403 page with %q and %q:\n%s", c.name, res.StatusCode, sentence(c.why), c.recovery, body)
 		}

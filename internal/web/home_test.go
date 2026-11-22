@@ -435,13 +435,14 @@ func TestLedgerRidesTheHomeAnswers(t *testing.T) {
 
 // A refused +7d or Close on the home page fills the slot above the
 // accounts, because the New request form sits below them. On the accounts
-// page it fills the slot under the heading.
+// page it fills the slot under the heading, and on an account page the slot
+// of the account.
 func TestAccountRefusalsOnHomeFillTheSlotAboveTheAccounts(t *testing.T) {
 	ts, _ := newServer(t)
 	for _, c := range []struct{ from, slot string }{
 		{"/", "account-error"},
 		{"/accounts", "form-error"},
-		{"/accounts/111111111111", "form-error"},
+		{"/accounts/111111111111", "account-error"},
 	} {
 		_, body := fromPage(t, ts, "POST", "/accounts/111111111111/extend", c.from, "anna@example.com", false, false, url.Values{"by": {"100d"}}, "")
 		if !strings.Contains(body, `<div id="`+c.slot+`" hx-swap-oob="innerHTML">`) {

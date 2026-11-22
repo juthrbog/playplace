@@ -122,7 +122,7 @@ func TestExpiresInUsesTheGivenClock(t *testing.T) {
 func TestAccountPageTimeLeftUsesThePageClock(t *testing.T) {
 	a := &core.Account{ID: "x", Name: "x", ProviderID: "111111111111", Status: core.StatusActive, CreatedAt: t0, ExpiresAt: t0.Add(48 * time.Hour)}
 	var buf bytes.Buffer
-	if err := accountPage(page{Now: t0}, a, spendView{Known: true}, historyView{}).Render(context.Background(), &buf); err != nil {
+	if err := accountPage(page{Now: t0}, viewFor(a), spendView{Known: true}, historyView{}, "").Render(context.Background(), &buf); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), `<span class="muted">(in 2d)</span>`) {

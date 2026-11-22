@@ -1154,43 +1154,70 @@ templ loanCards(pg page, rows []accountRow) {
 	}
 }
 
-// loanCard is one account of the viewer on card stock: the name, the AWS
-// account ID, the status, the large due stamp, the spend on a full-width
-// meter, and +7d and Close when they are allowed. It keeps the id of the
-// fleet row, so a morph pairs it.
+// loanCard is one account of the viewer on card stock in the list of the
+// home page. It keeps the id of the fleet row, so a morph pairs it.
 templ loanCard(r accountRow, landed bool) {
 	<li id={ "acct-" + r.Account.ID } class="loan">
-		<div class="loan-head">
+		@loanBody(r, landed, false)
+	</li>
+}
+
+// loanBody is the inside of a loan card: the name, the AWS account ID, the
+// status, the large due stamp, the spend on a full-width meter, and +7d and
+// Close when they are allowed. On a loan card of the home page the name is
+// an h3 that links to the account page, the budget label follows the meter,
+// and the actions answer the accounts section. On the account page (onPage)
+// the name is the page heading, which takes the focus after Close, the
+// spend says what is left this month, and the actions answer the account
+// section. The budget protection is then one of the facts.
+templ loanBody(r accountRow, landed, onPage bool) {
+	<div class="loan-head">
+		if onPage {
+			<h1 id="account-title" class="account-name" tabindex="-1">{ r.Account.Name }</h1>
+		} else {
 			<h3 class="loan-name"><a href={ templ.SafeURL("/accounts/" + r.Account.ID) }>{ r.Account.Name }</a></h3>
-			if r.Account.ProviderID != "" {
-				<code class="loan-id">{ r.Account.ProviderID }</code>
-			} else {
-				<span class="loan-id muted">{ notCreated(r.Account) }</span>
+		}
+		if r.Account.ProviderID != "" {
+			<code class="loan-id">{ r.Account.ProviderID }</code>
+		} else {
+			<span class="loan-id muted">{ notCreated(r.Account) }</span>
+		}
+	</div>
+	<div class="loan-status">
+		@statusLines(r.Account)
+	</div>
+	<div class="loan-due">
+		@dueStamp(dueFor(r.Account, r.Now), r.Account.ID, true, landed)
+	</div>
+	<div class="loan-spend">
+		if !r.SpendKnown {
+			<p class="spend"><span class="muted">unavailable</span>{ " of " + budgetAmount(r.Account.BudgetUSD) + " a month" }</p>
+		} else {
+			<p class="spend">{ spendLine(r.Spend, r.Account.BudgetUSD) }</p>
+			if r.Account.BudgetUSD > 0 {
+				@meterFull(spendMeter(r.Spend, r.Account.BudgetUSD, 100), fmt.Sprintf("$%.2f of $%.2f", r.Spend, r.Account.BudgetUSD))
 			}
-		</div>
-		<div class="loan-status">
-			@statusLines(r.Account)
-		</div>
-		<div class="loan-due">
-			@dueStamp(dueFor(r.Account, r.Now), r.Account.ID, true, landed)
-		</div>
-		<div class="loan-spend">
-			if !r.SpendKnown {
-				<p class="spend"><span class="muted">unavailable</span>{ " of " + budgetAmount(r.Account.BudgetUSD) + " a month" }</p>
-			} else {
-				<p class="spend">{ fmt.Sprintf("$%.2f of %s a month", r.Spend, budgetAmount(r.Account.BudgetUSD)) }</p>
-				if r.Account.BudgetUSD > 0 {
-					@meterFull(spendMeter(r.Spend, r.Account.BudgetUSD, 100), fmt.Sprintf("$%.2f of $%.2f", r.Spend, r.Account.BudgetUSD))
+			if onPage {
+				if left := leftThisMonth(r.Spend, r.Account.BudgetUSD); left != "" {
+					<p class="spend-left">{ left }</p>
 				}
 			}
-			@budgetLabel(r.Account.BudgetHealth, r.Account.BudgetError)
-		</div>
-		if cardActions(r.Account) {
-			<div class="loan-actions">
-				@accountActions(r.Account, "")
-			</div>
 		}
-	</li>
+		if onPage {
+			<p class="help">Cost data lags about a day.</p>
+		} else {
+			@budgetLabel(r.Account.BudgetHealth, r.Account.BudgetError)
+		}
+	</div>
+	if cardActions(r.Account) {
+		<div class="loan-actions">
+			if onPage {
+				@accountActions(r.Account, "", "#account")
+			} else {
+				@accountActions(r.Account, "", "#accounts")
+			}
+		</div>
+	}
 }
 
 // fleetBar is the filter bar of the accounts page. It is a form, so a row
@@ -1358,7 +1385,7 @@ templ accountTR(r accountRow, include string, landed bool) {
 		</td>
 		<td class="actions">
 			<div class="row-actions">
-				@accountActions(r.Account, include)
+				@accountActions(r.Account, include, "#accounts")
 			</div>
 		</td>
 	</tr>
@@ -1384,13 +1411,15 @@ templ statusLines(a *core.Account) {
 
 // accountActions are +7d and Close for an account, when each is allowed.
 // Each button names its account for screen readers. include names what
-// the forms send along, or nothing.
-templ accountActions(a *core.Account, include string) {
+// the forms send along, or nothing. target is the section that the answer
+// morphs: the accounts section on the home page and the accounts page, or
+// the account section on the account page.
+templ accountActions(a *core.Account, include, target string) {
 	if a.CanExtend() {
 		<form
 			class="inline"
 			hx-post={ "/accounts/" + a.ID + "/extend" }
-			hx-target="#accounts"
+			hx-target={ target }
 			hx-swap="morph"
 			if include != "" {
 				hx-include={ include }
@@ -1411,7 +1440,7 @@ templ accountActions(a *core.Account, include string) {
 		<form
 			class="inline"
 			hx-post={ "/accounts/" + a.ID + "/close" }
-			hx-target="#accounts"
+			hx-target={ target }
 			hx-swap="morph"
 			if include != "" {
 				hx-include={ include }
@@ -1518,173 +1547,246 @@ templ meterFull(m meter, title string) {
 	</div>
 }
 
-templ accountPage(pg page, a *core.Account, spend spendView, history historyView) {
-	@layout(pg, a.Name) {
-		<section class="panel" aria-labelledby="account-title">
-			<div class="panel-head">
-				<h1 id="account-title">{ a.Name }</h1>
-				// One wrapper keeps the label and its qualifier together, so
-				// they wrap as one unit beside or below the name.
-				<span class="head-status">@statusLabel(a)</span>
-			</div>
-			<div class="panel-body">
-				<dl class="facts">
-					<dt>owner</dt><dd>{ a.Owner }</dd>
-					<dt>account id</dt>
-					<dd>
-						if a.ProviderID == "" {
-							<span class="muted">{ notCreated(a) }</span>
-						} else {
-							<code>{ a.ProviderID }</code>
-						}
-					</dd>
-					if a.RequestID != "" {
-						// Courier Prime is only for account IDs and request versions,
-						// so the creation request id is plain text.
-						<dt>request id</dt><dd>{ a.RequestID }</dd>
-					}
-					<dt>root email</dt>
-					<dd>
-						if a.Email == "" {
-							<span class="muted">{ notCreated(a) }</span>
-						} else {
-							{ a.Email }
-						}
-					</dd>
-					<dt>budget</dt><dd>{ budgetAmount(a.BudgetUSD) } / month</dd>
-					<dt>budget protection</dt>
-					<dd>
-						@budgetLabel(a.BudgetHealth, a.BudgetError)
-						if a.BudgetChecked != "" {
-							<span class="muted">(in this state since { observedAt(a.BudgetChecked) })</span>
-						}
-					</dd>
-					if a.BudgetError != "" {
-						<dt>budget error</dt><dd class="error">@icon("alert")<span>{ storedFailure(a.BudgetError) }</span></dd>
-					}
-					<dt>spend, 30 days</dt>
-					if spend.Known {
-						<dd>{ fmt.Sprintf("$%.2f", spend.Total) }</dd>
+// accountPage is the page of one account. The account section refreshes
+// every 15 s. The slot of the account above it holds a refused action, and
+// it sits outside the section, so a refresh never clears a refusal. The
+// budget change, the history and the daily spend stay outside the refresh.
+// The close dialog renders once, outside the section, so no refresh
+// touches it.
+templ accountPage(pg page, v accountView, spend spendView, history historyView, hash string) {
+	@layout(pg, v.Row.Account.Name) {
+		<div id="account-error" class="refusal"></div>
+		@accountSection(pg, v, hash)
+		@accountExtras(pg, v.Row.Account, spend, history)
+		@closeDialog()
+	}
+}
+
+// accountAnswer answers the refresh of an account page and every action
+// from it: the account section, with no ledger and no queue. An account
+// that is gone, or that the viewer may no longer see, gets a plain notice
+// that shows nothing of it. Rendered with no hash, it is also what the poll
+// hash covers.
+templ accountAnswer(pg page, v *accountView, hash string) {
+	if v == nil {
+		@accountGone()
+	} else {
+		@accountSection(pg, *v, hash)
+	}
+}
+
+// accountGone takes the place of the account section when the account is
+// gone or the viewer may no longer see it. It does not poll.
+templ accountGone() {
+	<section id="account" class="panel" aria-labelledby="account-title">
+		<div class="panel-head"><h1 id="account-title" tabindex="-1">Account unavailable</h1></div>
+		<div class="panel-body"><p class="empty">This account is gone, or you can no longer see it. <a href="/">Go to Home</a></p></div>
+	</section>
+}
+
+// accountStale takes the place of the account section when the account did
+// not load, such as when the call to AWS failed. It keeps polling, and the
+// next good poll replaces it. msg is the refusal text of the error. The
+// poll hash leaves it out, so the same outage answers 204. data-stale tells
+// app.js that the section shows no fresh data, so the Updated time does
+// not reset. The note has an id, so a morph never pairs it with the card
+// that replaces it.
+templ accountStale(pg page, msg, hash string) {
+	<section
+		id="account"
+		class="account"
+		aria-labelledby="account-title"
+		hx-get={ pollURL(pg) }
+		hx-trigger="every 15s, poll-now"
+		hx-swap="morph"
+		data-poll
+		if hash != "" {
+			data-poll-hash={ hash }
+		}
+	>
+		<div id="account-stale" class="refusal" data-stale>@icon("alert")<div class="note-text"><p class="note-title" id="account-title">The account is unavailable right now.</p><p class="note-body">{ msg + " " }<span class="retry-live">The page tries again every 15 seconds.</span><span class="retry-paused">Live updates are paused. Resume them to try again.</span></p></div></div>
+	</section>
+}
+
+// accountSection is the loan card of the account and its facts. It is the
+// poller of the page: data-poll marks it for app.js, and poll-now makes it
+// poll at once. hash is the poll hash of this answer. accountHash renders
+// the section with no hash, so the hash never covers itself. The card is
+// a div, not a list item, so the j and k keys and the frame of a focused
+// loan card on the home page leave it alone.
+templ accountSection(pg page, v accountView, hash string) {
+	<section
+		id="account"
+		class="account"
+		aria-labelledby="account-title"
+		hx-get={ pollURL(pg) }
+		hx-trigger="every 15s, poll-now"
+		hx-swap="morph"
+		data-poll
+		if hash != "" {
+			data-poll-hash={ hash }
+		}
+	>
+		<div class="loan loan-page">
+			@loanBody(v.Row, pg.Landed == v.Row.Account.ID, true)
+		</div>
+		@accountFacts(pg, v)
+	</section>
+}
+
+// accountFacts are the facts of the account in plain words. The Copy ID
+// button needs script, so the stylesheet shows it only under html.js, and
+// the ID stays text that the viewer can select. The creation request ID is
+// for support, so it sits in a small line under the facts.
+templ accountFacts(pg page, v accountView) {
+	{{ a := v.Row.Account }}
+	<section class="panel" aria-labelledby="facts-title">
+		<div class="panel-head"><h2 id="facts-title">Details</h2></div>
+		<div class="panel-body">
+			<dl class="facts">
+				<dt>Owner</dt><dd>{ a.Owner }</dd>
+				<dt>Account ID</dt>
+				<dd>
+					if a.ProviderID == "" {
+						<span class="muted">{ notCreated(a) }</span>
 					} else {
-						<dd><span class="muted">unavailable</span></dd>
+						<code>{ a.ProviderID }</code>
+						<button type="button" class="copy-id" data-copy={ a.ProviderID }>Copy ID</button>
 					}
-					// Every time on this page is in UTC, the same as the history
-					// table. A stored time keeps the zone it was read in.
-					<dt>created</dt><dd>{ a.CreatedAt.UTC().Format("2006-01-02 15:04 MST") }</dd>
-					if a.ProviderID != "" {
-						<dt>expires</dt><dd>{ expiryDate(a.ExpiresAt, "2006-01-02 15:04 MST") }
-							if !a.ExpiresAt.IsZero() {
-								<span class="muted">({ expiresIn(a.ExpiresAt, pg.Now) })</span>
+				</dd>
+				<dt>Purpose</dt>@factOr(a.Purpose)
+				<dt>Requested by</dt>@factOr(a.RequestedBy)
+				<dt>Approved by</dt>@factOr(a.ApprovedBy)
+				// Every time on this page is in UTC, the same as the history
+				// table. A stored time keeps the zone it was read in.
+				<dt>Created</dt><dd>{ a.CreatedAt.UTC().Format("2006-01-02 15:04 MST") }</dd>
+				if a.ProviderID != "" {
+					<dt>Due</dt><dd>{ expiryDate(a.ExpiresAt, "2006-01-02 15:04 MST") }
+						if !a.ExpiresAt.IsZero() {
+							<span class="muted">({ expiresIn(a.ExpiresAt, pg.Now) })</span>
+						}
+					</dd>
+					if lifetime(a) != "" {
+						<dt>Lifetime</dt>
+						<dd>
+							{ lifetime(a) }
+							if lifetimeLimit(v) != "" {
+								<span class="muted">({ lifetimeLimit(v) })</span>
 							}
 						</dd>
 					}
-					if a.WarnedAt != nil {
-						<dt>expiring notice sent</dt><dd>{ a.WarnedAt.UTC().Format("2006-01-02 15:04 MST") }</dd>
+				}
+				<dt>Monthly budget</dt><dd>{ budgetAmount(a.BudgetUSD) }</dd>
+				<dt>Budget protection</dt>
+				<dd>
+					@budgetLabel(a.BudgetHealth, a.BudgetError)
+					if a.BudgetChecked != "" {
+						<span class="muted">(in this state since { observedAt(a.BudgetChecked) })</span>
 					}
-					if a.CloseRequestedAt != nil {
-						<dt>close requested</dt><dd>{ a.CloseRequestedAt.UTC().Format("2006-01-02 15:04 MST") }</dd>
+				</dd>
+				if a.BudgetError != "" {
+					<dt>Budget error</dt><dd class="error">@icon("alert")<span>{ storedFailure(a.BudgetError) }</span></dd>
+				}
+				<dt>Root email</dt>
+				<dd>
+					if a.Email == "" {
+						<span class="muted">{ notCreated(a) }</span>
+					} else {
+						{ a.Email }
 					}
-					if p, ok := accountProblem(a); ok {
-						if p.Wait {
-							// A creation that waits in the root for placement: a qualifier, not a failure.
-							<dt>placement</dt><dd class="qualifier">@icon("clock")<span>{ p.Text }</span></dd>
-						} else {
-							<dt>failure</dt><dd class="error">@icon("alert")<span>{ p.Text }</span></dd>
-						}
-					}
-					if a.RepairError() != nil {
-						<dt>repair required</dt><dd class="error">@icon("alert")<span>{ a.RepairError().Error() }</span></dd>
-					}
-					if !a.Managed {
-						<dt>note</dt><dd class="muted">not yet tagged by playplace; the next sync adopts it</dd>
-					}
-				</dl>
+				</dd>
+				if a.WarnedAt != nil {
+					<dt>Expiring notice sent</dt><dd>{ a.WarnedAt.UTC().Format("2006-01-02 15:04 MST") }</dd>
+				}
+				if a.CloseRequestedAt != nil {
+					<dt>Close requested</dt><dd>{ a.CloseRequestedAt.UTC().Format("2006-01-02 15:04 MST") }</dd>
+				}
+				if !a.Managed {
+					<dt>Note</dt><dd class="muted">not yet tagged by playplace; the next sync adopts it</dd>
+				}
+			</dl>
+			if a.RequestID != "" {
+				// Courier Prime is only for account IDs and request versions,
+				// so the creation request ID is plain text.
+				<p class="help">Creation request ID: { a.RequestID }</p>
+			}
+		</div>
+	</section>
+}
+
+// factOr is the value of a fact, or "not recorded" in pencil grey when the
+// account has none, such as an account from before playplace kept it.
+templ factOr(value string) {
+	if value == "" {
+		<dd><span class="muted">not recorded</span></dd>
+	} else {
+		<dd>{ value }</dd>
+	}
+}
+
+// accountExtras are the parts of the account page outside the refresh, in
+// this order under the facts: the budget change of an admin, the history
+// and the daily spend. The budget form sits outside the refresh, so a
+// refresh never touches a value that the admin typed.
+templ accountExtras(pg page, a *core.Account, spend spendView, history historyView) {
+	if pg.Viewer.Admin && a.Managed && a.Status.CanExtend() && a.RepairError() == nil {
+		<section class="panel" aria-labelledby="budget-title">
+			<div class="panel-head"><h2 id="budget-title">Change monthly budget</h2></div>
+			<div class="panel-body">
+				<p class="lede">An increase above reported spend can lift the provisioning restriction and rearm enforcement. AWS billing and policy changes are delayed. Existing resources keep charging.</p>
+				<form hx-post={ "/accounts/" + a.ID + "/budget" } hx-sync="this:drop">
+					<div class="form-row">
+						<label class="field">USD per month<input name="budget" type="number" min="0.01" step="0.01" value={ fmt.Sprintf("%.2f", a.BudgetUSD) } required class="in-budget"/></label>
+						<label class="field">reason<input name="reason" maxlength="500" required/></label>
+						<label class="check"><input type="checkbox" name="override"/>override budget ceiling</label>
+						<button type="submit" class="btn-primary">@busyWord("Save budget", "Saving")</button>
+					</div>
+				</form>
+				<div id="form-error" class="refusal"></div>
 			</div>
 		</section>
-		if pg.Viewer.Admin && a.Managed && a.Status.CanExtend() && a.RepairError() == nil {
-			<section class="panel" aria-labelledby="budget-title">
-				<div class="panel-head"><h2 id="budget-title">Change monthly budget</h2></div>
-				<div class="panel-body">
-					<p class="lede">An increase above reported spend can lift the provisioning restriction and rearm enforcement. AWS billing and policy changes are delayed. Existing resources keep charging.</p>
-					<form hx-post={ "/accounts/" + a.ID + "/budget" } hx-sync="this:drop">
-						<div class="form-row">
-							<label class="field">USD per month<input name="budget" type="number" min="0.01" step="0.01" value={ fmt.Sprintf("%.2f", a.BudgetUSD) } required class="in-budget"/></label>
-							<label class="field">reason<input name="reason" maxlength="500" required/></label>
-							<label class="check"><input type="checkbox" name="override"/>override budget ceiling</label>
-							<button type="submit" class="btn-primary">@busyWord("Save budget", "Saving")</button>
-						</div>
-					</form>
-					<div id="form-error" class="refusal"></div>
-				</div>
-			</section>
-		}
-		if history.Enabled {
-			<section class="panel" aria-labelledby="history-title">
-				<div class="panel-head">
-					<h2 id="history-title">History</h2>
-					if history.OrderURL != "" {
-						<a class="link" href={ templ.SafeURL(history.OrderURL) }>
-							if history.OldestFirst {
-								Show newest first
-							} else {
-								Show oldest first
-							}
-						</a>
-					}
-				</div>
-				if history.Notice != "" {
-					<p class="empty">{ history.Notice }</p>
+	}
+	if history.Enabled {
+		<section class="panel" aria-labelledby="history-title">
+			<div class="panel-head">
+				<h2 id="history-title">History</h2>
+				if history.OrderURL != "" {
+					<a class="link" href={ templ.SafeURL(history.OrderURL) }>
+						if history.OldestFirst {
+							Show newest first
+						} else {
+							Show oldest first
+						}
+					</a>
 				}
-				if history.Error != "" {
-					<div class="panel-body"><p class="error page-error">@icon("alert")<span>{ history.Error }</span></p></div>
-				} else if len(history.Page.Events) == 0 && !history.Page.Incomplete {
-					<p class="empty">Nothing recorded yet for this journey.</p>
-				} else if len(history.Page.Events) > 0 {
-					<div class="scroll">
-						<table class="history">
-							<thead><tr><th scope="col">When</th><th scope="col">Event</th><th scope="col">By</th><th scope="col">What happened</th></tr></thead>
-							<tbody>
-								for _, e := range history.Page.Events {
-									<tr>
-										<td title={ e.At.UTC().Format(time.RFC3339Nano) }>{ e.At.UTC().Format("2006-01-02 15:04:05 MST") }</td>
-										<td><span class="event">{ e.Event }</span></td>
-										<td>{ e.Actor }
-											if e.Via != "" {
-												<span class="muted">via { e.Via }</span>
-											}
-										</td>
-										<td class="wrap">{ e.Message }
-											if len(e.Details) > 0 {
-												<details><summary>Details</summary><pre>{ historyDetails(e) }</pre></details>
-											}
-										</td>
-									</tr>
-								}
-							</tbody>
-						</table>
-					</div>
-				}
-			</section>
-		}
-		if history.Enabled && history.Page.Incomplete {
-			<p class="banner-incomplete">@icon("alert")<span>History is incomplete: some stored records could not be read.</span></p>
-		}
-		if history.NextURL != "" {
-			<p><a class="link" href={ templ.SafeURL(history.NextURL) }>Next history page</a></p>
-		}
-		<section class="panel panel-fit" aria-labelledby="spend-title">
-			<div class="panel-head"><h2 id="spend-title">Daily spend</h2></div>
-			if !spend.Known {
-				<p class="empty">{ spendUnavailable }</p>
-			} else if len(spend.Days) == 0 {
-				<p class="empty">No cost data yet.</p>
-			} else {
+			</div>
+			if history.Notice != "" {
+				<p class="empty">{ history.Notice }</p>
+			}
+			if history.Error != "" {
+				<div class="panel-body"><p class="error page-error">@icon("alert")<span>{ history.Error }</span></p></div>
+			} else if len(history.Page.Events) == 0 && !history.Page.Incomplete {
+				<p class="empty">Nothing recorded yet for this journey.</p>
+			} else if len(history.Page.Events) > 0 {
 				<div class="scroll">
-					<table class="daily">
-						<thead><tr><th scope="col">Date</th><th scope="col" class="num">USD</th></tr></thead>
+					<table class="history">
+						<thead><tr><th scope="col">When</th><th scope="col">Event</th><th scope="col">By</th><th scope="col">What happened</th></tr></thead>
 						<tbody>
-							for i := len(spend.Days) - 1; i >= 0; i-- {
-								<tr><td>{ spend.Days[i].Date.Format("2006-01-02") }</td><td class="num">{ fmt.Sprintf("%.2f", spend.Days[i].AmountUSD) }</td></tr>
+							for _, e := range history.Page.Events {
+								<tr>
+									<td title={ e.At.UTC().Format(time.RFC3339Nano) }>{ e.At.UTC().Format("2006-01-02 15:04:05 MST") }</td>
+									<td><span class="event">{ e.Event }</span></td>
+									<td>{ e.Actor }
+										if e.Via != "" {
+											<span class="muted">via { e.Via }</span>
+										}
+									</td>
+									<td class="wrap">{ e.Message }
+										if len(e.Details) > 0 {
+											<details><summary>Details</summary><pre>{ historyDetails(e) }</pre></details>
+										}
+									</td>
+								</tr>
 							}
 						</tbody>
 					</table>
@@ -1692,6 +1794,31 @@ templ accountPage(pg page, a *core.Account, spend spendView, history historyView
 			}
 		</section>
 	}
+	if history.Enabled && history.Page.Incomplete {
+		<p class="banner-incomplete">@icon("alert")<span>History is incomplete: some stored records could not be read.</span></p>
+	}
+	if history.NextURL != "" {
+		<p><a class="link" href={ templ.SafeURL(history.NextURL) }>Next history page</a></p>
+	}
+	<section class="panel panel-fit" aria-labelledby="spend-title">
+		<div class="panel-head"><h2 id="spend-title">Daily spend</h2></div>
+		if !spend.Known {
+			<p class="empty">{ spendUnavailable }</p>
+		} else if len(spend.Days) == 0 {
+			<p class="empty">No cost data yet.</p>
+		} else {
+			<div class="scroll">
+				<table class="daily">
+					<thead><tr><th scope="col">Date</th><th scope="col" class="num">USD</th></tr></thead>
+					<tbody>
+						for i := len(spend.Days) - 1; i >= 0; i-- {
+							<tr><td>{ spend.Days[i].Date.Format("2006-01-02") }</td><td class="num">{ fmt.Sprintf("%.2f", spend.Days[i].AmountUSD) }</td></tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	</section>
 }
 
 // errorPage is a styled 400, 403 or 404 page: the title and the status

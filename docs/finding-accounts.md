@@ -94,6 +94,16 @@ A new search, filter or sort starts again at page 1. **+7d**, **Close** and
 gets shorter, for example after a Close, and your page is past the end, you
 see the last page.
 
+## Open an account
+
+Press the name of an account in the table to open its account page. With
+the keys on, `j` or `k` moves to a row, and Enter opens its account. On the
+account page, the loan card of the account comes first, then its details.
+To copy the AWS account ID, press **Copy ID** next to the ID in the
+details. The page then says "Copied" and the ID. If the browser cannot
+copy, select the ID and copy it yourself. See
+[The account page](requesting.md#the-account-page).
+
 ## Share or keep a view
 
 The address in the browser follows the search, the filters, the sort and the
@@ -118,8 +128,8 @@ expiry says "unknown", and a closed or failed account shows a dash.
 ## A line under the status
 
 When something is wrong with an account, a red line with an alert icon
-shows under its status. The account page shows the same line under
-**failure**. Some examples:
+shows under its status. The loan card on the account page shows the same
+line under the status. Some examples:
 
 - A failed account: "AWS could not create the account. Another AWS account
   already uses the root email of this name. Request the account again with
@@ -136,8 +146,8 @@ shows under its status. The account page shows the same line under
 
 An account that AWS created, but that is not in the playground OU yet, shows
 a grey line with a clock, such as "Waiting for AWS to place the account
-since 2026-11-19 20:01 UTC." This is not a failure. On the account page it
-shows under **placement**.
+since 2026-11-19 20:01 UTC." This is not a failure. The account page shows
+it under the status too.
 
 Times in these lines are in UTC. The lines never show the raw text from
 AWS. If playplace has no words for a problem, the line says "Something went

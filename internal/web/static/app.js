@@ -334,7 +334,7 @@ function openKeys() {
   asking = null;
   var active = document.activeElement;
   var row = active && active.closest ? active.closest(slipRows + ", " + fleetRows + ", " + ledgerRows) : null;
-  keysFrom = { el: active, row: row && row.id ? row.id : null, rows: null };
+  keysFrom = { el: active, row: row && row.id ? row.id : null, rows: null, account: inAccount(active) };
   if (row) {
     keysFrom.rows = row.matches(slipRows) ? slipRows : row.matches(ledgerRows) ? ledgerRows : fleetRows;
   }
@@ -352,12 +352,20 @@ function openKeys() {
 // the browser gave the focus back. When a poll took the control away
 // while the list was open, the focus goes to the same control in its own
 // slip or row, as after the other dialogs. Else it goes to the name of
-// the first slip that waits, or to the heading of the section. A slip
-// that left gets a message in the region.
+// the first slip that waits, or to the heading of the section. On the
+// account page it goes to the page heading. A slip that left gets a
+// message in the region.
 function keysClosed() {
   var from = keysFrom;
   keysFrom = null;
-  if (!from || !from.el || !from.rows || document.body.contains(from.el)) {
+  if (!from || !from.el || document.body.contains(from.el)) {
+    return;
+  }
+  if (from.account) {
+    focusAccount();
+    return;
+  }
+  if (!from.rows) {
     return;
   }
   var row = from.row ? document.getElementById(from.row) : null;
@@ -734,12 +742,14 @@ function askNames(elt) {
   return name ? [name] : [];
 }
 
-// askFirst opens the dialog of elt and reports whether it did. Then the
-// request waits for the dialog. The Close button of a fleet row always
-// asks. A bulk button with no checked slip posts,
-// so the server refuses it with its own words. Approve selected asks only
-// for two or more slips, because one slip approves at once. A page with
-// no such dialog posts too, and the server stays the authority.
+// askFirst opens the dialog of elt and reports whether it holds the
+// request back. Then the request waits for the dialog. A Close button
+// always asks, and it never posts without the close dialog: openClose
+// holds the request back on a page with no close dialog too. A bulk
+// button with no checked slip posts, so the server refuses it with its
+// own words. Approve selected asks only for two or more slips, because
+// one slip approves at once. A page with no deny or summary dialog posts,
+// and the server stays the authority.
 function askFirst(elt, issue) {
   var kind = elt.getAttribute("data-dialog");
   if (kind === "close") {
@@ -838,12 +848,20 @@ function openSummary(elt, names, issue) {
 // names the account, and one line names its AWS account ID and its owner,
 // from the data attributes of the form. Every part goes in as text, never
 // as markup. Cancel takes the focus, because the safe button is the
-// default. It returns false when the page has no close dialog.
+// default. A closure cannot be undone from playplace, so it fails closed:
+// it always reports true, and htmx never posts a closure that the viewer
+// did not confirm. While another dialog is open, nothing happens. On a
+// page with no close dialog, or for a form with no name, nothing is sent
+// and the region says to reload the page.
 function openClose(elt, issue) {
   var dialog = document.getElementById("close-dialog");
   var name = elt.getAttribute("data-name");
-  if (!dialog || dialogOpen() || !name) {
-    return false;
+  if (dialogOpen()) {
+    return true;
+  }
+  if (!dialog || !name) {
+    say(noCloseDialog);
+    return true;
   }
   document.getElementById("close-title").textContent = "Close account " + name + "?";
   document.getElementById("close-who").textContent = "AWS account " + elt.getAttribute("data-account") + ", owned by " + elt.getAttribute("data-owner") + ".";
@@ -891,6 +909,10 @@ function sameNames(a, b) {
 // selectionChanged is the note of a dialog that opens again because a
 // live update cleared a box while it was open.
 var selectionChanged = "A request changed while this dialog was open, so it left the selection. Check the requests again.";
+
+// noCloseDialog is the note of a Close button on a page that has no close
+// dialog, so the closure cannot be confirmed.
+var noCloseDialog = "Reload the page to close this account.";
 
 // closeGone is the note of a close dialog whose Close form a live update
 // took away, because the account no longer is active or expiring.
@@ -984,7 +1006,8 @@ function confirmAsk(ask, text) {
 // row of the button when it still shows a control: the name of a slip
 // that waits, or the account link of a fleet row or a loan card. Else it
 // goes to the name of the first slip that waits, or to the heading of the
-// section. On confirm the region says why nothing was sent.
+// section: on the account page, the page heading. On confirm the region
+// says why nothing was sent.
 document.addEventListener("submit", function (ev) {
   var form = ev.target;
   var dialog = form && form.closest ? form.closest("dialog") : null;
@@ -1002,6 +1025,9 @@ document.addEventListener("submit", function (ev) {
     var row = ask.row ? document.getElementById(ask.row) : null;
     var here = controlIn(row, close ? "td a, .loan-name a" : "button.slip-name, .slip-title[tabindex]");
     var target = here || (close ? document.getElementById("accounts-title") : firstWaiting());
+    if (!target && close) {
+      target = document.getElementById("account-title");
+    }
     if (target) {
       target.focus();
     }
@@ -1338,6 +1364,18 @@ function notePlace(xhr, source) {
     };
     return;
   }
+  // The card and the facts of the account page are one place. Close takes
+  // its own button away, and a refresh can take a control away too.
+  if (inAccount(active)) {
+    var act = source && source.getAttribute ? source.getAttribute("data-action") : null;
+    focusPlace = {
+      xhr: xhr,
+      account: true,
+      acted: !!act && !!focusNext[act] && inAccount(source),
+      said: region ? region.lastElementChild : null
+    };
+    return;
+  }
   var row = active && active.closest ? active.closest(slipRows + ", " + fleetRows) : null;
   if (!row || !row.id) {
     return;
@@ -1389,6 +1427,23 @@ function controlIn(row, want) {
   return null;
 }
 
+// inAccount reports whether el sits in the account section of the
+// account page: its loan card or its facts.
+function inAccount(el) {
+  return !!(el && el.closest && el.closest("#account"));
+}
+
+// focusAccount moves the focus to the heading of the account page, and
+// reports whether the page has one.
+function focusAccount() {
+  var title = document.getElementById("account-title");
+  if (!title) {
+    return false;
+  }
+  title.focus();
+  return true;
+}
+
 // After a swap, the focus can be lost, or it can sit in a slip that no
 // longer waits. It then goes to the control of focusPlace in its own
 // slip or row. A slip that no longer waits gives its place to the next
@@ -1396,8 +1451,10 @@ function controlIn(row, want) {
 // that waits, the focus goes to the heading. A ledger row that left
 // gives its place to the next row, then to the one before it, then to
 // the Needs attention heading. A bulk control that left gives its place
-// to the name of the first slip that waits, or to the heading. A viewer
-// who moved on keeps their place. Every swap runs this rule, a poll too.
+// to the name of the first slip that waits, or to the heading. On the
+// account page a control that left, such as Close after a closure, gives
+// its place to the page heading. A viewer who moved on keeps their place.
+// Every swap runs this rule, a poll too.
 document.addEventListener("htmx:afterSettle", function (ev) {
   watchBar();
   syncPicks();
@@ -1418,6 +1475,12 @@ document.addEventListener("htmx:afterSettle", function (ev) {
       if (was.acted) {
         repeatRegion(was.said);
       }
+    }
+    return;
+  }
+  if (was.account) {
+    if (focusAccount() && was.acted) {
+      repeatRegion(was.said);
     }
     return;
   }
@@ -1808,6 +1871,34 @@ function tell(text) {
   var span = document.createElement("span");
   span.textContent = text;
   region.replaceChildren(span);
+}
+
+// Copy ID copies the AWS account ID of the account page and says so in
+// the live region. With no clipboard, as on a page that is not served
+// over https, or when the browser refuses, nothing breaks: the region
+// says so, and the ID stays text that the viewer can select.
+document.addEventListener("click", function (ev) {
+  var button = ev.target && ev.target.closest && ev.target.closest("button[data-copy]");
+  if (button) {
+    copyID(button.getAttribute("data-copy"));
+  }
+});
+
+// copyFailed is the note when the browser cannot copy the ID.
+var copyFailed = "Could not copy the ID. Select it and copy it yourself.";
+
+// copyID puts id on the clipboard, then says "Copied <id>." in the region.
+function copyID(id) {
+  var clip = navigator.clipboard;
+  if (!id || !clip || typeof clip.writeText !== "function") {
+    say(copyFailed);
+    return;
+  }
+  clip.writeText(id).then(function () {
+    tell("Copied " + id + ".");
+  }, function () {
+    say(copyFailed);
+  });
 }
 
 // A poll that the server answered, 200 or 204, resets the Updated time,

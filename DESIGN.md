@@ -422,7 +422,7 @@ stamp pad with violet and red ink, set on paper and ground.
 - **Shelf Rule** (#A9BDB4): the border of the ghost button and the role badge on the shell.
 
 ### Secondary
-- **Card Stock** (#EDE3CC): the approval desk, the date-due column, the loan card, and the primary button. The loan card is the card-stock block that shows one account's due date on the home page of anyone who is not an admin. The account page gets it in phase 3. On the shell, card stock is also the text color and the focus ring.
+- **Card Stock** (#EDE3CC): the approval desk, the date-due column, the loan card, and the primary button. The loan card is the card-stock block that shows one account's due date on the home page of anyone who is not an admin, and at the top of the account page. On the shell, card stock is also the text color and the focus ring.
 - **Selected Card** (#E2D5B6): a selected slip (one request on the approval desk) or a selected row on card stock, the due cell of a selected row, and the primary button hover.
 - **Card Hover** (#E8DEC4): a slip under the pointer on the desk.
 - **Card Rule** (#CDBF9E): every rule on card stock. Slips are separated by dashed card rules.
@@ -718,7 +718,7 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 ### Footer
 - **Place:** a `<footer class="foot">` after `<main>` on every page with a signed-in viewer. A page with no viewer, such as a failed sign-in, has no footer.
 - **Style:** a flex row that wraps, with a 12 px gap and a maximum width of 1600 px. It has no top padding, 24 px side gutters and 24 px bottom padding. At 640 px and below the gutters and the bottom padding are 16 px. An empty footer takes no room. Without script, a footer that holds only the live line and the keys is empty too.
-- **Content:** on a page that polls, the footer holds the live line (see Live update in Feedback). Today the home page and the accounts page poll. Every footer holds the keys: the switch and the Key list button (see Keys). The row has room for a later control, the theme control.
+- **Content:** on a page that polls, the footer holds the live line (see Live update in Feedback). Today the home page, the accounts page and the account page poll. Every footer holds the keys: the switch and the Key list button (see Keys). The row has room for a later control, the theme control.
 
 ### Keys
 - **Map:** `j` and `k` go to the next or the previous row of a list: the desk slips, the rows of Your requests, the fleet rows, the loan cards and the Needs attention rows. They stop at each end. On an open edit slip they stop on its heading, never on Save. Enter opens a desk slip or follows the link of the row. A row of Your requests has no action for Enter. `x` selects or clears the focused slip. `a` approves and `d` denies: the checked slips when any box is checked, else the focused slip. After `a` or `d` on a slip, the focus goes to the name of the next slip, never to its Approve or Deny. `/` goes to the search on the accounts page. `?` opens the key list.
@@ -802,9 +802,10 @@ qualifier such as "getting ready" or "overdue" follows in 12 px pencil grey.
 
 Spend sits above a thin bar. The inline meter is 96 by 4 px with 2 px
 corners on a soft-rule track. The account page, the loan card and the phone
-use a full-width 6 px meter. The loan card has it. The account page and
-the phone view of an account get it in phase 3. On a loan card the track
-is card rule, because every rule on card stock is card rule.
+use a full-width 6 px meter. The loan card has it, and so does the loan
+card at the top of the account page, which takes the full width of the
+page. On a loan card the track is card rule, because every rule on card
+stock is card rule.
 
 - **Below 75 percent:** shelf ink fill and no label.
 - **From 75 percent:** ink fill and an "NN% used" label in 12 px semibold ink.
@@ -831,6 +832,23 @@ that is not a pending request gets a card, soonest due first.
 - **Actions:** +7d and Close when they are allowed, as in the fleet row. Each button names its account for screen readers. On card stock a button has an ink-2 border. On a phone the name link and the buttons are 44 px tall.
 - **No cards:** the section says "You have no open accounts." with a link to the New request panel. On a phone the link is 44 px tall.
 - **Below the cards:** the link "All your accounts" goes to the accounts page.
+
+The account page opens with the loan card of its account, on its own and
+at the full width of the page. It is a `div`, not a list item, so `j`, `k`
+and the focus frame of a loan card leave it alone. It changes the home card
+in these ways:
+
+- **Head:** the name is the page heading in the Headline role (19 px), with no link. It breaks anywhere, so a long name never makes a phone page scroll sideways. It takes the focus after Close.
+- **Spend:** under the meter, "$27.50 left this month" in 13.5 px pencil grey, or how far the spend is over the budget. Then "Cost data lags about a day." as help text. The budget label leaves the card and becomes one of the facts.
+- **Actions:** +7d and Close answer the account section, not the accounts section.
+
+The facts sit in a Details panel on paper under the card, 16 px below it,
+in plain words. Each label starts with a capital, such as "Owner",
+"Account ID", "Purpose", "Requested by" and "Approved by". A fact that the
+account does not have says "not recorded" in pencil grey. The creation
+request ID sits in a line of help text under the facts. Beside the AWS
+account ID, Copy ID is a plain 30 px button. It needs script, so it shows
+only under `html.js`, and the ID stays text that the viewer can select.
 
 The link to the AWS access portal is not built yet. It comes with phase 3.
 
@@ -911,7 +929,7 @@ in the slot above the accounts.
 ### Feedback
 - **Inline note:** paper with a panel-rule border, 6px corners, a 16 px icon, a semibold first line and a 13.5 px body. A refusal uses a red-ink border and an alert icon and names the recovery. In a slot under a form, in the bulk bar or in a slip, a refusal has only the semibold first line. On an error page and in an unavailable accounts panel, the problem in semibold sits above a body with the recovery. An empty desk uses card stock.
 - **Error page:** a styled page with the title "Action refused" (400), "Not allowed" (403), "Page not found" or "Account not found" (404), or "Sign-in failed". The panel head holds the title, then the status code in pencil grey. Under it, a refusal note names the problem and the recovery, and one primary button leads back. A refused action on a page gets no error page, and its refusal shows on that page.
-- **Dialog:** a native `<dialog>` on paper with a 1 px ink border, 8px corners and a maximum width of 640 px. On a phone it keeps a 16 px gutter on each side. The head and the footer are separated by panel rules, and the footer is paper tint. The scrim sits behind it. Only four tasks use it: the deny reason, the bulk approval summary, the consequences of Close, and the key list. The key list opens only when the viewer asks for it with `?` or the Key list button. The deny dialog lists the requests that it denies and gives the focus to the required reason field. The summary lists each request with its owner, lifetime, budget and per-owner limit check. The close dialog names the account, its AWS account ID and its owner. In the summary and the close dialog, Cancel takes the focus first, because the safe button is the default. In the key list, Close takes the focus. Escape, Cancel and Close close a dialog and decide nothing.
+- **Dialog:** a native `<dialog>` on paper with a 1 px ink border, 8px corners and a maximum width of 640 px. On a phone it keeps a 16 px gutter on each side. The head and the footer are separated by panel rules, and the footer is paper tint. The scrim sits behind it. Only four tasks use it: the deny reason, the bulk approval summary, the consequences of Close, and the key list. The key list opens only when the viewer asks for it with `?` or the Key list button. The deny dialog lists the requests that it denies and gives the focus to the required reason field. The summary lists each request with its owner, lifetime, budget and per-owner limit check. The close dialog names the account, its AWS account ID and its owner. Every page with a Close button has the close dialog, and Close never posts without it. In the summary and the close dialog, Cancel takes the focus first, because the safe button is the default. In the key list, Close takes the focus. Escape, Cancel and Close close a dialog and decide nothing.
 - **Live update:** the live line in the footer of a page that polls: an 8 px shelf ink dot, the time of the last update in 13.5 px pencil grey, and a plain Pause button. The page polls every 15 seconds, and the server answers 204 when nothing changed. The line needs script, so it shows only under `html.js`. It is not a live region, so the page keeps its one region.
   - **Time:** "Updated just now", "Updated 12 seconds ago" or "Updated 3 minutes ago". The time ticks each second in the first minute and each minute after it. `app.js` resets it after each poll that the server answered with 200 or 204, also when nothing changed. A failed poll does not reset it, so the time says how old the data is. A poll answer that the page dropped, because an action started after the poll, does not reset it either. An action answer that brings a fresh accounts section, such as Sync, resets it, also while paused. While the accounts panel shows an unavailable list, the time does not reset either. When the page loads with an unavailable list, the line reads "Not updated yet" until a poll brings fresh data.
   - **Dot:** the dot hides for one 90 ms step only when a 200 answer brings new data, with no fade. Under `prefers-reduced-motion` it does not blink. While updates are paused, the dot hides.

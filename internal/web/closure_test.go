@@ -33,14 +33,16 @@ func TestAsyncClosureAndOverdueWarningStayVisible(t *testing.T) {
 			t.Errorf("missing %q: %s", want, body)
 		}
 	}
-	// The account page head shows the same label and qualifier. One wrapper
-	// holds both, so the qualifier wraps with the label and never lands
-	// alone under the name.
+	// The loan card of the account page shows the same label, qualifier
+	// and problem words under the name, as a loan card of the home page.
 	_, body = do(t, ts, "GET", "/accounts/111111111111", "ops@example.com", true, nil, false)
-	_, head, _ := strings.Cut(body, `<span class="head-status">`)
-	head, _, _ = strings.Cut(head, "</div>")
-	if !strings.Contains(head, "status status-closing status-overdue") || !strings.HasSuffix(head, `<span class="qualifier">overdue</span></span>`) {
-		t.Errorf("the account head lacks the overdue label and qualifier in one wrapper: %s", body)
+	_, card, _ := strings.Cut(body, `<div class="loan-status">`)
+	card, _, _ = strings.Cut(card, `<div class="loan-due">`)
+	for _, want := range []string{"status status-closing status-overdue", `<span class="qualifier">overdue</span>`,
+		"AWS has not confirmed the closure since 2026-09-14 11:00 UTC. Charges may continue."} {
+		if !strings.Contains(card, want) {
+			t.Errorf("the status of the account page lacks %q: %s", want, body)
+		}
 	}
 	r.Status = "SUSPENDED"
 	prov.Seed(r)

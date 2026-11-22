@@ -68,6 +68,7 @@ type Service struct {
 	inv       []*Account
 	recs      []Request // request records read with the inventory, same age
 	invAt     time.Time
+	placed    map[string]string // old id -> current account id (creation request id or pending id), read with the inventory
 	costs     map[string]costEntry
 	costPulls uint64 // numbers each cost pull, so only the newest pull writes
 
@@ -284,6 +285,7 @@ func (s *Service) Inventory(ctx context.Context, force bool) ([]*Account, error)
 		}
 		return a
 	}
+	placed := map[string]string{} // create request id -> AWS account id in the OU, then pending id -> current id
 	for _, r := range reqs {
 		switch r.State {
 		case CreateInProgress:
@@ -293,6 +295,9 @@ func (s *Service) Inventory(ctx context.Context, force bool) ([]*Account, error)
 				out = append(out, derive(r))
 			}
 		case CreateSucceeded:
+			if inOU[r.ProviderID] {
+				placed[r.RequestID] = r.ProviderID
+			}
 			if u, ok := unplaced[r.ProviderID]; ok {
 				out = append(out, s.unplacedAccount(u, &r, now))
 				delete(unplaced, r.ProviderID)
@@ -306,6 +311,17 @@ func (s *Service) Inventory(ctx context.Context, force bool) ([]*Account, error)
 			}
 		}
 	}
+	// An approved request leaves its pending ID behind. Map it to where the
+	// account lives now, so a page opened at the pending ID follows it.
+	for _, r := range records {
+		if r.Approved && r.CreateRequestID != "" {
+			id := r.CreateRequestID
+			if p, ok := placed[id]; ok {
+				id = p
+			}
+			placed["req:"+r.Name] = id
+		}
+	}
 	// AWS stops listing old creation requests; the account still waits.
 	for _, u := range unplaced {
 		out = append(out, s.unplacedAccount(u, nil, now))
@@ -313,7 +329,7 @@ func (s *Service) Inventory(ctx context.Context, force bool) ([]*Account, error)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
 
 	s.mu.Lock()
-	s.inv, s.recs, s.invAt = cloneAll(out), records, now
+	s.inv, s.recs, s.invAt, s.placed = cloneAll(out), records, now, placed
 	s.mu.Unlock()
 	return out, nil
 }
@@ -374,15 +390,29 @@ var ErrNotFound = errors.New("not found")
 // Resolve finds an account by exact id, then by name among open accounts,
 // then by id prefix. It errors if a prefix is ambiguous. An exact id wins
 // over every name: a name may look like another account's id, and the
-// newer row must not take that account's place.
+// newer row must not take that account's place. A creation request id is
+// the id of an account until AWS places it in the OU. After that, it still
+// finds the placed account while AWS lists the creation request. In the same
+// way, the pending id of an approved request ("req:" and the name) finds the
+// account that the approval creates, while the approved record is kept.
 func (s *Service) Resolve(ctx context.Context, ref string) (*Account, error) {
 	all, err := s.Inventory(ctx, false)
 	if err != nil {
 		return nil, err
 	}
+	s.mu.Lock()
+	id, ok := s.placed[ref]
+	s.mu.Unlock()
 	for _, a := range all {
 		if a.ID == ref {
 			return a, nil
+		}
+	}
+	if ok {
+		for _, a := range all {
+			if a.ID == id {
+				return a, nil
+			}
 		}
 	}
 	var matches []*Account

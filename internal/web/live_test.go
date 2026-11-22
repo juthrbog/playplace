@@ -36,7 +36,7 @@ func TestFooterOnEveryPageWithAViewer(t *testing.T) {
 		{"/", true, http.StatusOK, true},
 		{"/accounts", true, http.StatusOK, true},
 		{"/accounts", false, http.StatusOK, true},
-		{"/accounts/111111111111", true, http.StatusOK, false},
+		{"/accounts/111111111111", true, http.StatusOK, true},
 		{"/nope", false, http.StatusNotFound, false},
 	} {
 		res, body := do(t, ts, "GET", c.path, "ops@example.com", c.admin, nil, false)

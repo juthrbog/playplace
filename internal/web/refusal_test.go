@@ -369,7 +369,7 @@ func TestNoPageShowsAStoredAWSError(t *testing.T) {
 		}
 	}
 	_, page := do(t, d.ts, "GET", "/accounts/111111111111", "ops@example.com", true, nil, false)
-	if !strings.Contains(page, `<dt>budget error</dt><dd class="error">`+alertIcon+`<span>`+awsFailed+`</span></dd>`) || !strings.Contains(page, html.EscapeString(`"error": "`+awsFailed+`"`)) {
+	if !strings.Contains(page, `<dt>Budget error</dt><dd class="error">`+alertIcon+`<span>`+awsFailed+`</span></dd>`) || !strings.Contains(page, html.EscapeString(`"error": "`+awsFailed+`"`)) {
 		t.Errorf("the account page does not show the failure text in the budget error and in the history:\n%s", page)
 	}
 
