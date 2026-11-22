@@ -21,9 +21,10 @@ var (
 	// the request that the page shows.
 	versionInput = regexp.MustCompile(`name="version" value="([^"]+)"`)
 	// queueRegion is the empty live region in its place, right above its
-	// refusal slot. That is the bulk bar of the approval queue, or the
+	// refusal slot. That is the bulk bar of the approval queue, after the
+	// desk form and the bulk controls when a slip has a checkbox, or the
 	// head of Your requests.
-	queueRegion = regexp.MustCompile(`<section id="pending" class="panel(?: desk)?" aria-labelledby="pending-title">(?:<!--.*?-->)?<div class="panel-head">.*?</div>(?:<div id="desk-bar" class="desk-bar">)?` + regexp.QuoteMeta(emptyRegion) + `<div id="pending-error" class="refusal"></div>`)
+	queueRegion = regexp.MustCompile(`<section id="pending" class="panel(?: desk)?" aria-labelledby="pending-title">(?:<!--.*?-->)?<div class="panel-head">.*?</div>(?:<div id="desk-bar" class="desk-bar">(?:<form id="desk-form" class="desk-form">.*?</form><div class="desk-controls">.*?</div>)?)?` + regexp.QuoteMeta(emptyRegion) + `<div id="pending-error" class="refusal"></div>`)
 	// slipStart is the start tag of one slip.
 	slipStart = regexp.MustCompile(`<li id="req-([a-z0-9-]+)" class="slip[^"]*" data-state="(pending|decided|gone)"(?: data-result="([a-z-]+)")?>`)
 	// slipNote is the result note in a slip.

@@ -296,9 +296,10 @@ templ queuePanel(pg page, oob bool) {
 
 // approvalDesk is the approval queue of an approver: card stock, the
 // bulk bar and the slips, oldest first. The bar holds the live region
-// and the refusal slot in every state, so a morph pairs them by id. A
-// queue that did not load says so, because an empty list reads as an
-// empty queue.
+// and the refusal slot in every state, so a morph pairs them by id. When
+// a slip has a checkbox, the bar also holds the desk form and the bulk
+// controls. A queue that did not load says so, because an empty list
+// reads as an empty queue.
 templ approvalDesk(pg page, oob bool) {
 	{{ items, slips, line := pg.left(), pg.slips(), deskLine(pg) }}
 	<section
@@ -318,6 +319,9 @@ templ approvalDesk(pg page, oob bool) {
 			}
 		</div>
 		<div id="desk-bar" class="desk-bar">
+			if anyPicks(pg, slips) {
+				@deskControls()
+			}
 			@region()
 			<div id="pending-error" class="refusal">
 				if len(items) > 0 {
@@ -345,6 +349,43 @@ templ approvalDesk(pg page, oob bool) {
 			</ol>
 		}
 	</section>
+}
+
+// deskControls are the desk form and the bulk controls. The form is empty
+// but for the reason of a denial. Each checkbox of a slip, and a copy of
+// the values that the slip shows, joins it with form="desk-form", so no
+// form nests in another. The select-all box has no name, so the form
+// never sends it. app.js keeps the count and the select-all box in step
+// with the checked slips. Each bulk button carries the most requests that
+// one post can decide and the refusal of the server above that, so app.js
+// refuses a larger selection before it posts.
+templ deskControls() {
+	<form id="desk-form" class="desk-form"><input type="hidden" name="reason" value=""/></form>
+	<div class="desk-controls">
+		<label class="check desk-all"><input type="checkbox" id="desk-all"/><span class="vh">Select every request you can decide</span></label>
+		<span id="desk-count" class="desk-count">0 selected</span>
+		<button type="button" id="desk-approve" class="btn-approve" form="desk-form" hx-post={ "/requests/decide?action=" + actionApprove } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="#desk-form:drop" data-bulk={ actionApprove } data-dialog="summary" data-cap={ strconv.Itoa(maxApprovals) } data-cap-note={ capRefusal(actionApprove, maxApprovals) }>@icon("stamp")@busyWord("Approve selected", "Approving")</button>
+		<button type="button" id="desk-deny" form="desk-form" hx-post={ "/requests/decide?action=" + actionDeny } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="#desk-form:drop" data-bulk={ actionDeny } data-dialog="deny" data-cap={ strconv.Itoa(maxDenials) } data-cap-note={ capRefusal(actionDeny, maxDenials) }>@busyWord("Deny selected", "Denying")</button>
+	</div>
+}
+
+// slipPick is the checkbox of a slip that the viewer can approve. Its
+// value is the ref of the request as the page shows it, name and version,
+// so a bulk decision acts only on what the approver saw. The data
+// attributes hold the facts of the slip as the page shows them, for the
+// bulk approval summary. The copies of the shown values let the server
+// say what changed. The server never renders the box checked, so the
+// poll hash stays the same while the viewer selects.
+templ slipPick(pg page, q core.Request) {
+	<label class="slip-pick"><input type="checkbox" name="req" value={ refValue(q.Ref()) } form="desk-form" data-owner={ q.Owner } data-lifetime={ core.Lifetime(q.TTL) } data-budget={ core.Dollars(q.BudgetUSD) + " a month" } data-limits={ ownerStanding(pg, q) }/><span class="vh">{ "Select " + q.Name }</span>@shownCopies(q)</label>
+}
+
+// shownCopies are the shown values of q for the desk form. Each name ends
+// with the request name, so one post carries the values of many slips.
+templ shownCopies(q core.Request) {
+	for _, f := range shownOf(q) {
+		<input type="hidden" name={ shownName(f.Field, q.Name) } value={ f.Value } form="desk-form"/>
+	}
 }
 
 // leftNote fills the refusal slot of the queue with the lines that have
@@ -423,7 +464,11 @@ templ slip(pg page, s slipView) {
 				data-result={ s.Result.Kind.String() }
 			}
 		>
-			<span class="slip-pick"></span>
+			if picks(pg, s) {
+				@slipPick(pg, s.Req)
+			} else {
+				<span class="slip-pick"></span>
+			}
 			<div class="slip-main">
 				<div class="slip-top">
 					<h3 class="slip-title"><button type="button" id={ "name-" + s.Req.Name } class="slip-name" aria-expanded={ strconv.FormatBool(pg.Open == s.Req.Name) } aria-controls={ slipControls(pg, s) }>@chevrons()<span>{ s.Req.Name }</span></button></h3>

@@ -181,7 +181,7 @@ func (s *Server) decideAll(w http.ResponseWriter, r *http.Request) {
 		s.refuseForm(w, r, http.StatusBadRequest, noRequests)
 		return
 	case len(refs) > limit:
-		s.refuseForm(w, r, http.StatusBadRequest, fmt.Sprintf("You can %s at most %d requests at once, so playplace decided nothing.", action, limit))
+		s.refuseForm(w, r, http.StatusBadRequest, capRefusal(action, limit))
 		return
 	}
 	var reason string
@@ -193,6 +193,13 @@ func (s *Server) decideAll(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.decide(w, r, action, refs, reason)
+}
+
+// capRefusal is the refusal of a decision post with more than limit
+// requests. The bulk buttons carry it too, so app.js shows the same words
+// before it posts.
+func capRefusal(action string, limit int) string {
+	return fmt.Sprintf("You can %s at most %d requests at once, so playplace decided nothing.", action, limit)
 }
 
 // readDecisionForm parses the form of a decision. The caller caps the body

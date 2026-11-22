@@ -1087,7 +1087,7 @@
     overflow-y: auto;
     background: var(--card);
   }
-  .desk-bar:has(> .notice > :not(.vh), > .refusal:not(:empty)) {
+  .desk-bar:has(> .desk-controls, > .notice > :not(.vh), > .refusal:not(:empty)) {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -1097,6 +1097,34 @@
   }
   .desk-bar > .refusal {
     margin-top: 0;
+  }
+  /* With the bulk controls the bar is 48 px: its top border, then one
+     34 px control row between 6 px above and below. The .desk prefix
+     makes this rule more specific than the padding rule above. When any
+     slip is selected, the bar is selected card too. The checked boxes
+     hold the selection, so a morph never loses it. */
+  .desk .desk-bar:has(> .desk-controls) {
+    min-height: 48px;
+    padding-block: 6px;
+  }
+  .desk:has(.slip-pick input:checked) .desk-bar {
+    background: var(--card-sel);
+  }
+  /* The desk form holds only hidden fields, so it takes no room. */
+  .desk-form {
+    display: none;
+  }
+  .desk-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    align-self: stretch;
+    gap: var(--space-sm) var(--space-md);
+    min-height: var(--control-h);
+  }
+  .desk-count {
+    color: var(--ink-2);
+    font-size: 13.5px;
   }
 
   /* An empty desk is an inline note on card stock. */
@@ -1156,6 +1184,22 @@
   }
   .slip-pick:empty {
     display: none;
+  }
+  /* The checkbox of a slip sits in the left gutter, centred on the name
+     line, so the columns of the slip stay as they are. Every slip of a
+     desk with a checkbox keeps the same gutter, so the names line up. */
+  .desk:has(.slip-pick > input) .slip {
+    position: relative;
+    padding-left: calc(var(--space-lg) + 16px + var(--space-md));
+  }
+  label.slip-pick {
+    position: absolute;
+    top: 9px;
+    left: var(--space-lg);
+    display: flex;
+    align-items: center;
+    height: 24px;
+    cursor: pointer;
   }
   .slip-main {
     grid-column: 1;
@@ -1600,6 +1644,17 @@
       position: static;
       max-height: none;
       overflow-y: visible;
+    }
+    /* On a phone the checkbox of a slip is a 44 px target that fills the
+       gutter, centred on the 44 px name line. */
+    .desk:has(.slip-pick > input) .slip {
+      padding-left: 48px;
+    }
+    label.slip-pick {
+      left: 0;
+      width: var(--touch);
+      height: var(--touch);
+      padding-left: var(--space-lg);
     }
     .slip {
       grid-template-columns: minmax(0, 1fr);

@@ -65,6 +65,12 @@ func TestQueueIsADeskOfSlips(t *testing.T) {
 	d.ask(t, "newer-box", "carl@example.com")
 	_, home := doAs(t, d.ts, "GET", "/", "lead@example.com", false, true, nil, false)
 	head := `<section id="pending" class="panel desk" aria-labelledby="pending-title"><div class="panel-head"><h2 id="pending-title" tabindex="-1">Approval queue</h2><p class="panel-line">2 requests waiting for a decision, oldest first. playplace drops requests after 7 days.</p></div><div id="desk-bar" class="desk-bar">` +
+		`<form id="desk-form" class="desk-form"><input type="hidden" name="reason" value=""></form><div class="desk-controls">` +
+		`<label class="check desk-all"><input type="checkbox" id="desk-all"><span class="vh">Select every request you can decide</span></label> <span id="desk-count" class="desk-count">0 selected</span> ` +
+		`<button type="button" id="desk-approve" class="btn-approve" form="desk-form" hx-post="/requests/decide?action=approve" hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="#desk-form:drop" data-bulk="approve" data-dialog="summary" data-cap="10" data-cap-note="You can approve at most 10 requests at once, so playplace decided nothing.">` +
+		`<svg class="i" aria-hidden="true" focusable="false"><use href="#i-stamp"></use></svg><span class="word"><span>Approve selected</span><span class="busy">Approving</span></span></button> ` +
+		`<button type="button" id="desk-deny" form="desk-form" hx-post="/requests/decide?action=deny" hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="#desk-form:drop" data-bulk="deny" data-dialog="deny" data-cap="50" data-cap-note="You can deny at most 50 requests at once, so playplace decided nothing.">` +
+		`<span class="word"><span>Deny selected</span><span class="busy">Denying</span></span></button></div>` +
 		emptyRegion + `<div id="pending-error" class="refusal"></div></div><ol class="slips" role="list">`
 	if !strings.Contains(home, head) {
 		t.Fatalf("the home page lacks the desk head and its bar:\n%s", home)
@@ -73,11 +79,19 @@ func TestQueueIsADeskOfSlips(t *testing.T) {
 		t.Errorf("the slips come in the order %v, want the oldest first", got)
 	}
 	slip := slipIn(home, "older-box")
-	start := `<li id="req-older-box" class="slip" data-state="pending"><span class="slip-pick"></span><div class="slip-main"><div class="slip-top"><h3 class="slip-title"><button type="button" id="name-older-box" class="slip-name" aria-expanded="false" aria-controls="details-older-box">`
-	if !strings.HasPrefix(slip, start) {
-		t.Errorf("the slip does not start with its closed name button:\n%s", slip)
-	}
 	ref := refIn(t, home, "older-box")
+	start := `<li id="req-older-box" class="slip" data-state="pending"><label class="slip-pick">` +
+		`<input type="checkbox" name="req" value="` + refValue(ref) + `" form="desk-form" data-owner="bob@example.com" data-lifetime="14 days" data-budget="$50 a month" data-limits="At the per-owner limit of 1.">` +
+		`<span class="vh">Select older-box</span>` +
+		`<input type="hidden" name="shown-owner-older-box" value="bob@example.com" form="desk-form">` +
+		`<input type="hidden" name="shown-ttl-older-box" value="336" form="desk-form">` +
+		`<input type="hidden" name="shown-budget-older-box" value="50" form="desk-form">` +
+		`<input type="hidden" name="shown-purpose-older-box" value="" form="desk-form">` +
+		`<input type="hidden" name="shown-at-older-box" value="2026-09-15T12:00:00Z" form="desk-form"></label>` +
+		`<div class="slip-main"><div class="slip-top"><h3 class="slip-title"><button type="button" id="name-older-box" class="slip-name" aria-expanded="false" aria-controls="details-older-box">`
+	if !strings.HasPrefix(slip, start) {
+		t.Errorf("the slip does not start with its checkbox and its closed name button:\n%s", slip)
+	}
 	for _, want := range []string{`<div class="slip-details" id="details-older-box" hidden>`, `<p class="slip-version">version <code>` + versionLabel(ref.Version) + `</code></p>`} {
 		if !strings.Contains(slip, want) {
 			t.Errorf("the slip lacks %s:\n%s", want, slip)

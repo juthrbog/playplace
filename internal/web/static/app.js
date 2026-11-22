@@ -163,6 +163,98 @@ function keepNode(node) {
   return false;
 }
 
+// deskPicks are the checkboxes of the slips. Each one joins the desk form
+// with form="desk-form", and its value is the name and the version of its
+// request.
+var deskPicks = '#pending .slip-pick input[name="req"]';
+
+// keepPick keeps a checked box of a slip through a morph while its value
+// stays the same. The server never renders a box checked, so the new node
+// is never checked. idiomorph copies the checked property from the new
+// node to the old one when the two differ. Before it does, it asks
+// beforeAttributeUpdated, but that callback gets only the name and the old
+// node, never the new value. beforeNodeMorphed runs first and gets both
+// nodes. So when the old box is checked and the new box has the same value,
+// keepPick checks the new node too, and idiomorph finds nothing to change.
+// A request that changed has a new version and so a new value, and its box
+// clears. A bulk decision then never acts on values that the approver did
+// not see. A decided slip has no box, so its box leaves with it.
+function keepPick(node, next) {
+  if (node.tagName !== "INPUT" || node.type !== "checkbox" || node.name !== "req" || !node.checked) {
+    return;
+  }
+  if (next && next.nodeType === 1 && next.tagName === "INPUT" && next.type === "checkbox" &&
+      next.getAttribute("name") === "req" && next.getAttribute("value") === node.getAttribute("value")) {
+    next.checked = true;
+  }
+}
+
+// syncPicks keeps the bulk controls in step with the checked slips. The
+// count names how many are checked. The select-all box is checked when
+// every box is, and mixed when only some are. A morph and a page load
+// both reset the controls, so the afterSettle listener and the
+// DOMContentLoaded listener call it, and so does each change of a box.
+function syncPicks() {
+  var boxes = document.querySelectorAll(deskPicks);
+  var n = pickedCount();
+  var count = document.getElementById("desk-count");
+  if (count) {
+    count.textContent = n + " selected";
+  }
+  var all = document.getElementById("desk-all");
+  if (all) {
+    all.checked = boxes.length > 0 && n === boxes.length;
+    all.indeterminate = n > 0 && n < boxes.length;
+  }
+}
+
+// pickedCount is the number of checked boxes of the desk.
+function pickedCount() {
+  return document.querySelectorAll(deskPicks + ":checked").length;
+}
+
+// A box of a slip changes the count. The select-all box checks or clears
+// every box of the desk first. A mixed select-all box checks every box,
+// as a click on it does in the browser.
+document.addEventListener("change", function (ev) {
+  var box = ev.target;
+  if (!box || !box.matches) {
+    return;
+  }
+  if (box.id === "desk-all") {
+    var boxes = document.querySelectorAll(deskPicks);
+    for (var i = 0; i < boxes.length; i++) {
+      boxes[i].checked = box.checked;
+    }
+  } else if (!box.matches(deskPicks)) {
+    return;
+  }
+  syncPicks();
+});
+
+// overCap reports whether the checked boxes are more than one post of the
+// bulk button can decide: 10 approvals or 50 denials. The server refuses
+// such a post and decides nothing. So app.js shows the same refusal first,
+// in the refusal slot of the queue, and does not post. The button carries
+// the cap and the words of the server, so the server stays the authority.
+function overCap(button) {
+  var cap = parseInt(button.getAttribute("data-cap"), 10);
+  if (!(cap > 0) || pickedCount() <= cap) {
+    return false;
+  }
+  refuse(button.getAttribute("data-cap-note"));
+  return true;
+}
+
+// htmx asks this listener before each request. A bulk button over its cap
+// sends nothing. Any other request goes on.
+document.addEventListener("htmx:confirm", function (ev) {
+  var elt = ev.detail.elt;
+  if (elt && elt.hasAttribute && elt.hasAttribute("data-bulk") && overCap(elt)) {
+    ev.preventDefault();
+  }
+});
+
 // openState reports whether the attribute name of node holds the open
 // state of a slip. That is aria-expanded on its name button, or hidden
 // on its details or its tools.
@@ -195,9 +287,12 @@ htmx.defineExtension("morph", {
         morphStyle: "outerHTML",
         callbacks: {
           // idiomorph also calls these for text nodes.
-          beforeNodeMorphed: function (node) {
+          beforeNodeMorphed: function (node, next) {
             if (node.nodeType === 1 && keepNode(node)) {
               return false;
+            }
+            if (node.nodeType === 1) {
+              keepPick(node, next);
             }
             return true;
           },
@@ -396,6 +491,7 @@ function controlIn(row, want) {
 // their place. Every swap runs this rule, a poll too.
 document.addEventListener("htmx:afterSettle", function (ev) {
   watchBar();
+  syncPicks();
   if (!focusPlace || ev.detail.xhr !== focusPlace.xhr) {
     return;
   }
@@ -593,6 +689,34 @@ function say(text) {
   if (!region) {
     return;
   }
+  var svg = alertIcon();
+  var span = document.createElement("span");
+  span.textContent = text;
+  region.replaceChildren(svg, span);
+}
+
+// refuse shows a refusal as a refused form of the server does: the alert
+// icon and the text in the refusal slot of the queue, and a visually
+// hidden copy in the live region. The text goes in as text, never as
+// markup.
+function refuse(text) {
+  var slot = document.getElementById("pending-error");
+  if (slot) {
+    var shown = document.createElement("span");
+    shown.textContent = text;
+    slot.replaceChildren(alertIcon(), shown);
+  }
+  var region = document.getElementById("notice");
+  if (region) {
+    var copy = document.createElement("span");
+    copy.className = "vh";
+    copy.textContent = text;
+    region.replaceChildren(copy);
+  }
+}
+
+// alertIcon is the alert icon of the sprite, as the server draws it.
+function alertIcon() {
   var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", "i");
   svg.setAttribute("aria-hidden", "true");
@@ -600,9 +724,7 @@ function say(text) {
   var use = document.createElementNS("http://www.w3.org/2000/svg", "use");
   use.setAttribute("href", "#i-alert");
   svg.appendChild(use);
-  var span = document.createElement("span");
-  span.textContent = text;
-  region.replaceChildren(svg, span);
+  return svg;
 }
 
 // forgetAddress drops the request name from the address. The listeners
@@ -628,6 +750,7 @@ function forgetAddress() {
 
 document.addEventListener("DOMContentLoaded", function () {
   watchBar();
+  syncPicks();
   if (openFromAddress(true)) {
     forgetAddress();
   }

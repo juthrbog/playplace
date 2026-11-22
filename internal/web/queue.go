@@ -81,6 +81,18 @@ func (pg page) resultFor(name string) (decision, bool) {
 // hasTools reports whether the viewer gets Edit or Withdraw on q.
 func hasTools(pg page, q core.Request) bool { return pg.Viewer.Admin || canWithdraw(pg.Viewer, q) }
 
+// picks reports whether the desk shows a checkbox for s: s waits and the
+// viewer can approve it. Only such a slip can join a bulk decision.
+func picks(pg page, s slipView) bool {
+	return !s.decided() && !s.Gone && canApprove(pg, s.Req)
+}
+
+// anyPicks reports whether any slip of the desk shows a checkbox. The bulk
+// controls show only then.
+func anyPicks(pg page, slips []slipView) bool {
+	return slices.ContainsFunc(slips, func(s slipView) bool { return picks(pg, s) })
+}
+
 // slipControls lists the opened parts that the name button of s
 // controls: the details, and the tools when the viewer has them.
 func slipControls(pg page, s slipView) string {
