@@ -420,7 +420,7 @@ stamp pad with violet and red ink, set on paper and ground.
 - **Shelf Rule** (#A9BDB4): the border of the ghost button and the role badge on the shell.
 
 ### Secondary
-- **Card Stock** (#EDE3CC): the approval desk, the date-due column, the loan card, and the primary button. The loan card is the card-stock block that shows one account's due date on the engineer home and the account page. On the shell, card stock is also the text color and the focus ring.
+- **Card Stock** (#EDE3CC): the approval desk, the date-due column, the loan card, and the primary button. The loan card is the card-stock block that shows one account's due date on the home page of anyone who is not an admin. The account page gets it in phase 3. On the shell, card stock is also the text color and the focus ring.
 - **Selected Card** (#E2D5B6): a selected slip (one request on the approval desk) or a selected row on card stock, the due cell of a selected row, and the primary button hover.
 - **Card Hover** (#E8DEC4): a slip under the pointer on the desk.
 - **Card Rule** (#CDBF9E): every rule on card stock. Slips are separated by dashed card rules.
@@ -517,7 +517,8 @@ screen blend for stamps at night. It gives 5.8:1 with no token change. The
 second fallback is night violet #AE9CE8. Night card stock is only 1.1:1 on
 paper (1.2:1 by day), so the desk and the date-due column stand out less at
 night. On 2026-10-19 the maintainer kept the night card stock as it is.
-Phase 2 looks at it again when it builds the desk and the date-due column.
+The desk, the date-due column and the loan card are built now. The scan in
+PR 7 of phase 2 judges the night card stock again on these three parts.
 
 ### Named Rules
 
@@ -571,17 +572,24 @@ padding and a 24 px side gutter.
 
 The main area has 16 px top padding, 24 px side gutters, 32 px bottom
 padding, a 16 px gap between panels, and a maximum width of 1600 px. The
-footer sits under the main area, with the same side gutters (see Footer). On the
-admin home, the "Needs attention" ledger (300 to 384 px) sits beside the
-approval desk, and the fleet table runs full width below them. The ledger
-is not built yet. Until then, the New request panel, the approval desk and
-the fleet table stack in one column.
+footer sits under the main area, with the same side gutters (see Footer).
+
+The home page puts the first job of each role at the top:
+- **Admin:** the "Needs attention" ledger (300 to 384 px) sits beside the approval desk. The fleet table runs full width below them. It shows the first 50 open accounts by due date in the compact density, then the link "All N accounts" to the accounts page.
+- **Approver who is not an admin:** the approval desk, then Your accounts as loan cards.
+- **Anyone else:** Your accounts as loan cards, then Your requests.
+
+The New request panel comes last on every home page. Show closed is not on
+the home page, and pending requests show only in the desk or in Your
+requests, not in the fleet table or as loan cards.
 
 Panels have a 48 px head with 10 px by 16 px padding, and a 16 px inset for
 rows. The fleet table has a minimum width of 1120 px inside a horizontal
 scroll container, because the fleet stays a desktop task. Cells use 9 px by
 14 px padding in the comfortable density and 4 px top and bottom in the
-compact density. The compact density is not built yet. Rows do not wrap,
+compact density. The fleet on the admin home uses the compact density,
+and the accounts page uses the comfortable one. No control changes it. Rows
+do not wrap,
 and cells center their content vertically. Only a cell that holds free
 text, such as a purpose, an email in the queue or an error, wraps.
 
@@ -667,7 +675,7 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 
 ### Cards / Containers
 - **Corner Style:** 8px for panels and the loan card, 6px for inline notes.
-- **Background:** paper for panels. Card stock for the approval desk and the loan card. The loan card is not built yet.
+- **Background:** paper for panels. Card stock for the approval desk and the loan card.
 - **Shadow Strategy:** none. See Elevation & Depth.
 - **Border:** 1 px panel rule on paper, 1 px card rule on card stock.
 - **Internal Padding:** 16 px side inset. The panel head is 48 px tall.
@@ -701,16 +709,18 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 
 ### Date stamp
 
-The signature component. It is not built yet. A due date is a violet rubber
+The signature component. A due date is a violet rubber
 stamp in Courier Prime 700 capitals, with a 1.5 px border in its own ink,
 3 px corners, and a turn of 1 to 2 degrees. The format is "OCT 27 2026": the
-month in capitals, the day with no leading zero, and the year.
+month in capitals, the day with no leading zero, and the year. The date is
+in UTC, and the `title` of the stamp holds the full time, such as
+"2026-10-27 17:00 UTC". The fleet table and the loan card show it.
 
 - **Sizes:** 15 px in tables, slips and lists. 22 px for the one due date at the top of an account page or a loan card.
-- **Last 3 days:** the stamp changes to red ink.
+- **Last 3 days:** the stamp changes to red ink. After the due date passes, the stamp stays red, and "past due" in 12 px semibold red ink sits under it.
 - **Renewal:** after an extension, the old date stays above the new stamp as "extended from OCT 20", with the old date in Courier Prime at 13.5 px and struck through with a 1 px ink line.
-- **No date yet:** a pending request shows a dashed card-rule box that says "Stamped at approval" in 12 px pencil grey. An account that AWS is still creating and that has no approved record says "Set when it is ready". An approved account that AWS is still creating already has a due date from the approved record, so it shows the date stamp. The box stays upright, because it is not a stamp. Its token is `date-unset`.
-- **Motion:** when someone approves or extends, the stamp lands in two frames over 90 ms with no fade. Frame 1 (0 ms) shows it at 112 percent size and upright. Frame 2 (45 ms) shows it at full size, turned 1.8 degrees. Under `prefers-reduced-motion`, frame 1 is skipped.
+- **No date yet:** a pending request shows a dashed card-rule box that says "Stamped at approval" in 12 px pencil grey. An account that AWS is still creating and that has no approved record says "Set when it is ready". An approved account that AWS is still creating already has a due date from the approved record, so it shows the date stamp. The box stays upright, because it is not a stamp. Its token is `date-unset`. A damaged expiry shows "unknown" in the same box. A closed or failed account shows a dash in pencil grey.
+- **Motion:** when someone approves or extends, the stamp lands in two frames over 90 ms with no fade. Frame 1 (0 ms) shows it at 112 percent size and upright. Frame 2 (45 ms) shows it at full size, turned 1.8 degrees. Under `prefers-reduced-motion`, frame 1 is skipped. Today +7d lands the date stamp of its account. An approval lands the APPROVED word stamp on its slip, and the date stamp of the new account shows without motion.
 
 ### Word stamps
 
@@ -760,13 +770,14 @@ qualifier such as "getting ready" or "overdue" follows in 12 px pencil grey.
 
 - **Normal** (no one needs to act): pending (slip, ink), active (check, shelf ink), closed (shut door, pencil grey). Budget: ready (check, shelf ink), alerts-only (bell), alerts-disabled (bell off), retired (minus), and not checked (dashed circle), all pencil grey.
 - **Settling** (progress, not failure): creating (clock arc, violet), closing (box, ink), and active while getting ready (check, shelf ink, not built yet). Budget: setup-pending (clock), restricting (lock), recovering (open lock) and retiring (minus), all violet, with the words "settling protection".
-- **Needs attention** (someone must act): failed (crossed circle, red), unavailable (ban, ink), closing and overdue (box, red), expiring (hourglass, violet). Budget: restricted (lock, red), error (alert, red), and settling for over 2 hours (clock, red, not built yet).
+- **Needs attention** (someone must act): failed (crossed circle, red), unavailable (ban, ink), closing and overdue (box, red), expiring (hourglass, violet). Budget: restricted (lock, red), error (alert, red), and settling for over 2 hours (clock, red). The settling label for over 2 hours shows in the Needs attention ledger. The budget column keeps the settling state and the words "settling protection".
 
 ### Spend meter
 
 Spend sits above a thin bar. The inline meter is 96 by 4 px with 2 px
 corners on a soft-rule track. The account page, the loan card and the phone
-use a full-width 6 px meter. The full-width meter is not built yet.
+use a full-width 6 px meter. The loan card has it. The account page and
+the phone view of an account get it in phase 3.
 
 - **Below 75 percent:** shelf ink fill and no label.
 - **From 75 percent:** ink fill and an "NN% used" label in 12 px semibold ink.
@@ -778,6 +789,36 @@ The label sits 8 px to the right of the inline meter, so a table row stays
 one line. Under a full-width meter, the label sits below it. The server
 draws the bar as inline SVG and sets the fill with a `width` attribute,
 because the CSP does not allow inline `style` attributes.
+
+### Loan card
+
+One account of the viewer on card stock, with 8 px corners, a 1 px
+card-rule border and a 16 px inset. The cards sit in a grid, and each card
+is at least 300 px wide, or the full width on a phone. Each open account
+that is not a pending request gets a card, soonest due first.
+
+- **Head:** the name in 16 px bold, which links to the account page, and the AWS account ID in Courier Prime at 13.5 px. An account with no AWS account ID says "not created yet" in pencil grey, or "not created" when it failed.
+- **Status:** the status label, with the same qualifier and error lines as the fleet row.
+- **Due date:** the 22 px date stamp, with the renewal line above it after an extension.
+- **Spend:** "$12.34 of $100 a month", the full-width meter under it, and the budget label. Unknown spend says "unavailable" with no meter.
+- **Actions:** +7d and Close when they are allowed, as in the fleet row. Each button names its account for screen readers. On card stock a button has an ink-2 border. On a phone the name link and the buttons are 44 px tall.
+- **No cards:** the section says "You have no open accounts." with a link to the New request panel.
+- **Below the cards:** the link "All your accounts" goes to the accounts page.
+
+The link to the AWS access portal is not built yet. It comes with phase 3.
+
+### Needs attention ledger
+
+The ledger is on the admin home only, beside the approval desk. It is a
+plain list, so it sits on paper. It has one row for each kind that has
+accounts, in the order of `core.AttentionKind`, with over budget last. An
+account with two kinds counts in each. Closed accounts count too, because
+their budget protection can still fail.
+
+- **Row:** a 16 px icon, a count headline in 14 px semibold such as "2 budgets restricted", a 12 px pencil-grey line with up to three names such as "dev-a, dev-b, dev-c and 4 more", and a chevron. The icon is red for a fault, violet for expiring and ink for unavailable. The words stay ink.
+- **Link:** the whole row links to the accounts page filtered to its kind. When a closed account has the kind, the link asks for every status. Hover is paper tint, and the headline turns violet. On a phone a row is at least 44 px tall.
+- **Empty:** "Nothing needs attention."
+- **List not loaded:** an alert icon and "The account list is unavailable, so this list cannot say what needs attention." An empty ledger would read as a fleet that needs nothing.
 
 ### Approval desk
 
@@ -830,10 +871,10 @@ slot, so the region shows the refusal.
 ### Tables
 - **Head:** paper tint, 12 px semibold pencil-grey labels, 34 px tall, with panel rules above and below. A sortable head is a button. The sorted column turns ink and shows an arrow for its direction, drawn in `currentColor`, and the `<th>` sets `aria-sort`. Its focus ring sits inside the button, because the scroll box would clip a ring outside it. When a head gets the focus, the scroll box scrolls so that the whole head shows. On the accounts page every head but Actions sorts. The home page keeps plain heads.
 - **Rows:** a soft-rule line under each row. Hover is paper tint. A selected row is card stock with its due cell in selected card. A focused row has a 2 px violet frame. A stale or refused row has a 1 px dashed red-ink frame and shows the new values in place. Row selection and both frames are not built yet on table rows. The desk slips have both frames, and a checked slip is selected.
-- **Filter bar:** on the accounts page, a `<form role="search">` under the panel head holds the search field, the segmented control for admins, and the Status and Budget health selects. It wraps on a narrow window, and each label wraps together with its select. The focus ring of a segment sits inside it. On the current segment the ring is paper, because violet on ink is only about 2:1. It shows in every state of the panel. Search goes 400 ms after typing stops, and at once on Enter. A select goes at once. A filter change starts at page 1, and every change of the view replaces the address. The accounts page has the Status filter in place of Show closed. Show closed stays only on the home page, where an admin also gets the link "Search and filter all accounts".
+- **Filter bar:** on the accounts page, a `<form role="search">` under the panel head holds the search field, the segmented control for admins, and the Status and Budget health selects. It wraps on a narrow window, and each label wraps together with its select. The focus ring of a segment sits inside it. On the current segment the ring is paper, because violet on ink is only about 2:1. It shows in every state of the panel. Search goes 400 ms after typing stops, and at once on Enter. A select goes at once. A filter change starts at page 1, and every change of the view replaces the address. The accounts page has the Status filter in place of Show closed. The home page has no Show closed. The admin home links to the accounts page with "All N accounts" under its fleet table.
 - **No match:** a filtered view with no rows says "No accounts match these filters." with a "Clear filters" link. "No open accounts." stays for a fleet that has none.
 - **Pager:** under the table when the view has more than one page of 50 rows. "Showing 51–100 of 112" in 13.5 px pencil grey on the left, then Previous and Next as 30 px plain buttons. At either end the button stays in place with `aria-disabled` and `hx-disable`, so it sends nothing. When the pager shows, it takes the bottom corners of the panel.
-- **Date due column (not built yet):** always on card stock with a card-rule line under each cell, in every row state.
+- **Date due column:** the column head says "Due". The cell is always on card stock with a card-rule line under it, in every row state, and hover does not change it. It holds the 15 px date stamp, or the box or dash of a row with no date. The admin home and the accounts page have it.
 - **Account links:** 14 px semibold ink, underlined in the panel rule color with a 3 px offset, violet on hover.
 - **Mono values:** account IDs and versions in Courier Prime at the size of the text around them.
 
