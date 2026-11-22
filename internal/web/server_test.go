@@ -675,7 +675,7 @@ func TestAccountPagePullsSpendThatIsNotKnown(t *testing.T) {
 	do(t, ts, "GET", "/accounts", "ops@example.com", true, nil, true)
 	fc.fail.Store(false)
 	_, body := do(t, ts, "GET", "/accounts/111111111111", "ops@example.com", true, nil, false)
-	if !strings.Contains(body, "<dt>spend, 30 days</dt><dd>$45.00</dd>") {
+	if !strings.Contains(body, `<dt>spend this month</dt><dd>$22.50 of $50.00 a month <span class="muted">($27.50 left this month)</span></dd>`) {
 		t.Errorf("the account page does not show the spend that AWS reports now:\n%s", body)
 	}
 }

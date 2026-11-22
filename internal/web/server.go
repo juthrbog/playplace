@@ -14,6 +14,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -263,8 +264,9 @@ type page struct {
 	// that loaded does not list it. The bar then says why no slip opens.
 	Missing string
 	// Asker is the page that sent the request, as askingPage reads it:
-	// pathAccounts or "/". The poll and the action answers show only
-	// what that page holds, and the poll hash covers exactly that.
+	// pathAccounts, the path of an account page or "/". The poll and the
+	// action answers show only what that page holds, and the poll hash
+	// covers exactly that.
 	Asker string
 	// Ledger is the Needs attention ledger of the admin home. rows fills
 	// it from every account the admin can see, closed ones too.
@@ -280,9 +282,10 @@ const pathAccounts = "/accounts"
 
 // askingPage is the page that sent the request. htmx sends the address of
 // the page in HX-Current-URL on every request, and only its path matters. A
-// page visit is its own page, so it uses the request path. An htmx request
-// with no such header, or with one that does not parse, and any page other
-// than the accounts page count as the home page, which shows the most.
+// page visit is its own page, so it uses the request path. The accounts
+// page and an account page with a valid account reference are pages of
+// their own. An htmx request with no such header, or with one that does not
+// parse, and any other page count as the home page, which shows the most.
 func askingPage(r *http.Request) string {
 	path := r.URL.Path
 	if r.Header.Get("HX-Request") == "true" {
@@ -291,15 +294,34 @@ func askingPage(r *http.Request) string {
 			path = u.Path
 		}
 	}
-	if path == pathAccounts {
-		return pathAccounts
+	if path == pathAccounts || isAccountPage(path) {
+		return path
 	}
 	return "/"
+}
+
+// accountRefRe is a valid account reference in the address of an account
+// page: an AWS account ID, a creation request ID, a name or an ID prefix,
+// as core.Resolve reads them. Each is letters, digits and dashes.
+var accountRefRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,63}$`)
+
+// isAccountPage reports whether path is the address of an account page:
+// /accounts/ and one valid account reference.
+func isAccountPage(path string) bool {
+	ref, ok := strings.CutPrefix(path, pathAccounts+"/")
+	return ok && accountRefRe.MatchString(ref)
 }
 
 // onAccounts reports whether the answer goes to the accounts page, which has
 // no queue panel.
 func (pg page) onAccounts() bool { return pg.Asker == pathAccounts }
+
+// onAccount reports whether the answer goes to an account page. That page
+// shows one account and has no queue panel, no ledger and no fleet.
+func (pg page) onAccount() bool { return isAccountPage(pg.Asker) }
+
+// accountRef is the account reference of the account page that asked.
+func (pg page) accountRef() string { return strings.TrimPrefix(pg.Asker, pathAccounts+"/") }
 
 // polling is pg for the layout of a page that polls.
 func polling(pg page) page {
@@ -336,7 +358,7 @@ func (s *Server) pageFor(r *http.Request) page {
 // every page. It leaves out the holds of owners, which only the queue and
 // Your requests use. The account page uses shellPage alone.
 func (s *Server) shellPage(r *http.Request) page {
-	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), Limits: s.svc.Config(), Path: r.URL.Path, Asker: askingPage(r), InSlack: s.slack != nil || s.noticesInSlack, Now: s.svc.Now()}
+	pg := s.basePage(r)
 	// The fleet view of the accounts page comes in the query of a GET and,
 	// thanks to hx-include, in the body of an action, so the view survives
 	// actions. The home page has no view of its own.
@@ -360,6 +382,13 @@ func (s *Server) shellPage(r *http.Request) page {
 		return cmp.Or(a.RequestedAt.Compare(b.RequestedAt), strings.Compare(a.Name, b.Name))
 	})
 	return pg
+}
+
+// basePage is the page of a request with no queue: the viewer, the limits,
+// the asking page and the clock. The refresh of an account page uses it
+// alone, because the answer shows only the account.
+func (s *Server) basePage(r *http.Request) page {
+	return page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), Limits: s.svc.Config(), Path: r.URL.Path, Asker: askingPage(r), InSlack: s.slack != nil || s.noticesInSlack, Now: s.svc.Now()}
 }
 
 // canApprove reports whether the viewer may approve this request. It asks
@@ -458,8 +487,13 @@ func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request, fromCar
 }
 
 // answer is pendingAndTable for a page that the caller built, such as the
-// page of an extension, whose due stamp lands.
+// page of an extension, whose due stamp lands. An account page gets its own
+// answer, which reads only its account.
 func (s *Server) answer(w http.ResponseWriter, r *http.Request, pg page, fromCard bool, result string) {
+	if pg.onAccount() {
+		s.writeAccount(w, r, pg, noticeFragment("check", result))
+		return
+	}
 	rows, err := s.rows(r.Context(), &pg, false)
 	if err != nil {
 		s.fail(w, r, err)
@@ -492,8 +526,22 @@ func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMs
 	if errMsg != "" {
 		errMsg = "unavailable"
 	}
+	return s.hashOf(ctx, accountsAnswer(pg, rows, errMsg, ""))
+}
+
+// accountHash is the poll hash of an account page: the hash of its answer
+// without its own hash. The landed stamp belongs to the extension, so the
+// hash leaves it out, and the next poll still gets 204. It is empty if the
+// render fails.
+func (s *Server) accountHash(ctx context.Context, pg page, v *accountView) string {
+	pg.Landed = ""
+	return s.hashOf(ctx, accountAnswer(pg, v, ""))
+}
+
+// hashOf is the poll hash of what c renders, or empty if the render fails.
+func (s *Server) hashOf(ctx context.Context, c templ.Component) string {
 	h := sha256.New()
-	if err := accountsAnswer(pg, rows, errMsg, "").Render(ctx, h); err != nil {
+	if err := c.Render(ctx, h); err != nil {
 		s.log.Error("render poll hash", "err", err)
 		return ""
 	}
@@ -504,14 +552,87 @@ func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMs
 // the next poll, and on the home page the queue panel. fromCard makes the
 // panel the main swap, for a decision made in the panel. The accounts page
 // has no panel, so its answer is always the section, with the count for an
-// approver. after holds parts that
+// approver. An account page gets its own answer. after holds parts that
 // follow, such as the Sync message.
 func (s *Server) writeAccounts(w http.ResponseWriter, r *http.Request, pg page, rows []accountRow, errMsg, hash string, fromCard bool, after ...templ.Component) {
+	if pg.onAccount() {
+		s.writeAccount(w, r, pg, after...)
+		return
+	}
 	main := accountsAnswer(pg, rows, errMsg, hash)
 	if fromCard && !pg.onAccounts() {
 		main = cardAnswer(pg, rows, errMsg, hash)
 	}
 	s.render(w, r, templ.Join(append([]templ.Component{main}, after...)...))
+}
+
+// accountFor reads the account of the account page that asked, as the
+// viewer may see it. It is nil when the account is gone or the viewer may
+// not see it, so the answer then holds a plain notice and nothing of the
+// account.
+func (s *Server) accountFor(ctx context.Context, pg page) (*accountView, error) {
+	a, err := s.svc.Resolve(ctx, pg.accountRef())
+	if errors.Is(err, core.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !canSee(pg.Viewer, a) {
+		return nil, nil
+	}
+	v := s.viewOf(pg, a)
+	return &v, nil
+}
+
+// viewOf is what the account page shows of a. Spend is month to date from
+// the cost cache. It never pulls, so a refresh or an action never waits for
+// Cost Explorer. Spend is known only when the last pull succeeded, and an
+// account with no AWS account ID has no spend yet, which is known to be
+// zero.
+func (s *Server) viewOf(pg page, a *core.Account) accountView {
+	s.problems.note(s.log, a)
+	row := accountRow{Account: a, SpendKnown: a.ProviderID == "", Now: pg.Now}
+	if a.ProviderID != "" {
+		if pts, ok := s.svc.CostState(a.ProviderID, 31); ok {
+			row.Spend, row.SpendKnown = core.MonthToDate(pts, pg.Now), true
+		}
+	}
+	v := accountView{Row: row, MaxTTL: pg.Limits.MaxTTL}
+	v.Latest, v.HasLatest = s.svc.LatestExpiry(a)
+	return v
+}
+
+// writeAccount answers an account page: the account section, which carries
+// the hash for the next poll, then the parts in after, such as the message
+// for the live region. It carries no ledger and no queue.
+func (s *Server) writeAccount(w http.ResponseWriter, r *http.Request, pg page, after ...templ.Component) {
+	v, err := s.accountFor(r.Context(), pg)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	main := accountAnswer(pg, v, s.accountHash(r.Context(), pg, v))
+	s.render(w, r, templ.Join(append([]templ.Component{main}, after...)...))
+}
+
+// pollAccount answers the refresh of an account page with the account
+// section, or with 204 when the poll sends the hash of what the page shows.
+func (s *Server) pollAccount(w http.ResponseWriter, r *http.Request, pg page, v *accountView) {
+	hash := s.accountHash(r.Context(), pg, v)
+	if hash != "" && r.Header.Get(pollHashHeader) == hash {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	s.render(w, r, accountAnswer(pg, v, hash))
+}
+
+// noCache marks an answer that changes with the data, so a cache must ask
+// every time. The same address is a page or a fragment, and the fragment
+// depends on the page that asked, so a cache keeps them apart.
+func noCache(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "private, no-cache")
+	w.Header().Set("Vary", "HX-Request, HX-Current-URL")
 }
 
 // submit puts a request in the queue. Engineers request for themselves;
@@ -757,6 +878,19 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 // of refusal. Its hash leaves out that text, so the same outage answers 204,
 // and the next good poll clears it.
 func (s *Server) table(w http.ResponseWriter, r *http.Request) {
+	noCache(w)
+	// An account page polls its own address. An htmx GET of this address
+	// from an account page still gets the answer of that page, so it never
+	// gets a fleet that the page does not show.
+	if pg := s.basePage(r); pg.onAccount() && r.Header.Get("HX-Request") == "true" {
+		v, err := s.accountFor(r.Context(), pg)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		s.pollAccount(w, r, pg, v)
+		return
+	}
 	pg := s.pageFor(r)
 	rows, err := s.rows(r.Context(), &pg, false)
 	var errMsg string
@@ -764,11 +898,6 @@ func (s *Server) table(w http.ResponseWriter, r *http.Request) {
 		s.log.Warn("accounts poll", "path", r.URL.Path, "err", err)
 		rows, errMsg = nil, listFailure(err)
 	}
-	// The answer changes with the data, so a cache must ask every time. The
-	// same address is a page or a fragment, and the fragment depends on the
-	// page that asked, so a cache keeps them apart.
-	w.Header().Set("Cache-Control", "private, no-cache")
-	w.Header().Set("Vary", "HX-Request, HX-Current-URL")
 	hash := s.pollHash(r.Context(), pg, rows, errMsg)
 	if r.Header.Get("HX-Request") != "true" {
 		s.render(w, r, accountsPage(pg, rows, errMsg, hash))
@@ -857,13 +986,26 @@ func (s *Server) owned(w http.ResponseWriter, r *http.Request, ref string) (*cor
 	return a, true
 }
 
+// show is the account page. Only the owner and an admin may open it. For
+// htmx it answers the 15 s refresh with the account section, or with 204
+// when the poll sends the hash of what the page shows. The refresh reads
+// spend from the cost cache only and never pulls.
 func (s *Server) show(w http.ResponseWriter, r *http.Request) {
 	a, ok := s.owned(w, r, r.PathValue("id"))
 	if !ok {
 		return
 	}
-	s.problems.note(s.log, a)
-	sp := spendView{Known: a.ProviderID == ""}
+	noCache(w)
+	if r.Header.Get("HX-Request") == "true" {
+		// The answer is the section of this address, whatever page sent the
+		// request, so it polls this address again.
+		pg := s.basePage(r)
+		pg.Asker = r.URL.Path
+		v := s.viewOf(pg, a)
+		s.pollAccount(w, r, pg, &v)
+		return
+	}
+	daily := spendView{Known: a.ProviderID == ""}
 	if a.ProviderID != "" {
 		// Opening the page is a request of a person, so spend that is not
 		// known is pulled at once, also within the wait after a failed poll
@@ -875,15 +1017,16 @@ func (s *Server) show(w http.ResponseWriter, r *http.Request) {
 			// raw error stays in the log.
 			s.log.Warn("costs", "account", a.Name, "err", err)
 		} else {
-			sp = spendView{Known: true, Days: costs}
-			for _, c := range costs {
-				sp.Total += c.AmountUSD
-			}
+			daily = spendView{Known: true, Days: costs}
 		}
 	}
 	// The account page uses no queue slips and no holds, so it reads only
-	// what the shell needs.
-	s.render(w, r, accountPage(s.shellPage(r), a, sp, s.accountHistory(r, a)))
+	// what the shell needs. The view reads the cost cache after the pull, so
+	// the first refresh reads the same spend and gets 204.
+	pg := s.shellPage(r)
+	pg.Asker = r.URL.Path
+	v := s.viewOf(pg, a)
+	s.render(w, r, accountPage(polling(pg), v, daily, s.accountHistory(r, a), s.accountHash(r.Context(), pg, &v)))
 }
 
 func (s *Server) extend(w http.ResponseWriter, r *http.Request) {
@@ -981,13 +1124,21 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 // refusalSlot is the id of the slot that shows the refusal of an htmx
-// request. Off the home page it is the slot under a form or under the page
-// heading. On the home page the New request panel comes last, so only New
-// request itself fills the slot under its form. An action on a request
-// fills the slot of the request panel, and every other refusal, such as
-// +7d, Close or Sync, fills the slot above the accounts.
+// request. On an account page the budget change of an admin fills the slot
+// under its form, and every other refusal, such as +7d or Close, fills the
+// slot of the account. Off the home page it is the slot under a form or
+// under the page heading. On the home page the New request panel comes
+// last, so only New request itself fills the slot under its form. An action
+// on a request fills the slot of the request panel, and every other
+// refusal, such as +7d, Close or Sync, fills the slot above the accounts.
 func refusalSlot(r *http.Request) string {
 	u, err := url.Parse(r.Header.Get("HX-Current-URL"))
+	if err == nil && isAccountPage(u.Path) {
+		if strings.HasSuffix(r.URL.Path, "/budget") {
+			return "form-error"
+		}
+		return "account-error"
+	}
 	if err != nil || u.Path != "/" {
 		return "form-error"
 	}

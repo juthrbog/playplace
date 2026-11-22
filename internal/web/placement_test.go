@@ -61,7 +61,7 @@ func TestAccountFactsNameWhatIsMissing(t *testing.T) {
 	} {
 		var buf bytes.Buffer
 		a := &core.Account{ID: "x", Name: "x", Status: tc.status, CreatedAt: t0}
-		if err := accountPage(page{}, a, spendView{Known: true}, historyView{}).Render(context.Background(), &buf); err != nil {
+		if err := accountPage(page{}, viewFor(a), spendView{Known: true}, historyView{}, "").Render(context.Background(), &buf); err != nil {
 			t.Fatal(err)
 		}
 		out := buf.String()

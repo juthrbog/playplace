@@ -51,7 +51,8 @@ func fromPage(t *testing.T, ts *httptest.Server, method, path, from, user string
 }
 
 // Only the path of HX-Current-URL names the page. A page visit is its own
-// page. Anything else, a missing or broken header included, is the home
+// page. An account page with a valid account reference is a page of its
+// own. Anything else, a missing or broken header included, is the home
 // page, which shows the most.
 func TestAskingPage(t *testing.T) {
 	for _, c := range []struct {
@@ -65,7 +66,15 @@ func TestAskingPage(t *testing.T) {
 		{"action from the accounts page", "/accounts/1/extend", "https://box.example:8443/accounts", true, pathAccounts},
 		{"home page", "/accounts", "http://box.example/", true, "/"},
 		{"home page with a slip", "/accounts", "http://box.example/?req=bobs-box", true, "/"},
-		{"account page", "/accounts", "http://box.example/accounts/111111111111", true, "/"},
+		{"account page", "/accounts", "http://box.example/accounts/111111111111", true, "/accounts/111111111111"},
+		{"action from an account page", "/accounts/111111111111/close", "http://box.example/accounts/111111111111?history_cursor=x#history", true, "/accounts/111111111111"},
+		{"account page of a creation", "/accounts/car-0001", "http://box.example/accounts/car-0001", true, "/accounts/car-0001"},
+		{"account page by name", "/accounts/annas-box", "http://box.example/accounts/annas-box", true, "/accounts/annas-box"},
+		{"under an account page", "/accounts", "http://box.example/accounts/111111111111/extend", true, "/"},
+		{"bad account reference", "/accounts", "http://box.example/accounts/a%20b", true, "/"},
+		{"escaped slash", "/accounts", "http://box.example/accounts/a%2Fb", true, "/"},
+		{"leading dash", "/accounts", "http://box.example/accounts/-1", true, "/"},
+		{"long reference", "/accounts", "http://box.example/accounts/" + strings.Repeat("1", 65), true, "/"},
 		{"trailing slash", "/accounts", "http://box.example/accounts/", true, "/"},
 		{"other case", "/accounts", "http://box.example/Accounts", true, "/"},
 		{"no header", "/accounts", "", true, "/"},
@@ -74,7 +83,7 @@ func TestAskingPage(t *testing.T) {
 		{"page visit", "/accounts", "", false, pathAccounts},
 		{"page visit ignores the header", "/accounts", "http://box.example/", false, pathAccounts},
 		{"page visit home", "/", "http://box.example/accounts", false, "/"},
-		{"page visit of an account", "/accounts/111111111111", "", false, "/"},
+		{"page visit of an account", "/accounts/111111111111", "", false, "/accounts/111111111111"},
 	} {
 		r := httptest.NewRequest("GET", c.path, nil)
 		if c.htmx {

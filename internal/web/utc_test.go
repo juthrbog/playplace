@@ -16,7 +16,7 @@ func renderAccount(t *testing.T, a *core.Account, events []core.AuditEvent) stri
 	t.Helper()
 	var buf bytes.Buffer
 	h := historyView{Enabled: true, Page: audit.Page{Events: events}}
-	if err := accountPage(page{}, a, spendView{Known: true}, h).Render(context.Background(), &buf); err != nil {
+	if err := accountPage(page{}, viewFor(a), spendView{Known: true}, h, "").Render(context.Background(), &buf); err != nil {
 		t.Fatal(err)
 	}
 	return buf.String()

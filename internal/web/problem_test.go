@@ -80,7 +80,7 @@ func TestUnknownProblemShowsGenericWords(t *testing.T) {
 	if err := statusLines(a).Render(context.Background(), &row); err != nil {
 		t.Fatal(err)
 	}
-	if err := accountPage(page{}, a, spendView{Known: true}, historyView{}).Render(context.Background(), &pageOut); err != nil {
+	if err := accountPage(page{}, viewFor(a), spendView{Known: true}, historyView{}, "").Render(context.Background(), &pageOut); err != nil {
 		t.Fatal(err)
 	}
 	for name, out := range map[string]string{"row": row.String(), "account page": pageOut.String()} {
@@ -155,7 +155,7 @@ func TestAccountPageSaysSpendIsUnavailable(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status %d", res.StatusCode)
 	}
-	for _, want := range []string{`<dt>spend, 30 days</dt><dd><span class="muted">unavailable</span></dd>`, `<p class="empty">` + spendUnavailable + `</p>`} {
+	for _, want := range []string{`<dt>spend this month</dt><dd><span class="muted">unavailable</span> of $50.00 a month</dd>`, `<p class="empty">` + spendUnavailable + `</p>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q:\n%s", want, body)
 		}
@@ -168,7 +168,7 @@ func TestAccountPageSaysSpendIsUnavailable(t *testing.T) {
 	// When AWS answers again, the page shows the spend.
 	fc.fail.Store(false)
 	_, body = do(t, ts, "GET", "/accounts/111111111111", "ops@example.com", true, nil, false)
-	if !strings.Contains(body, "<dt>spend, 30 days</dt><dd>$45.00</dd>") || strings.Contains(body, spendUnavailable) {
+	if !strings.Contains(body, `<dt>spend this month</dt><dd>$22.50 of $50.00 a month <span class="muted">($27.50 left this month)</span></dd>`) || strings.Contains(body, spendUnavailable) {
 		t.Errorf("the spend is not back:\n%s", body)
 	}
 }
