@@ -736,7 +736,7 @@ func (s *Service) unplacedAccount(r RemoteAccount, cr *CreateRequest, now time.T
 	if r.Status == "PENDING_ACTIVATION" && a.CloseRequestedAt == nil && now.Sub(r.JoinedAt) <= placementGrace {
 		// AWS activates a new account within minutes, and Refresh does not
 		// report this state before the grace ends.
-		a.Status, a.LastError = StatusCreating, ""
+		a.Status, a.LastError, a.problem = StatusCreating, "", Problem{}
 		return a
 	}
 	if a.Status != StatusActive && a.Status != StatusExpiring {
@@ -749,6 +749,7 @@ func (s *Service) unplacedAccount(r RemoteAccount, cr *CreateRequest, now time.T
 		// that placement failed.
 		a.LastError = fmt.Sprintf("AWS created this account on %s. It waits outside the Playground OU for the next reconcile. Until then it has no budget, OU guardrail, or expiry. If this message stays, check the reconcile errors.",
 			r.JoinedAt.UTC().Format("2006-01-02 15:04 MST"))
+		a.problem = Problem{Kind: ProblemPlacementWait, Since: r.JoinedAt}
 	}
 	return a
 }
@@ -881,6 +882,22 @@ func (s *Service) Extend(ctx context.Context, id string, until time.Time, by str
 	return a, nil
 }
 
+// LatestExpiry is the latest expiry that MaxTTL allows for a: its creation
+// time plus MaxTTL. Adopted accounts count from when they joined the
+// organization. It returns false when there is no ceiling (MaxTTL is 0 or
+// less) or the creation time is unknown, because then no fixed date exists.
+// An admin can still override the ceiling.
+func (s *Service) LatestExpiry(a *Account) (time.Time, bool) {
+	if s.cfg.MaxTTL <= 0 || a.CreatedAt.IsZero() {
+		return time.Time{}, false
+	}
+	return a.CreatedAt.Add(s.cfg.MaxTTL), true
+}
+
+// AccessEnabled reports whether playplace manages the console access of
+// owners, that is, whether a permission set is configured.
+func (s *Service) AccessEnabled() bool { return s.provider.AccessEnabled() }
+
 // checkLifetime refuses an expiry that would give the account a lifetime
 // longer than MaxTTL, counted from when it was created. Adopted accounts
 // count from when they joined the organization.
@@ -889,10 +906,13 @@ func (s *Service) checkLifetime(a *Account, until time.Time, override bool) erro
 		return nil
 	}
 	start := a.CreatedAt
-	if start.IsZero() {
+	limit, ok := s.LatestExpiry(a)
+	if !ok {
+		// With no creation time the limit counts from now, as it always
+		// has, so an account that can be extended today is not refused.
 		start = s.Now()
+		limit = start.Add(s.cfg.MaxTTL)
 	}
-	limit := start.Add(s.cfg.MaxTTL)
 	if until.After(limit) {
 		return LifetimeLimitError{Name: a.Name, Lifetime: until.Sub(start), Max: s.cfg.MaxTTL, Latest: limit}
 	}
