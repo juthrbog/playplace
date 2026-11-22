@@ -108,9 +108,11 @@ accounts. See
 Each account has its own page at `/accounts/` and the ID of the account.
 Open it from the name on a loan card, or from the name of a row in an
 accounts table. You can also type the name of the account after
-`/accounts/`. The page then moves to the address with the ID. A new account
-has the ID of its creation request until AWS gives it an AWS account ID.
-When that happens, the page moves to the new ID by itself. Only the owner
+`/accounts/`. The page then moves to the address with the ID. A request
+that waits for approval has the ID `req:` and its name. When an approver
+approves it, the account gets the ID of its creation request. When AWS
+gives it an AWS account ID, it gets that ID. Each time, an open page moves
+to the new ID by itself. Only the owner
 of the account and admins can open it. Anyone else gets "Not allowed".
 
 The top of the page is the loan card of the account. The name of the
