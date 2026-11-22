@@ -16,6 +16,47 @@ func tableURL(showAll bool) string {
 	return "/accounts"
 }
 
+// pollURL is the address that the accounts section polls. On the accounts
+// page it is the canonical address of the fleet view, and on the home page
+// the list with or without closed accounts.
+func pollURL(pg page) string {
+	if pg.onAccounts() {
+		return fleetURL(pg.Fleet)
+	}
+	return tableURL(pg.ShowAll)
+}
+
+// accountCount is the count in the head of the accounts panel. On the
+// accounts page it counts every account that passes the filters, not only
+// the rows of the page.
+func accountCount(pg page, rows []accountRow) int {
+	if pg.onAccounts() {
+		return pg.Total
+	}
+	return len(rows)
+}
+
+// showClosed reports whether the panel lists closed accounts too.
+func showClosed(pg page) bool {
+	if pg.onAccounts() {
+		return pg.Fleet.Status == fleetStatusAny
+	}
+	return pg.ShowAll
+}
+
+// emptyFleet is the line of an accounts panel with no rows. A filtered view
+// says that nothing matches, so it does not read as a fleet with no
+// accounts.
+func emptyFleet(pg page) string {
+	switch {
+	case pg.onAccounts() && pg.Fleet.filtered():
+		return "No accounts match these filters."
+	case showClosed(pg):
+		return "No accounts."
+	}
+	return "No open accounts."
+}
+
 // accountsTitle is the head of the accounts panel and the name of the
 // accounts page. With sign-in on, anyone but an admin sees only their own
 // accounts.
@@ -228,4 +269,14 @@ func limitsNote(pg page) string {
 		note += " unless you tick override"
 	}
 	return note + "."
+}
+
+// fleetInclude is the hx-include of Sync and the row actions, so their
+// answer keeps the view. On the accounts page that is the filter bar and the
+// page number, and on the home page Show closed.
+func fleetInclude(pg page) string {
+	if pg.onAccounts() {
+		return "#fleet-view, #fleet-page"
+	}
+	return "#show-closed"
 }

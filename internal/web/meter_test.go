@@ -42,8 +42,8 @@ func TestSpendMeter(t *testing.T) {
 // attribute, which browsers drop. The SVG meter has one class per element.
 func TestOverBudgetMeterIsRed(t *testing.T) {
 	var buf bytes.Buffer
-	row := accountRow{Account: &core.Account{ID: "x", Name: "x", Status: core.StatusActive, BudgetUSD: 10}, Spend: 24}
-	if err := accountTR(row).Render(context.Background(), &buf); err != nil {
+	row := accountRow{Account: &core.Account{ID: "x", Name: "x", Status: core.StatusActive, BudgetUSD: 10}, Spend: 24, SpendKnown: true}
+	if err := accountTR(row, "#show-closed").Render(context.Background(), &buf); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()

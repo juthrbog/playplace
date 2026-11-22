@@ -613,6 +613,11 @@
   .panel-head > .link {
     margin-left: auto;
   }
+  /* On the home page of an admin, the link to the fleet and Show closed sit
+     together on the right. */
+  .panel-head > .link + .check {
+    margin-left: 0;
+  }
   .panel-head .muted {
     font-size: 13.5px;
     font-weight: 400;
@@ -650,8 +655,11 @@
     position: relative;
     overflow-x: auto;
   }
-  /* The scroll box clips the last table rows to the panel corners. */
-  .panel > .scroll:last-child {
+  /* The scroll box clips the last table rows to the panel corners. When
+     the pager shows, it is the last part of the panel and takes the
+     corners instead. */
+  .panel > .scroll:last-child,
+  .panel > .pager:last-child {
     border-radius: 0 0 calc(var(--r-panel) - 1px) calc(var(--r-panel) - 1px);
   }
   .panel th:first-child,
@@ -787,6 +795,136 @@
   /* Tables. Rows stay one line. The cells that hold free text wrap. */
   .fleet {
     min-width: 1120px;
+  }
+  /* The filter bar of the accounts page sits under the panel head, at the
+     row inset. It wraps on a narrow window. */
+  .fleet-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm) var(--space-md);
+    padding: 0 var(--space-lg) var(--space-md);
+  }
+  .fleet-bar input[type=search] {
+    width: min(100%, 18rem);
+  }
+  /* A label and its select are one item of the bar, so the bar never
+     wraps between them. The gap to the select is the 8 px of a field and
+     its label. */
+  .bar-pair {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+  .bar-field {
+    color: var(--ink);
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  /* Selects in a toolbar are native and 30 px, with the border of a
+     field. */
+  .fleet-bar select {
+    height: var(--control-h-sm);
+    padding: 0 6px;
+    border: 1px solid var(--control-rule);
+    border-radius: var(--r-control);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 13.5px;
+    font-weight: 400;
+  }
+  .fleet-bar select:hover {
+    border-color: var(--ink);
+  }
+  /* The segmented control: one 5 px group with a control-rule border and
+     dividers. The group clips its items, so they nest inside its corners.
+     The current item is ink with paper text. The focus ring sits inside
+     the item, so the group does not clip it. */
+  .segmented {
+    display: inline-flex;
+    border: 1px solid var(--control-rule);
+    border-radius: var(--r-group);
+    overflow: hidden;
+  }
+  .segmented > a {
+    display: inline-flex;
+    align-items: center;
+    height: calc(var(--control-h-sm) - 2px);
+    padding: 0 11px;
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 13.5px;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .segmented > a + a {
+    border-left: 1px solid var(--control-rule);
+  }
+  .segmented > a:hover {
+    background: var(--paper-tint);
+    color: var(--ink);
+  }
+  .segmented > a[aria-current=true] {
+    background: var(--ink);
+    color: var(--paper);
+  }
+  .segmented > a:focus-visible {
+    outline-offset: -2px;
+  }
+  /* Violet on the ink of the current item is about 2:1, so its ring is
+     paper, the color of its text. */
+  .segmented > a[aria-current=true]:focus-visible {
+    outline-color: var(--paper);
+  }
+  /* A sortable head is a button with the look of the head: no box, the
+     12 px pencil-grey label, the full height of the head. The sorted
+     column turns ink and shows its arrow. The head is the top of the scroll
+     box, which would clip a ring outside the button, so the ring sits
+     inside it. The 4 px side padding keeps the ring off the label, and the
+     margin keeps the label in line with its column. */
+  button.sort {
+    gap: var(--space-xs);
+    height: var(--control-h);
+    margin: 0 -4px;
+    padding: 0 4px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: inherit;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  button.sort:hover,
+  th[aria-sort] > button.sort {
+    background: none;
+    color: var(--ink);
+  }
+  button.sort > .i {
+    width: 12px;
+    height: 12px;
+  }
+  button.sort:focus-visible {
+    outline-offset: -2px;
+  }
+  /* The pager closes the table: the count of the rows on the left, then
+     Previous and Next as 30 px plain buttons. */
+  .pager {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 10px var(--space-lg);
+    border-top: 1px solid var(--rule);
+  }
+  .pager > p {
+    margin-right: auto;
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+  .pager > button {
+    height: var(--control-h-sm);
+    padding: 0 11px;
   }
   /* A long owner email ends in an ellipsis, so the row actions stay in
      view at 1440 px. The title and the account page hold the whole
@@ -1953,6 +2091,10 @@
     td a,
     button.slip-name {
       min-height: var(--touch);
+    }
+    /* The group border adds 2 px, so the group is 44 px. */
+    .segmented > a {
+      height: calc(var(--touch) - 2px);
     }
     a.link,
     td a {

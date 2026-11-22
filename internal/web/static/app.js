@@ -791,6 +791,46 @@ document.addEventListener("htmx:configRequest", function (ev) {
   }
 });
 
+// A segment, a sort head or Previous and Next of the accounts page asks for
+// an address that holds the search of the last answer. The viewer can type
+// in the search box while the debounce waits, so the request takes the text
+// that is in the box now. The answer then holds that text, and the morph
+// keeps it in the box. New text starts again at page 1. navQ keeps the
+// search that the click sent, so the beforeRequest listener below can drop
+// the debounced search that the click already covered.
+var navQ = null;
+document.addEventListener("htmx:configRequest", function (ev) {
+  var elt = ev.detail.elt;
+  var box = document.getElementById("fleet-q");
+  if (!box || !elt || !elt.hasAttribute || !elt.hasAttribute("data-fleet-nav")) {
+    return;
+  }
+  var url = new URL(ev.detail.path, location.origin);
+  var q = box.value.trim();
+  navQ = q;
+  if (q === (url.searchParams.get("q") || "")) {
+    return;
+  }
+  if (q) {
+    url.searchParams.set("q", q);
+  } else {
+    url.searchParams.delete("q");
+  }
+  url.searchParams.delete("page");
+  ev.detail.path = url.pathname + url.search;
+});
+
+// A sort head sits in the scroll box of the table. When the focus lands on
+// a head that is only a little past the edge of the box, the browser does
+// not scroll, so the edge cuts its label and its focus ring. With
+// "nearest", the box scrolls whenever any part of the head is cut.
+document.addEventListener("focusin", function (ev) {
+  var b = ev.target;
+  if (b instanceof Element && b.matches(".scroll button.sort")) {
+    b.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+});
+
 // The morph keeps the accounts section in the page, so a poll answer that
 // arrives after an action would put the old state back. Every other
 // request, Show closed included, counts as an action, and the beforeSwap
@@ -822,6 +862,27 @@ document.addEventListener("htmx:beforeRequest", function (ev) {
     return;
   }
   actionSeq++;
+});
+// A click on a data-fleet-nav control does not stop the debounce of the
+// search box, so the form still sends its search after the click. When the
+// form sends because of typing, and the search is the same as the one that
+// the click sent, the click already asked for this view. Then the form
+// request is dropped. Without this, a click on Next can be followed by a
+// search with no page, which goes back to page 1. Any request of the form
+// clears navQ, and a search that is really new still goes out.
+document.addEventListener("htmx:beforeRequest", function (ev) {
+  var form = ev.detail.elt;
+  if (!form || form.id !== "fleet-view") {
+    return;
+  }
+  var cfg = ev.detail.requestConfig;
+  var t = cfg && cfg.triggeringEvent;
+  var box = document.getElementById("fleet-q");
+  var q = navQ;
+  navQ = null;
+  if (t && t.type === "input" && box && q !== null && box.value.trim() === q) {
+    ev.preventDefault();
+  }
 });
 // busyButton is the button whose request runs, or null. Edit and Cancel are
 // buttons that send a GET. Any other GET comes from the poll or the Show

@@ -145,10 +145,7 @@ func returnPath(r *http.Request) string {
 	if r.Method != http.MethodGet {
 		return ""
 	}
-	if next := r.URL.RequestURI(); next != "/" {
-		return localPath(next)
-	}
-	return ""
+	return pageReturnPath(r.URL)
 }
 
 // htmxReturnPath is the address that a sign-in returns to after an htmx
@@ -159,10 +156,26 @@ func htmxReturnPath(r *http.Request) string {
 	if err != nil {
 		return ""
 	}
-	if next := u.RequestURI(); next != "/" {
-		return localPath(next)
+	return pageReturnPath(u)
+}
+
+// pageReturnPath is the path and query of u, when it is a path on this
+// host. A query can make the address longer than localPath allows, for
+// example a long search in other scripts, because each byte of a rune
+// takes three characters. The sign-in then returns to the path alone, so
+// the viewer still gets the page, in its default view.
+func pageReturnPath(u *url.URL) string {
+	next := u.RequestURI()
+	if next == "/" {
+		return ""
 	}
-	return ""
+	if p := localPath(next); p != "" {
+		return p
+	}
+	if u.RawQuery == "" || u.EscapedPath() == "/" {
+		return ""
+	}
+	return localPath(u.EscapedPath())
 }
 
 // shutdownDrain is how long a stop waits for the answers in flight. A
@@ -196,7 +209,12 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 type page struct {
 	Viewer  Viewer
 	SignIn  bool // whether sign-in is enforced (shows the sign-out control)
-	ShowAll bool
+	ShowAll bool // Show closed on the home page
+	// Fleet is the search, filters, sort and page of the accounts page.
+	// pageFor reads it only for that page. rows sets its Page to the page it
+	// shows, and Total to the number of accounts that pass the filters.
+	Fleet   fleetView
+	Total   int
 	Pending []core.Request // requests the viewer may see: their own, or all for approvers
 	Limits  core.Config    // ceilings and defaults shown in the form
 	Path    string         // the request path, so the shell can mark the current page
@@ -282,6 +300,12 @@ func (s *Server) pageFor(r *http.Request) page {
 	// "all" arrives as a query parameter on GET and, thanks to hx-include on
 	// the switch, in the body of every action, so the view survives actions.
 	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), ShowAll: r.FormValue("all") == "1", Limits: s.svc.Config(), Path: r.URL.Path, Asker: askingPage(r), InSlack: s.slack != nil || s.noticesInSlack}
+	// The fleet view of the accounts page comes the same way: in the query
+	// of a GET and in the body of an action. The home page keeps its plain
+	// list.
+	if pg.onAccounts() {
+		pg.Fleet = parseFleetView(r.FormValue, pg.Viewer)
+	}
 	all, err := s.svc.PendingRequests(r.Context())
 	if err != nil {
 		s.log.Warn("pending requests", "err", err)
@@ -338,17 +362,26 @@ func canSee(v Viewer, a *core.Account) bool {
 }
 
 // rows lists the accounts the viewer may see, with month-to-date spend from
-// the cost cache. Costs are warmed in parallel. A row shows the spend of the
-// last good pull, and zero when no pull succeeded yet.
-func (s *Server) rows(ctx context.Context, v Viewer, showAll bool, force bool) ([]accountRow, error) {
-	accounts, err := s.svc.List(ctx, core.ListFilter{IncludeClosed: showAll})
+// the cost cache. Costs are warmed in parallel for every account the viewer
+// may see, before any filter, so spend filters and the spend sort are right.
+// Spend is known only when the last pull succeeded, as in the CLI. An
+// account with no AWS account ID has no spend yet, which is known to be
+// zero. The home page lists every account, newest first. The accounts page
+// filters, sorts and cuts the list to the page of pg.Fleet, and sets
+// pg.Fleet.Page and pg.Total.
+func (s *Server) rows(ctx context.Context, pg *page, force bool) ([]accountRow, error) {
+	includeClosed := pg.ShowAll
+	if pg.onAccounts() {
+		includeClosed = pg.Fleet.Status == fleetStatusAny || pg.Fleet.Status == string(core.StatusClosed)
+	}
+	accounts, err := s.svc.List(ctx, core.ListFilter{IncludeClosed: includeClosed})
 	if err != nil {
 		return nil, err
 	}
 	var mine []*core.Account
 	var ids []string
 	for _, a := range accounts {
-		if !canSee(v, a) {
+		if !canSee(pg.Viewer, a) {
 			continue
 		}
 		mine = append(mine, a)
@@ -356,23 +389,30 @@ func (s *Server) rows(ctx context.Context, v Viewer, showAll bool, force bool) (
 			ids = append(ids, a.ID)
 		}
 	}
-	// Core sorts accounts by creation time alone, over a listing in map
-	// order. The id breaks ties, so two reads of the same fleet hash the same.
-	slices.SortStableFunc(mine, func(a, b *core.Account) int {
-		return cmp.Or(b.CreatedAt.Compare(a.CreatedAt), strings.Compare(a.ID, b.ID))
-	})
 	if err := s.svc.WarmCosts(ctx, ids, force); err != nil {
 		s.log.Warn("costs", "err", err)
 	}
 	now := s.svc.Now()
 	rows := make([]accountRow, 0, len(mine))
 	for _, a := range mine {
-		r := accountRow{Account: a}
-		if pts, ok := s.svc.CostsCached(a.ProviderID, 31); ok {
-			r.Spend = core.MonthToDate(pts, now)
+		r := accountRow{Account: a, SpendKnown: a.ProviderID == ""}
+		if a.ProviderID != "" {
+			if pts, ok := s.svc.CostState(a.ProviderID, 31); ok {
+				r.Spend, r.SpendKnown = core.MonthToDate(pts, now), true
+			}
 		}
 		rows = append(rows, r)
 	}
+	if pg.onAccounts() {
+		var shown []accountRow
+		shown, pg.Total, pg.Fleet.Page = pg.Fleet.apply(rows, pg.Viewer, now)
+		return shown, nil
+	}
+	// Core sorts accounts by creation time alone, over a listing in map
+	// order. The id breaks ties, so two reads of the same fleet hash the same.
+	slices.SortStableFunc(rows, func(a, b accountRow) int {
+		return cmp.Or(b.Account.CreatedAt.Compare(a.Account.CreatedAt), strings.Compare(a.Account.ID, b.Account.ID))
+	})
 	return rows, nil
 }
 
@@ -384,7 +424,7 @@ func (s *Server) rows(ctx context.Context, v Viewer, showAll bool, force bool) (
 func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request, fromCard bool, open, result string) {
 	pg := s.pageFor(r)
 	pg.Open = open
-	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
+	rows, err := s.rows(r.Context(), &pg, false)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -665,7 +705,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		!slices.ContainsFunc(pg.Pending, func(q core.Request) bool { return q.Name == pg.Open }) {
 		pg.Missing = pg.Open
 	}
-	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
+	rows, err := s.rows(r.Context(), &pg, false)
 	var msg string
 	if err != nil {
 		s.log.Warn("accounts", "path", r.URL.Path, "err", err)
@@ -682,7 +722,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 // and the next good poll clears it.
 func (s *Server) table(w http.ResponseWriter, r *http.Request) {
 	pg := s.pageFor(r)
-	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
+	rows, err := s.rows(r.Context(), &pg, false)
 	var errMsg string
 	if err != nil {
 		s.log.Warn("accounts poll", "path", r.URL.Path, "err", err)
@@ -697,6 +737,13 @@ func (s *Server) table(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("HX-Request") != "true" {
 		s.render(w, r, accountsPage(pg, rows, errMsg, hash))
 		return
+	}
+	// A control of the fleet view replaces the address with the canonical
+	// address of the view it shows: no empty or default fields, and a page
+	// past the end turned into the last page. The poll asks for that address
+	// already, and its id does not match, so it never replaces the address.
+	if pg.onAccounts() && strings.HasPrefix(r.Header.Get("HX-Trigger"), fleetControl) {
+		w.Header().Set("HX-Replace-Url", fleetURL(pg.Fleet))
 	}
 	if hash != "" && r.Header.Get(pollHashHeader) == hash {
 		w.WriteHeader(http.StatusNoContent)
@@ -730,7 +777,7 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, noticeFragment("sync", msg))
 		return
 	}
-	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, true)
+	rows, err := s.rows(r.Context(), &pg, true)
 	if err != nil {
 		s.fail(w, r, err)
 		return

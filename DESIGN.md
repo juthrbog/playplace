@@ -564,7 +564,9 @@ shell wraps when it runs out of room. It holds, in order, the brand, the
 navigation, the search field pushed to the right (at most 360 px), Sync with
 AWS, New request, the signed-in person, and Sign out. The search field is
 not built yet, so Sync with AWS starts the right side, or New request when
-there is no Sync. Shell controls are 34 px tall, with 10 px top and bottom
+there is no Sync. The shell search comes with History. Until then, the
+search of the fleet sits in the filter bar of the accounts panel on the
+accounts page. Shell controls are 34 px tall, with 10 px top and bottom
 padding and a 24 px side gutter.
 
 The main area has 16 px top padding, 24 px side gutters, 32 px bottom
@@ -650,12 +652,12 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 - **Shape:** gently squared (4px), 34 px tall, 13 px side padding, an icon and a word with a 7 px gap.
 - **Approve:** violet with paper text. The only violet button. Approve selected, the final button of the bulk approval summary and Extend use it too, with the stamp icon.
 - **Primary:** card stock with ink text. Inside a panel it gets a card-rule border. New request, Request, Save, Save budget, the way back on an error page and the AWS access portal link (not built yet) use it.
-- **Plain:** paper with ink text and a control-rule border. Deny on a row, Deny selected, Close, Cancel, Pause updates and pager buttons use it. The pager buttons are not built yet.
+- **Plain:** paper with ink text and a control-rule border. Deny on a row, Deny selected, Close, Cancel, Pause updates and the pager buttons Previous and Next use it.
 - **Ghost:** transparent on the shell, with card text and a shelf-rule border. Only Sync with AWS uses it.
 - **Deny:** red ink with paper text, and deep red ink on hover. It appears only as the final button in a dialog that denies a request or closes an account: Deny in the deny dialog and Close account in the close dialog. Red marks the step that cannot be undone, not the button that opens the dialog.
 - **Hover / Focus:** a hover changes the fill (pressed violet, selected card, paper tint, deep shelf or deep red ink). The plain button also turns its border to ink. Focus is a 2 px violet ring with a 2 px offset. On the shell the ring is card stock.
 - **Disabled and busy:** a disabled button has a soft-rule fill, pencil-grey text and a dashed control-rule border. A busy button keeps its size, sets `aria-busy`, and changes its word to a verb in progress: Approving, Sending, Denying, Syncing, Withdrawing or Saving. The word and its verb share one grid cell, and the verb has no width, so the button keeps the width of its word. A busy button keeps its colors and is never disabled. The +7d, Close, Edit and Cancel buttons set only `aria-busy` and keep their word.
-- **Sizes:** 30 px with 11 px padding in toolbars, in pagers (not built yet) and for Pause updates in the footer. 44 px on the phone. The phone Approve and Deny buttons are 52 px with a 16 px label.
+- **Sizes:** 30 px with 11 px padding in toolbars, in pagers and for Pause updates in the footer. 44 px on the phone. The phone Approve and Deny buttons are 52 px with a 16 px label.
 
 ### Chips
 - **Count pill:** card stock with ink text, 12 px bold, beside Queue and Notices in the shell. A visually hidden word says what the number counts.
@@ -676,8 +678,8 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 - **Error / Disabled:** an invalid field gets a red-ink border and a 12 px semibold red-ink message with an alert icon below it, tied with `aria-describedby`. The message below the field is not built yet. Until then, a field that the server refused gets `aria-invalid`, and `aria-describedby` ties it to the refusal note (see Feedback). A disabled field gets the soft-rule fill and a dashed border.
 - **On card stock:** plain buttons, fields, selects and segmented controls use a pencil-grey border, because the control rule is only 2.6:1 on card stock.
 - **Checkboxes and radios:** native, 16 px, with a violet `accent-color`.
-- **Selects (not built yet):** native, 30 px in toolbars and 34 px in forms.
-- **Segmented control (not built yet):** a single choice in one 5 px group with a control-rule border and dividers. Items are 30 px tall (44 px on the phone) in 13.5 px. The current item is ink with paper text. A filter that changes the URL uses links with `aria-current`. A choice inside a form uses radio inputs in a `<fieldset>`.
+- **Selects:** native, 30 px in toolbars and 34 px in forms, with the border of a field. The Status and Budget health filters of the fleet are the first selects. Each has a 13.5 px semibold label before it.
+- **Segmented control:** a single choice in one 5 px group with a control-rule border and dividers. Items are 30 px tall (44 px on the phone) in 13.5 px. The current item is ink with paper text. A filter that changes the URL uses links with `aria-current`. A choice inside a form uses radio inputs in a `<fieldset>`. The first one is All, Mine and Needs attention in the filter bar of the fleet, for admins only.
 
 ### Navigation
 - **Style:** the shell holds the brand (the mark and "playplace" at 19 px, "play" bold in card stock and "place" regular in paper), then nav links in 14 px medium card text with 6 px by 11 px padding.
@@ -770,7 +772,7 @@ use a full-width 6 px meter. The full-width meter is not built yet.
 - **From 75 percent:** ink fill and an "NN% used" label in 12 px semibold ink.
 - **From 95 percent:** red fill, an alert icon and the "NN% used" label in red ink.
 - **Over budget:** a full red bar and the words "over budget" with an alert icon.
-- **Unknown (not built yet):** a failed cost pull shows the word "unavailable" and no bar, never $0.00. Until then, a cost that did not load shows as $0.00.
+- **Unknown:** spend whose last cost pull failed or never ran shows the word "unavailable" in pencil grey and no bar, never $0.00. The budget still shows after it.
 
 The label sits 8 px to the right of the inline meter, so a table row stays
 one line. Under a full-width meter, the label sits below it. The server
@@ -826,8 +828,11 @@ is empty or holds only that copy. Off the home page, a refused Sync has no
 slot, so the region shows the refusal.
 
 ### Tables
-- **Head:** paper tint, 12 px semibold pencil-grey labels, 34 px tall, with panel rules above and below. A sortable head is a button. The sorted column turns ink and shows an arrow for its direction, and the `<th>` sets `aria-sort`. Sortable heads are not built yet.
+- **Head:** paper tint, 12 px semibold pencil-grey labels, 34 px tall, with panel rules above and below. A sortable head is a button. The sorted column turns ink and shows an arrow for its direction, drawn in `currentColor`, and the `<th>` sets `aria-sort`. Its focus ring sits inside the button, because the scroll box would clip a ring outside it. When a head gets the focus, the scroll box scrolls so that the whole head shows. On the accounts page every head but Actions sorts. The home page keeps plain heads.
 - **Rows:** a soft-rule line under each row. Hover is paper tint. A selected row is card stock with its due cell in selected card. A focused row has a 2 px violet frame. A stale or refused row has a 1 px dashed red-ink frame and shows the new values in place. Row selection and both frames are not built yet on table rows. The desk slips have both frames, and a checked slip is selected.
+- **Filter bar:** on the accounts page, a `<form role="search">` under the panel head holds the search field, the segmented control for admins, and the Status and Budget health selects. It wraps on a narrow window, and each label wraps together with its select. The focus ring of a segment sits inside it. On the current segment the ring is paper, because violet on ink is only about 2:1. It shows in every state of the panel. Search goes 400 ms after typing stops, and at once on Enter. A select goes at once. A filter change starts at page 1, and every change of the view replaces the address. The accounts page has the Status filter in place of Show closed. Show closed stays only on the home page, where an admin also gets the link "Search and filter all accounts".
+- **No match:** a filtered view with no rows says "No accounts match these filters." with a "Clear filters" link. "No open accounts." stays for a fleet that has none.
+- **Pager:** under the table when the view has more than one page of 50 rows. "Showing 51–100 of 112" in 13.5 px pencil grey on the left, then Previous and Next as 30 px plain buttons. At either end the button stays in place with `aria-disabled` and `hx-disable`, so it sends nothing. When the pager shows, it takes the bottom corners of the panel.
 - **Date due column (not built yet):** always on card stock with a card-rule line under each cell, in every row state.
 - **Account links:** 14 px semibold ink, underlined in the panel rule color with a 3 px offset, violet on hover.
 - **Mono values:** account IDs and versions in Courier Prime at the size of the text around them.

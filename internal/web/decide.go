@@ -428,7 +428,7 @@ func (s *Server) answerDecisions(w http.ResponseWriter, r *http.Request, action 
 	}
 	pg := s.pageFor(r)
 	pg.Results = results
-	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
+	rows, err := s.rows(r.Context(), &pg, false)
 	var errMsg string
 	if err != nil {
 		s.log.Warn("accounts", "path", r.URL.Path, "err", err)

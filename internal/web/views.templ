@@ -131,7 +131,7 @@ templ shell(pg page) {
 						if hasAccountsSection(pg) {
 							hx-target="#accounts"
 							hx-swap="morph"
-							hx-include="#show-closed"
+							hx-include={ fleetInclude(pg) }
 						} else {
 							hx-target="#notice"
 							hx-swap="none"
@@ -261,12 +261,17 @@ templ iconSprite() {
 		<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"></path></symbol>
 		<symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"></path></symbol>
 		<symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"></path></symbol>
+		<symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"></path></symbol>
+		<symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"></path></symbol>
 	</svg>
 }
 
 type accountRow struct {
 	Account *core.Account
 	Spend   float64 // month to date
+	// SpendKnown is false when the last cost pull failed or never ran. The
+	// row then shows "unavailable" and no meter, never $0.00.
+	SpendKnown bool
 }
 
 
@@ -928,7 +933,7 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 	<section
 		id="accounts"
 		class="panel"
-		hx-get={ tableURL(pg.ShowAll) }
+		hx-get={ pollURL(pg) }
 		hx-trigger="every 15s, poll-now"
 		hx-swap="morph"
 		aria-labelledby="accounts-title"
@@ -944,15 +949,31 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 			<h2 id="accounts-title" tabindex="-1">
 				{ accountsTitle(pg) }
 				if errMsg == "" {
-					<span class="muted">({ fmt.Sprint(len(rows)) })</span>
+					<span class="muted">({ fmt.Sprint(accountCount(pg, rows)) })</span>
 				}
 			</h2>
-			<label class="check" title="include accounts AWS explicitly reports CLOSED"><input id="show-closed" type="checkbox" name="all" value="1" checked?={ pg.ShowAll } hx-get="/accounts" hx-target="#accounts" hx-swap="morph" hx-trigger="change"/>Show closed</label>
+			// The accounts page has the Status filter in place of Show closed.
+			// The home page keeps its plain list, and an admin gets the way to
+			// the whole fleet with its search and filters.
+			if !pg.onAccounts() {
+				if pg.Viewer.Admin {
+					<a class="link" href="/accounts">Search and filter all accounts</a>
+				}
+				<label class="check" title="include accounts AWS explicitly reports CLOSED"><input id="show-closed" type="checkbox" name="all" value="1" checked?={ showClosed(pg) } hx-get="/accounts" hx-target="#accounts" hx-swap="morph" hx-trigger="change"/>Show closed</label>
+			}
 		</div>
+		// The filter bar shows in every branch, so a viewer can always change
+		// or clear a filter. The page number sits outside its form: a filter
+		// change leaves it out and starts at page 1, and a row action and
+		// Sync include it and keep the page.
+		if pg.onAccounts() {
+			@fleetBar(pg)
+			<input type="hidden" id="fleet-page" name="page" value={ strconv.Itoa(pg.Fleet.Page) }/>
+		}
 		// A failed load is one note: the problem, then the refusal text of
 		// the error and the recovery. An empty list is one plain line, as in
 		// Your requests. Neither has column heads. The head keeps Show
-		// closed, and the section keeps polling. The error note has an id, so
+		// closed or the filter bar, and the section keeps polling. The error note has an id, so
 		// a morph never pairs it with the table that replaces it. data-stale
 		// tells app.js that the section shows no fresh data, so the Updated
 		// time does not reset. While the viewer paused live updates, the
@@ -961,33 +982,179 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 		if errMsg != "" {
 			<div id="accounts-error" class="refusal" data-stale>@icon("alert")<div class="note-text"><p class="note-title">The account list is unavailable.</p><p class="note-body">{ errMsg + " " }<span class="retry-live">The page tries again every 15 seconds.</span><span class="retry-paused">Live updates are paused. Resume them to try again.</span></p></div></div>
 		} else if len(rows) == 0 {
-			<p class="empty">
-				if pg.ShowAll {
-					No accounts.
-				} else {
-					No open accounts.
-				}
-			</p>
+			if pg.onAccounts() && pg.Fleet.filtered() {
+				<p class="empty">{ emptyFleet(pg) + " " }<a href="/accounts">Clear filters</a></p>
+			} else {
+				<p class="empty">{ emptyFleet(pg) }</p>
+			}
 		} else {
 			<div class="scroll">
 				<table class="fleet">
 					<thead>
-						<tr><th scope="col">Name</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Account</th><th scope="col">Expires</th><th scope="col">Spend / Budget</th><th scope="col"><span class="vh">Actions</span></th></tr>
+						<tr>
+							if pg.onAccounts() {
+								for _, c := range fleetColumns {
+									@sortHead(pg.Fleet, c)
+								}
+							} else {
+								<th scope="col">Name</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Account</th><th scope="col">Expires</th><th scope="col">Spend / Budget</th>
+							}
+							<th scope="col"><span class="vh">Actions</span></th>
+						</tr>
 					</thead>
 					<tbody>
 						for _, r := range rows {
-							@accountTR(r)
+							@accountTR(r, fleetInclude(pg))
 						}
 					</tbody>
 				</table>
 			</div>
+			if pg.onAccounts() && fleetPages(pg.Total) > 1 {
+				@fleetPager(pg.Fleet, pg.Total)
+			}
 		}
 	</section>
 }
 
+// fleetBar is the filter bar of the accounts page. It is a form, so a row
+// action and Sync can include the whole view. Search goes 400 ms after the
+// viewer stops typing, and at once on Enter, which submits the form. A
+// select goes at once on a change. Every request from the bar leaves the
+// page out, so it starts at page 1, and replaces the address, so a reload,
+// Back and sign-in keep the view. The poller is the section around the
+// form, never inside it, so it does not inherit hx-replace-url. The search
+// and the two selects keep their ids, so the focus stays on them through a
+// morph, and a focused search keeps what the viewer typed. Only an admin
+// sees the whole fleet, so only an admin gets the segments. They are links
+// with aria-current, because they change the address. The hidden fields
+// carry the parts of the view that the bar does not show. Each label and
+// its select sit in one bar-pair, so a narrow window never splits them.
+//
+// The segments, the sort heads and the pager are data-fleet-nav controls.
+// Their address holds the search of the last answer, so app.js puts the
+// text that is in the search box now in its place. They share the sync of
+// the form: a click replaces a request of the bar that runs, and a search
+// that the debounce sends while a click runs waits for its answer, so it
+// sends the sort and the filters that the answer put in the form. When that
+// search is the same as the one the click sent, app.js drops it.
+templ fleetBar(pg page) {
+	<form
+		id="fleet-view"
+		class="fleet-bar"
+		action="/accounts"
+		method="get"
+		role="search"
+		aria-label="Find accounts"
+		hx-get="/accounts"
+		hx-target="#accounts"
+		hx-swap="morph"
+		hx-replace-url="true"
+		hx-trigger="submit, input changed delay:400ms target:#fleet-q, change target:select"
+		hx-sync="this:queue last"
+	>
+		<label class="vh" for="fleet-q">Search accounts</label>
+		<input id="fleet-q" type="search" name="q" value={ pg.Fleet.Q } maxlength={ strconv.Itoa(fleetQueryMax) } placeholder="Name, owner or account ID" autocomplete="off" spellcheck="false"/>
+		if pg.Viewer.Admin {
+			<div class="segmented" role="group" aria-label="Accounts to show">
+				for _, seg := range fleetSegments {
+					<a
+						id={ seg.ID }
+						href={ templ.SafeURL(segmentURL(pg.Fleet, seg)) }
+						hx-get={ segmentURL(pg.Fleet, seg) }
+						hx-target="#accounts"
+						hx-swap="morph"
+						hx-replace-url="true"
+						hx-sync="#fleet-view:replace"
+						data-fleet-nav
+						if segmentCurrent(pg.Fleet, seg) {
+							aria-current="true"
+						}
+					>{ seg.Label }</a>
+				}
+			</div>
+		}
+		<span class="bar-pair">
+			<label class="bar-field" for="fleet-status">Status</label>
+			<select id="fleet-status" name="status">
+				for _, o := range statusOptions() {
+					<option value={ o.Value } selected?={ o.Value == pg.Fleet.Status }>{ o.Label }</option>
+				}
+			</select>
+		</span>
+		<span class="bar-pair">
+			<label class="bar-field" for="fleet-budget">Budget health</label>
+			<select id="fleet-budget" name="budget">
+				for _, o := range budgetOptions() {
+					<option value={ o.Value } selected?={ o.Value == pg.Fleet.Budget }>{ o.Label }</option>
+				}
+			</select>
+		</span>
+		if pg.Viewer.Admin {
+			<input type="hidden" name="owner" value={ pg.Fleet.Owner }/>
+			<input type="hidden" name="attention" value={ pg.Fleet.Attention }/>
+		}
+		<input type="hidden" name="sort" value={ pg.Fleet.Sort }/>
+		<input type="hidden" name="dir" value={ pg.Fleet.Dir }/>
+	</form>
+}
+
+// sortHead is a sortable head of the fleet table. The head is a button
+// that asks for the view sorted by its column, and the <th> sets aria-sort
+// on the sorted column. That column turns ink and shows an arrow for its
+// direction, drawn in the color of its text. The button keeps its id, so
+// the focus stays on it after the sort.
+templ sortHead(f fleetView, c fleetColumn) {
+	<th
+		scope="col"
+		if sortState(f, c.Key) != "" {
+			aria-sort={ sortState(f, c.Key) }
+		}
+	>
+		<button type="button" id={ fleetControl + "sort-" + c.Key } class="sort" hx-get={ sortURL(f, c.Key) } hx-target="#accounts" hx-swap="morph" hx-replace-url="true" hx-sync="#fleet-view:replace" data-fleet-nav>
+			{ c.Label }@sortArrow(sortState(f, c.Key))
+		</button>
+	</th>
+}
+
+// sortArrow is the arrow of the sorted head: up for ascending, down for
+// descending, and none for a head that is not sorted.
+templ sortArrow(state string) {
+	switch state {
+		case "ascending":
+			@icon("arrow-up")
+		case "descending":
+			@icon("arrow-down")
+	}
+}
+
+// fleetPager is the pager under the fleet table, when the view has more
+// than one page. Previous and Next keep their ids and stay in place at
+// either end, marked aria-disabled, so the focus never falls to the page.
+templ fleetPager(f fleetView, total int) {
+	<nav class="pager" aria-label="Pages">
+		<p>{ fleetShowing(f, total) }</p>
+		@pagerButton(f, "prev", "Previous", f.Page-1, f.Page > 1)
+		@pagerButton(f, "next", "Next", f.Page+1, f.Page < fleetPages(total))
+	</nav>
+}
+
+// pagerButton is Previous or Next. At the end of the list it asks for
+// nothing. The morph keeps the button, and htmx keeps the click handler
+// that it bound while the button was enabled. hx-disable makes htmx drop
+// that handler at the next click, so the click sends nothing.
+templ pagerButton(f fleetView, id, label string, to int, ok bool) {
+	if ok {
+		<button type="button" id={ fleetControl + id } hx-get={ pageURL(f, to) } hx-target="#accounts" hx-swap="morph" hx-replace-url="true" hx-sync="#fleet-view:replace" data-fleet-nav>{ label }</button>
+	} else {
+		<button type="button" id={ fleetControl + id } aria-disabled="true" hx-disable>{ label }</button>
+	}
+}
+
 // accountTR is one row of the fleet table. A placement wait is settling, not
 // a failure, so it is a qualifier with a clock. Errors are red with an alert.
-templ accountTR(r accountRow) {
+// include names what +7d and Close send along, so the answer keeps the view:
+// the filter bar and the page on the accounts page, Show closed on home.
+templ accountTR(r accountRow, include string) {
 	<tr id={ "acct-" + r.Account.ID }>
 		<td><a href={ templ.SafeURL("/accounts/" + r.Account.ID) }>{ r.Account.Name }</a></td>
 		<td><span class="owner" title={ r.Account.Owner }>{ r.Account.Owner }</span></td>
@@ -1019,8 +1186,12 @@ templ accountTR(r accountRow) {
 			}
 		</td>
 		<td>
-			<div class="spend">{ fmt.Sprintf("$%.2f / %s", r.Spend, budgetAmount(r.Account.BudgetUSD)) }</div>
-			if r.Account.BudgetUSD > 0 {
+			if !r.SpendKnown {
+				<div class="spend"><span class="muted">unavailable</span>{ " / " + budgetAmount(r.Account.BudgetUSD) }</div>
+			} else {
+				<div class="spend">{ fmt.Sprintf("$%.2f / %s", r.Spend, budgetAmount(r.Account.BudgetUSD)) }</div>
+			}
+			if r.SpendKnown && r.Account.BudgetUSD > 0 {
 				@meterLine(spendMeter(r.Spend, r.Account.BudgetUSD, meterWidth), fmt.Sprintf("$%.2f of $%.2f", r.Spend, r.Account.BudgetUSD))
 			}
 			@budgetLabel(r.Account.BudgetHealth, r.Account.BudgetError)
@@ -1028,7 +1199,7 @@ templ accountTR(r accountRow) {
 		<td class="actions">
 			<div class="row-actions">
 				if r.Account.CanExtend() {
-					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/extend" } hx-target="#accounts" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop">
+					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/extend" } hx-target="#accounts" hx-swap="morph" hx-include={ include } hx-sync="this:drop">
 						<input type="hidden" name="by" value="7d"/>
 						<button type="submit" title="extend by 7 days" class="btn-approve">
 							@icon("stamp")
@@ -1040,7 +1211,7 @@ templ accountTR(r accountRow) {
 					// Close opens the close dialog first. The data attributes
 					// carry what the dialog names: the account, its AWS
 					// account ID and its owner, as the row shows them.
-					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/close" } hx-target="#accounts" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-dialog="close" data-name={ r.Account.Name } data-account={ r.Account.ProviderID } data-owner={ r.Account.Owner } data-action="close">
+					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/close" } hx-target="#accounts" hx-swap="morph" hx-include={ include } hx-sync="this:drop" data-dialog="close" data-name={ r.Account.Name } data-account={ r.Account.ProviderID } data-owner={ r.Account.Owner } data-action="close">
 						<button type="submit">Close<span class="vh">{ " " + r.Account.Name }</span></button>
 					</form>
 				}

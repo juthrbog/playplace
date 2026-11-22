@@ -146,7 +146,7 @@ using that file.
 | Route | Content | Who |
 |---|---|---|
 | `/` | Home. Engineers see their accounts and requests first. Approvers see the approval desk first, then their own accounts and requests. Admins see what needs attention, the approval desk and the fleet. The fleet and Needs attention are admin views. Notices and Slack link to `/?req=<name>#req-<name>`, which opens the slip of the request, also after sign-in. The `#pending` anchor stays for the Queue link. | Everyone |
-| `/accounts` | The fleet table with search, filters, sorting and pages. Parameters: `q`, `status`, `budget`, `owner`, `attention`, `sort`, `dir`, `page`. PR 4 of phase 2 adds the page: the account table with Show closed, which polls. PR 5 adds search, filters, sorting and pages. | Everyone, scoped by role |
+| `/accounts` | The fleet table with search, filters, sorting and pages. Parameters: `q`, `status`, `budget`, `owner`, `attention`, `sort`, `dir`, `page`. PR 4 of phase 2 added the page: the account table, which polls. PR 5 adds the filter bar (search, Status and Budget health, and All, Mine and Needs attention for admins), sortable heads and pages of 50 rows. Each change of the view replaces the address with its canonical form, and the Status filter replaces Show closed on this page. The search stays in this panel until the shell search comes with History. | Everyone, scoped by role. Only admins get `owner` and `attention`. |
 | `/accounts/{id}` | The account page. | Owner, admin |
 | `/requests/new` | The request form. | Everyone |
 | `/requests/{name}` | One pending request, with its history. | Requester, owner, approvers |
@@ -288,10 +288,10 @@ The plan:
 | Notice feed | Each lifecycle notice goes out at a place where playplace records a lifecycle history event. That event also stores the notice kind, subject and body, the same text that goes to the log and Slack. A new `ready` event records the ready notice. A `budget-protection` event stores a notice only when a notice went out. The feed reads these events through the role rules of the History hub. It needs the DynamoDB history store at runtime and the ownership-period rules of checkpoint 3 in [the history implementation plan](lifecycle-history-implementation.md). A cookie holds the time of the last notice that the person read, so unread state belongs to one browser. Approvers do not see the ready notice until the maintainer decides whether it is a minimal provisioning outcome. |
 | History hub | The DynamoDB runtime wiring and the role rules in [the history design](lifecycle-history.md). |
 | Bulk approve and deny | A handler that takes several name and version pairs and returns a result for each. |
-| Fleet search and filters | Server-side filtering, sorting and pages over the cached inventory. |
+| Fleet search and filters | Server-side filtering, sorting and pages over the cached inventory. PR 5 of phase 2 built it. |
 | Extend by any span | The web handler accepts `by` today. Add a date and an explicit override. |
 | Safe error text | Typed core errors, so pages stop showing raw AWS SDK errors. |
-| Unknown spend | Return "unavailable" for a failed cost pull, as the CLI does. |
+| Unknown spend | Return "unavailable" for a failed cost pull, as the CLI does. PR 5 of phase 2 did this for the home page and the accounts page. |
 | Theme choice | A `POST /theme` handler takes Auto, Day or Night and redirects to the page that sent the form. It accepts only a local path as the target. Day and Night set the `theme` cookie. Auto deletes it. The cookie sets `Secure` behind TLS, as the session cookie does. When the cookie is set, the server writes `data-theme` on the `<html>` element. With Auto, the page has no `data-theme`. A page response that has an ETag must include the theme in it. |
 
 ## Accessibility

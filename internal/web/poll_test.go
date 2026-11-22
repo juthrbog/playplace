@@ -310,7 +310,7 @@ func TestPendingRowDoesNotChangeWithTheClock(t *testing.T) {
 		t.Helper()
 		var out strings.Builder
 		a := &core.Account{ID: "req:bobs-box", Name: "bobs-box", Owner: "bob@example.com", Status: status, ExpiresAt: expires, BudgetUSD: 50}
-		if err := accountTR(accountRow{Account: a}).Render(context.Background(), &out); err != nil {
+		if err := accountTR(accountRow{Account: a, SpendKnown: true}, "#show-closed").Render(context.Background(), &out); err != nil {
 			t.Fatal(err)
 		}
 		return out.String()

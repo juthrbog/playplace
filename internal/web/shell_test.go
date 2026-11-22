@@ -60,7 +60,7 @@ func TestShellByRole(t *testing.T) {
 	// current only on that exact path, so no link is current on the page
 	// of one account.
 	_, body := do(t, ts, "GET", "/accounts", "ops@example.com", true, nil, false)
-	if !strings.Contains(body, `<a class="nav-link" href="/accounts" aria-current="page">Accounts</a>`) || strings.Count(body, "aria-current") != 1 {
+	if !strings.Contains(body, `<a class="nav-link" href="/accounts" aria-current="page">Accounts</a>`) || strings.Count(body, `aria-current="page"`) != 1 {
 		t.Errorf("only the Accounts link is current on the accounts page:\n%s", body)
 	}
 	if _, body := do(t, ts, "GET", "/accounts?all=1", "ops@example.com", true, nil, false); !strings.Contains(body, `href="/accounts" aria-current="page"`) {
@@ -167,10 +167,16 @@ func TestNoticeLivesInMain(t *testing.T) {
 func TestSyncOffTheHomePageWritesOnlyTheRegion(t *testing.T) {
 	ts, _ := newServer(t)
 	syncForm := regexp.MustCompile(`<form class="sync"[^>]*>`)
-	for _, path := range []string{"/", "/accounts", "/accounts?all=1"} {
-		_, page := do(t, ts, "GET", path, "ops@example.com", true, nil, false)
-		if tag := syncForm.FindString(page); !strings.Contains(tag, `hx-target="#accounts"`) || !strings.Contains(tag, `hx-swap="morph"`) || !strings.Contains(tag, `hx-include="#show-closed"`) {
-			t.Errorf("%s: Sync does not morph the accounts section: %s", path, tag)
+	// Sync sends the view along, so its answer keeps it: Show closed on
+	// home, and the filter bar and the page on the accounts page.
+	for _, c := range []struct{ path, include string }{
+		{"/", `hx-include="#show-closed"`},
+		{"/accounts", `hx-include="#fleet-view, #fleet-page"`},
+		{"/accounts?all=1", `hx-include="#fleet-view, #fleet-page"`},
+	} {
+		_, page := do(t, ts, "GET", c.path, "ops@example.com", true, nil, false)
+		if tag := syncForm.FindString(page); !strings.Contains(tag, `hx-target="#accounts"`) || !strings.Contains(tag, `hx-swap="morph"`) || !strings.Contains(tag, c.include) {
+			t.Errorf("%s: Sync does not morph the accounts section with %s: %s", c.path, c.include, tag)
 		}
 	}
 	for _, path := range []string{"/accounts/111111111111", "/nope"} {
