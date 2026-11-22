@@ -34,6 +34,7 @@ type Config struct {
 	RequestTTL        time.Duration // pending requests older than this are dropped
 	AllowSelfApproval bool          // let a requester approve their own request
 	BaseURL           string        // web UI address for links in notifications
+	AccessPortalURL   string        // AWS access portal start page where owners sign in; checked by CheckAccessPortalURL
 }
 
 // DefaultConfig returns sane defaults for a small engineering org.
@@ -862,7 +863,10 @@ func (s *Service) revokeAccess(ctx context.Context, a *Account) error {
 	if err := s.provider.RemoveTags(ctx, a.ProviderID, []string{TagAccess}); err != nil {
 		return providerError("", err)
 	}
+	principal := a.AccessGrantedTo
 	a.AccessGrantedTo = ""
+	s.log.Info("access revoked", "account", a.Name, "owner", a.Owner)
+	s.audit(ctx, "access-revoked", a, ActorSystem, "", fmt.Sprintf("%s no longer has console access to %s", a.Owner, a.Name), map[string]string{"principal": principal})
 	return nil
 }
 

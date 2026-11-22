@@ -183,7 +183,11 @@ func (s *Service) reconcileReadiness(ctx context.Context, a *Account) error {
 	s.Invalidate()
 	body := fmt.Sprintf("Account %s (%s) is ready for %s. It expires %s.", a.Name, a.ProviderID, a.Owner, a.ExpiresAt.Format("2006-01-02"))
 	if a.AccessGrantedTo != "" {
-		body += " Sign in through the access portal; the account is listed there."
+		if s.cfg.AccessPortalURL != "" {
+			body += " Sign in at " + s.cfg.AccessPortalURL + "; the account is listed there."
+		} else {
+			body += " Sign in through the access portal; the account is listed there."
+		}
 	}
 	s.notify(ctx, a, "Playground account ready", body)
 	return nil

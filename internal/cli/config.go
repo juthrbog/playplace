@@ -27,6 +27,7 @@ type options struct {
 	OUName           string
 	OUID             string
 	PermissionSet    string
+	AccessPortalURL  string
 	EmailPattern     string
 	AlertEmail       string
 	BudgetPolicyID   string
@@ -69,6 +70,7 @@ func (o *options) bind(cmd *cobra.Command) {
 	f.StringVar(&o.OUName, "ou-name", "Playground", "name of the organizational unit that holds playground accounts, directly under the organization root")
 	f.StringVar(&o.OUID, "ou-id", "", "ID of the organizational unit that holds playground accounts, at any depth. Use it instead of --ou-name, not with it")
 	f.StringVar(&o.PermissionSet, "permission-set", "", "IAM Identity Center permission set (name or ARN) granted to owners; empty disables access grants and owner validation")
+	f.StringVar(&o.AccessPortalURL, "access-portal-url", "", "https address of the AWS access portal start page where owners sign in; shown in the web UI and the ready notice")
 	f.StringVar(&o.EmailPattern, "email-pattern", "aws+pp-{name}@example.com", "root email for new accounts, {name} is replaced")
 	f.StringVar(&o.AlertEmail, "alert-email", "", "recipient for AWS Budgets alerts (required for enforcement)")
 	f.StringVar(&o.BudgetPolicyID, "budget-scp-id", "", "separately deployed provisioning-deny SCP; empty selects alerts-only budgets")
@@ -145,6 +147,10 @@ func (o *options) coreConfig() (core.Config, error) {
 	// above the ceiling refuses every request that leaves the budget empty.
 	if cfg.MaxBudgetUSD > 0 && cfg.DefaultBudgetUSD > cfg.MaxBudgetUSD {
 		return cfg, fmt.Errorf("default-budget (%g) is above max-budget (%g), so every request without a budget would be refused", cfg.DefaultBudgetUSD, cfg.MaxBudgetUSD)
+	}
+	cfg.AccessPortalURL = strings.TrimSpace(o.AccessPortalURL)
+	if err := core.CheckAccessPortalURL(cfg.AccessPortalURL); err != nil {
+		return cfg, fmt.Errorf("access-portal-url %q: %w", cfg.AccessPortalURL, err)
 	}
 	cfg.MaxPerOwner = o.MaxPerOwner
 	cfg.AllowSelfApproval = o.SelfApprove
