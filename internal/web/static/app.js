@@ -67,9 +67,11 @@ document.addEventListener("click", function (ev) {
   toggle.setAttribute("aria-expanded", open ? "true" : "false");
 });
 
-// Escape closes the menu and gives focus back to its toggle.
+// Escape closes the menu and gives focus back to its toggle. While a
+// dialog is open, Escape closes only the dialog, which gives the focus
+// back to the control that opened it, a link of the menu too.
 document.addEventListener("keydown", function (ev) {
-  if (ev.key !== "Escape") {
+  if (ev.key !== "Escape" || dialogOpen()) {
     return;
   }
   var shell = document.querySelector(".shell.menu-open");
@@ -102,19 +104,35 @@ function readKeys() {
   showKeys();
 }
 
-// showKeys puts the keys-off class on <html> and writes the state into the
-// switch of the footer, when the page has it already. The stylesheet shows
-// the note of the key list that fits.
+// showKeys puts the keys-off class on <html>. The stylesheet then shows
+// the word of the switch that fits, Keys on or Keys off, and the note of
+// the key list. The switch holds both words, so it never shows the wrong
+// one while the page loads. showKeys also names the keys on Approve and
+// Deny only while they are on.
 function showKeys() {
   document.documentElement.classList.toggle("keys-off", !keysOn);
-  var button = document.getElementById("keys-toggle");
-  if (button) {
-    button.setAttribute("aria-pressed", keysOn ? "true" : "false");
-    button.textContent = keysOn ? "Keys on" : "Keys off";
-  }
+  syncShortcuts();
 }
 // The class is on <html> before the first paint.
 readKeys();
+
+// syncShortcuts sets aria-keyshortcuts on each button with data-key while
+// the keys are on, and removes it while they are off. While a box is
+// checked, a and d press the bulk buttons, so only the bulk buttons name
+// them. The server cannot know the switch, so showKeys and syncPicks call
+// it, and syncPicks runs after each morph and each change of a box.
+function syncShortcuts() {
+  var buttons = document.querySelectorAll("[data-key]");
+  var picked = buttons.length > 0 && pickedCount() > 0;
+  for (var i = 0; i < buttons.length; i++) {
+    var b = buttons[i];
+    if (keysOn && (!picked || b.hasAttribute("data-bulk"))) {
+      b.setAttribute("aria-keyshortcuts", b.getAttribute("data-key"));
+    } else {
+      b.removeAttribute("aria-keyshortcuts");
+    }
+  }
+}
 
 // setKeys turns the keys on or off for this browser. Every read and write
 // of the storage sits in try/catch.
@@ -138,7 +156,7 @@ document.addEventListener("click", function (ev) {
   var t = ev.target && ev.target.closest ? ev.target : null;
   if (t && t.closest("#keys-toggle")) {
     setKeys(!keysOn);
-    tell(keysOn ? "Keys on." : "Keys off. The ? key still lists them.");
+    tell(keysOn ? "Keys on." : "Keys off. The Key list button still lists them.");
   } else if (t && t.closest("#keys-show")) {
     openKeys();
   }
@@ -168,8 +186,10 @@ function typing(el) {
 // keyLists are the lists that j and k move through: the slips of the
 // queue or of Your requests, the rows of the fleet or the loan cards, and
 // the rows of the Needs attention ledger. want is the control of a row
-// that takes the focus: its name or its link. Enter then opens the slip
-// or follows the link, as a click does.
+// that takes the focus: its name or its link. Enter then opens a slip of
+// the desk or follows the link, as a click does. A slip of Your requests
+// and an edit slip take the focus on their heading, which has no action
+// for Enter, so the focus never lands on Save.
 var keyLists = [
   { rows: "#pending li.slip", want: "button.slip-name, .slip-title[tabindex]" },
   { rows: "#accounts tbody > tr, #accounts li.loan", want: "td a, .loan-name a" },
@@ -268,9 +288,10 @@ function pickKey() {
 // boxes it clicks Approve selected or Deny selected, which keep the cap
 // and the dialogs. Else it clicks Approve or Deny of the focused slip. A
 // single Approve does not ask again, and Deny opens its dialog. Before
-// Deny, the focus goes to the name of the slip, so the dialog gives the
-// focus back to the name. A slip that cannot be decided says why. It
-// reports whether it acted.
+// the click, the focus goes to the name of the slip, so the Deny dialog
+// gives the focus back to the name, and the focus rule then moves on to
+// the name of the next slip, never to a button that decides. A slip that
+// cannot be decided says why. It reports whether it acted.
 function decideKey(kind) {
   var bulk = document.getElementById(kind === "approve" ? "desk-approve" : "desk-deny");
   if (bulk && pickedCount() > 0) {
@@ -286,15 +307,18 @@ function decideKey(kind) {
     tell(cannotPick(row));
     return true;
   }
-  if (kind === "deny") {
-    var name = row.querySelector("button.slip-name");
-    if (name) {
-      name.focus({ preventScroll: true });
-    }
+  var name = row.querySelector("button.slip-name");
+  if (name) {
+    name.focus({ preventScroll: true });
   }
   button.click();
   return true;
 }
+
+// keysFrom is the control that had the focus when the key list opened,
+// with its slip or row, so keysClosed can find a place when a poll took
+// the control away.
+var keysFrom = null;
 
 // openKeys opens the list of the keys, with Close in the focus. It opens
 // only when no other dialog is open. Another dialog that Escape closed
@@ -307,6 +331,13 @@ function openKeys() {
     return false;
   }
   asking = null;
+  var active = document.activeElement;
+  var row = active && active.closest ? active.closest(slipRows + ", " + fleetRows + ", " + ledgerRows) : null;
+  keysFrom = { el: active, row: row && row.id ? row.id : null, rows: null };
+  if (row) {
+    keysFrom.rows = row.matches(slipRows) ? slipRows : row.matches(ledgerRows) ? ledgerRows : fleetRows;
+  }
+  dialog.addEventListener("close", keysClosed, { once: true });
   dialog.returnValue = "";
   dialog.showModal();
   var close = dialog.querySelector('button[value="cancel"]');
@@ -316,12 +347,40 @@ function openKeys() {
   return true;
 }
 
+// keysClosed runs when the key list closes, by Close or by Escape, after
+// the browser gave the focus back. When a poll took the control away
+// while the list was open, the focus goes to the same control in its own
+// slip or row, as after the other dialogs. Else it goes to the name of
+// the first slip that waits, or to the heading of the section. A slip
+// that left gets a message in the region.
+function keysClosed() {
+  var from = keysFrom;
+  keysFrom = null;
+  if (!from || !from.el || !from.rows || document.body.contains(from.el)) {
+    return;
+  }
+  var row = from.row ? document.getElementById(from.row) : null;
+  var want = from.rows === slipRows ? "button.slip-name, .slip-title[tabindex]"
+    : from.rows === ledgerRows ? "a.ledger-row" : "td a, .loan-name a";
+  var target = controlIn(row, want);
+  if (!target) {
+    target = from.rows === slipRows ? firstWaiting()
+      : document.getElementById(from.rows === ledgerRows ? "attention-title" : "accounts-title");
+  }
+  if (target) {
+    target.focus();
+  }
+  if (from.rows === slipRows && from.row && !row) {
+    say(goneText(from.row.slice(4)));
+  }
+}
+
 // The keys of the page. A key never acts while a modifier is held, while
 // the browser composes text, in a field that takes text, or while a
 // dialog is open: a key would then reach a form behind the dialog, and
-// askFirst lets a request go when a dialog is open already. ? lists the
-// keys even while they are off, so a viewer can find the switch. A held
-// key repeats only j and k.
+// askFirst lets a request go when a dialog is open already. The switch
+// turns off every key, ? too. The Key list button of the footer still
+// opens the list. A held key repeats only j, k and /.
 document.addEventListener("keydown", function (ev) {
   if (ev.defaultPrevented || ev.isComposing || ev.ctrlKey || ev.metaKey || ev.altKey) {
     return;
@@ -329,14 +388,14 @@ document.addEventListener("keydown", function (ev) {
   if (typing(ev.target) || dialogOpen()) {
     return;
   }
+  if (!keysOn) {
+    return;
+  }
   var key = ev.key;
   if (key === "?") {
     if (!ev.repeat && openKeys()) {
       ev.preventDefault();
     }
-    return;
-  }
-  if (!keysOn) {
     return;
   }
   var done = false;
@@ -481,6 +540,7 @@ function keepPick(node, next) {
 // a long queue does not make the post too large. A morph and a page load
 // both reset the controls, so the afterSettle listener and the
 // DOMContentLoaded listener call it, and so does each change of a box.
+// It also names the keys of the buttons that a and d press.
 // The htmx:confirm listener and confirmAsk call it before a bulk post.
 function syncPicks() {
   var boxes = document.querySelectorAll(deskPicks);
@@ -500,6 +560,7 @@ function syncPicks() {
     all.checked = boxes.length > 0 && n === boxes.length;
     all.indeterminate = n > 0 && n < boxes.length;
   }
+  syncShortcuts();
 }
 
 // pickedCount is the number of checked boxes of the desk.
@@ -1292,10 +1353,11 @@ function notePlace(xhr, source) {
     want: acted ? focusNext[action] : (slip ? "button.slip-name, .slip-title[tabindex]" : "td a, .loan-name a"),
     said: region ? region.lastElementChild : null
   };
-  // The d key moves the focus to the name of the slip before Deny, so the
-  // dialog gives the focus back to the name. The focus then goes on to
-  // the name of the next slip, not to its Deny button.
-  if (acted && action === "deny" && active.matches("button.slip-name")) {
+  // The a and d keys move the focus to the name of the slip before they
+  // click, and the Deny dialog gives the focus back to the name. The
+  // focus then goes on to the name of the next slip, not to its Approve
+  // or Deny button, so Enter after a key never decides another request.
+  if (acted && (action === "approve" || action === "deny") && active.matches("button.slip-name")) {
     focusPlace.want = "button.slip-name, .slip-title[tabindex]";
   }
   // A bulk button decides the checked slips, also when the a or d key

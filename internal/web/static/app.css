@@ -2068,6 +2068,17 @@
     height: var(--control-h-sm);
     padding: 0 11px;
   }
+  /* The switch holds both of its words. The keys-off class is on <html>
+     before the first paint, so the switch never shows the wrong word. */
+  .keys-off-word {
+    display: none;
+  }
+  html.keys-off .keys-on-word {
+    display: none;
+  }
+  html.keys-off .keys-off-word {
+    display: inline;
+  }
   .keys-show {
     display: inline-flex;
     align-items: center;

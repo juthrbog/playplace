@@ -63,8 +63,9 @@ templ region() {
 // time of the last update and the Pause button. Every footer holds the
 // switch of the keys and the Key list button. Both lines need script, so
 // the stylesheet shows them only under html.js. The footer is not a live
-// region, so the page keeps its one region. app.js writes the time, the
-// word of the Pause button and the state of the switch.
+// region, so the page keeps its one region. app.js writes the time and
+// the word of the Pause button. The switch holds both of its words, and
+// the stylesheet shows the one that fits the keys-off class of <html>.
 templ footer(pg page) {
 	<footer class="foot">
 		if pg.Polls {
@@ -75,7 +76,7 @@ templ footer(pg page) {
 			</div>
 		}
 		<div class="keys">
-			<button type="button" id="keys-toggle" class="keys-toggle" aria-pressed="true">Keys on</button>
+			<button type="button" id="keys-toggle" class="keys-toggle"><span class="keys-on-word">Keys on</span><span class="keys-off-word">Keys off</span></button>
 			<button type="button" id="keys-show" class="keys-show">Key list<kbd aria-hidden="true">?</kbd></button>
 		</div>
 	</footer>
@@ -84,8 +85,8 @@ templ footer(pg page) {
 // keysDialog lists the keys that act on the page: the ? key and the Key
 // list button of the footer open it. It renders once on every page with a
 // viewer, outside the queue and the fleet, so no poll or morph touches it.
-// Close takes the focus. While the keys are off, a note says that only ?
-// works and names the switch.
+// Close takes the focus. While the keys are off, ? does nothing, so only
+// the button opens it, and a note names the switch.
 templ keysDialog(pg page) {
 	<dialog id="keys-dialog" class="dialog" aria-labelledby="keys-title">
 		<form method="dialog" class="dialog-form">
@@ -107,7 +108,7 @@ templ keysDialog(pg page) {
 					}
 				</dl>
 				<p class="help">The keys never act in a field that takes text.</p>
-				<p class="help keys-off-note">The keys are off, so only ? works. Turn them on with Keys off in the footer.</p>
+				<p class="help keys-off-note">The keys are off. Press Keys off in the footer to turn them on.</p>
 			</div>
 			<div class="dialog-foot">
 				<button type="submit" value="cancel" autofocus>Close</button>
@@ -528,8 +529,8 @@ templ deskControls() {
 	<div class="desk-controls">
 		<label class="check desk-all"><input type="checkbox" id="desk-all"/><span class="vh">Select every request you can decide</span></label>
 		<span id="desk-count" class="desk-count">0 selected</span>
-		<button type="button" id="desk-approve" class="btn-approve" aria-keyshortcuts="a" form="desk-form" hx-post={ "/requests/decide?action=" + actionApprove } hx-target="#pending" hx-swap="morph" hx-sync="#desk-form:drop" data-bulk={ actionApprove } data-dialog="summary" data-cap={ strconv.Itoa(maxApprovals) } data-cap-note={ capRefusal(actionApprove, maxApprovals) }>@icon("stamp")@busyWord("Approve selected", "Approving")</button>
-		<button type="button" id="desk-deny" aria-keyshortcuts="d" form="desk-form" hx-post={ "/requests/decide?action=" + actionDeny } hx-target="#pending" hx-swap="morph" hx-sync="#desk-form:drop" data-bulk={ actionDeny } data-dialog="deny" data-cap={ strconv.Itoa(maxDenials) } data-cap-note={ capRefusal(actionDeny, maxDenials) }>@busyWord("Deny selected", "Denying")</button>
+		<button type="button" id="desk-approve" class="btn-approve" data-key="a" form="desk-form" hx-post={ "/requests/decide?action=" + actionApprove } hx-target="#pending" hx-swap="morph" hx-sync="#desk-form:drop" data-bulk={ actionApprove } data-dialog="summary" data-cap={ strconv.Itoa(maxApprovals) } data-cap-note={ capRefusal(actionApprove, maxApprovals) }>@icon("stamp")@busyWord("Approve selected", "Approving")</button>
+		<button type="button" id="desk-deny" data-key="d" form="desk-form" hx-post={ "/requests/decide?action=" + actionDeny } hx-target="#pending" hx-swap="morph" hx-sync="#desk-form:drop" data-bulk={ actionDeny } data-dialog="deny" data-cap={ strconv.Itoa(maxDenials) } data-cap-note={ capRefusal(actionDeny, maxDenials) }>@busyWord("Deny selected", "Denying")</button>
 	</div>
 }
 
@@ -742,7 +743,7 @@ templ slip(pg page, s slipView) {
 							<button
 								type="submit"
 								class="btn-approve"
-								aria-keyshortcuts="a"
+								data-key="a"
 								if s.Note != "" {
 									aria-describedby={ "result-" + s.Req.Name }
 								}
@@ -756,7 +757,7 @@ templ slip(pg page, s slipView) {
 							<input type="hidden" name="reason" value=""/>
 							<button
 								type="submit"
-								aria-keyshortcuts="d"
+								data-key="d"
 								if s.Note != "" {
 									aria-describedby={ "result-" + s.Req.Name }
 								}
@@ -1000,9 +1001,10 @@ templ breakable(s string) {
 // input takes part of a day, such as 1.5 for 36 hours, and the budget input
 // takes cents. The server refuses zero days. Its slip keeps the id of the
 // slip it replaces, so Save and Cancel put the slip back in its place.
+// The heading takes the focus of j and k, so the focus never lands on Save.
 templ slipEdit(pg page, q core.Request) {
 	<li id={ "req-" + q.Name } class="slip slip-edit" data-state="pending">
-		<h3 class="slip-title"><span class="slip-name">{ q.Name }</span></h3>
+		<h3 class="slip-title" tabindex="-1"><span class="slip-name">{ q.Name }</span></h3>
 		<form hx-post={ "/requests/" + q.Name + "/edit" } hx-target="#pending" hx-swap="morph" hx-sync="this:drop" data-editing data-action="save">
 			@versionField(q)
 			<div class="form-row">
