@@ -390,9 +390,9 @@
   .foot:empty {
     display: none;
   }
-  /* Without script the live line is hidden, so a footer that holds only
-     the live line is empty too. */
-  html:not(.js) .foot:not(:has(> :not(.live))) {
+  /* Without script the live line and the keys are hidden, so a footer
+     that holds only those is empty too. */
+  html:not(.js) .foot:not(:has(> :not(.live, .keys))) {
     display: none;
   }
 
@@ -2052,6 +2052,81 @@
       animation: none;
     }
   }
+  /* The switch of the keys and the Key list button need script, so they
+     show only under html.js. Both are plain buttons at the toolbar size. */
+  .keys {
+    display: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+  html.js .keys {
+    display: flex;
+  }
+  .keys-toggle,
+  .keys-show {
+    height: var(--control-h-sm);
+    padding: 0 11px;
+  }
+  /* The switch holds both of its words. The keys-off class is on <html>
+     before the first paint, so the switch never shows the wrong word. */
+  .keys-off-word {
+    display: none;
+  }
+  html.keys-off .keys-on-word {
+    display: none;
+  }
+  html.keys-off .keys-off-word {
+    display: inline;
+  }
+  .keys-show {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+  /* A keycap: 12 px semibold pencil grey on paper, with 4 px corners and
+     a panel-rule border that is 2 px at the bottom. */
+  kbd {
+    display: inline-block;
+    padding: 2px 5px;
+    border: 1px solid var(--rule);
+    border-bottom-width: 2px;
+    border-radius: var(--r-control);
+    background: var(--paper);
+    color: var(--ink-2);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+  }
+  /* The key list: the keycaps on the left, what they do on the right. */
+  .key-list {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: var(--space-sm) var(--space-lg);
+    margin: 0;
+  }
+  .key-list > div {
+    display: contents;
+  }
+  .key-list dt {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs);
+  }
+  .key-list dd {
+    margin: 0;
+  }
+  /* The note of the key list that says the keys are off shows only while
+     they are off. */
+  .keys-off-note {
+    display: none;
+  }
+  html.keys-off .keys-off-note {
+    display: block;
+  }
+
   /* While live updates are paused, the dot hides, and an unavailable
      account list names the recovery that fits: Resume, not a wait. */
   .retry-paused {
@@ -2313,6 +2388,15 @@
   /* The slip that holds the focus gets a 2 px violet frame. It is a
      state, so it beats the dashed frame of a refused slip. */
   .slip:focus-within {
+    outline: 2px solid var(--violet);
+    outline-offset: -2px;
+  }
+  /* A row of the fleet, a loan card and a row of the ledger get the same
+     frame while a key holds the focus in them. The frame sits inside the
+     row, because the scroll box of the table would cut a frame outside. */
+  .fleet tbody tr:has(:focus-visible),
+  li.loan:has(:focus-visible),
+  .ledger-row:focus-visible {
     outline: 2px solid var(--violet);
     outline-offset: -2px;
   }

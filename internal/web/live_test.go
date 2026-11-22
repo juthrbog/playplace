@@ -189,7 +189,7 @@ func TestLiveLineTicksAndBlinks(t *testing.T) {
 func TestLiveLineFollowsTheDesign(t *testing.T) {
 	layout, layoutMedia := layerRules(t, "layout")
 	wantDecls(t, "layout", layout, ".foot", map[string]string{"display": "flex", "max-width": "1600px", "padding": "0 var(--space-xl) var(--space-xl)"})
-	wantDecls(t, "layout", layout, "html:not(.js) .foot:not(:has(> :not(.live)))", map[string]string{"display": "none"})
+	wantDecls(t, "layout", layout, "html:not(.js) .foot:not(:has(> :not(.live, .keys)))", map[string]string{"display": "none"})
 	wantDecls(t, "layout (max-width: 640px)", layoutMedia["(max-width: 640px)"], ".foot", map[string]string{"padding": "0 var(--space-lg) var(--space-lg)"})
 	top, media := layerRules(t, "components")
 	wantDecls(t, "components", top, ".live", map[string]string{"display": "none", "color": "var(--ink-2)"})

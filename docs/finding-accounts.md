@@ -32,6 +32,28 @@ moment, or at once when you press Enter. playplace uses at most the first
 the admin buttons before the list updates, playplace uses the text that is
 in the search field at that moment.
 
+## Keys
+
+The accounts page has these keys:
+
+| key | what it does |
+|---|---|
+| `/` | Go to the search field and select its text. |
+| `j` | Go to the next row. If no row has the focus, go to the first row. |
+| `k` | Go to the previous row. |
+| Enter | Open the account of the row that has the focus. |
+| `?` | Show the list of the keys for this page. |
+
+`j` and `k` stop at the first and the last row. On the home page, `j`, `k`
+and Enter work the same way in the accounts table, the loan cards and the
+*Needs attention* list. There, Enter on a *Needs attention* row opens the
+accounts page with its filter.
+
+The keys never act while you type in a field, such as the search field or
+a filter, or while you hold Ctrl, Alt or Command. To leave the search
+field, press Tab. To turn the keys off, press **Keys on** at the bottom of
+the page. See [Requesting an account](requesting.md#keys).
+
 ## Filters
 
 - **Status.** "Open" is the default. It shows every account except closed

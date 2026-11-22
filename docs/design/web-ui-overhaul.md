@@ -330,7 +330,10 @@ The plan:
    - At the end of the phase, a new `impeccable document` scan of the real
      stylesheet updates `DESIGN.md` and `.impeccable/design.json`.
 2. **Home, fleet and queue.** Role-based home, the fleet table with search
-   and filters, the approval desk with bulk decisions and keys.
+   and filters, the approval desk with bulk decisions and keys. Done: PRs 1
+   to 7 of phase 2 built it. At the end of the phase, on 2026-11-22, a new
+   `impeccable document` scan updated `DESIGN.md` and
+   `.impeccable/design.json`.
 3. **Account page.** Sign-in link, extend control, spend chart, history.
 4. **Request form.** The form page with its live slip and stated limits.
 5. **Notices and History hub.** After their backend work.
@@ -452,8 +455,13 @@ sections above hold the details.
 - **Night card stock.** The maintainer decided this on 2026-10-19, after the
   night screenshot round of phase 1. The night values stay as they are.
   Night card stock is only 1.1:1 on paper (1.2:1 by day), but it is 1.2:1 on
-  the ground (1.1:1 by day). Phase 2 looks at it again when it builds the
-  desk and the date-due column.
+  the ground (1.1:1 by day). On 2026-11-22 the scan at the end of phase 2
+  judged it again, on night screenshots of the desk, the date-due column and
+  the loan card at 1280 and 390 px. The night values stay, and stamps keep
+  normal blending at night. The desk and the loan cards read as their own
+  warm plane, closed by their card-rule border, and the stamps on them are
+  crisp. No stamp sits on selected card yet, so the two fallbacks in
+  `DESIGN.md` wait for row selection in phase 3.
 
 ## Open questions
 

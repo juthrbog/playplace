@@ -377,8 +377,10 @@ Phase 1 of the overhaul built the stylesheet `internal/web/static/app.css`
 from this file, and the Go templates use its classes. A Go test keeps the
 day and night colors of the stylesheet equal to the colors in this file. An
 `impeccable document` scan of the real stylesheet updated this file in
-phase 1. This file marks a component that a later phase builds as "not built
-yet".
+phase 1, and a second scan updated it on 2026-11-22, at the end of phase 2.
+The second scan also looked at the built pages in a browser, by day and at
+night, at 1280 and 390 px. This file marks a component that a later phase
+builds as "not built yet".
 
 ## Overview
 
@@ -517,8 +519,24 @@ screen blend for stamps at night. It gives 5.8:1 with no token change. The
 second fallback is night violet #AE9CE8. Night card stock is only 1.1:1 on
 paper (1.2:1 by day), so the desk and the date-due column stand out less at
 night. On 2026-10-19 the maintainer kept the night card stock as it is.
-The desk, the date-due column and the loan card are built now. The scan in
-PR 7 of phase 2 judges the night card stock again on these three parts.
+
+On 2026-11-22 the scan at the end of phase 2 judged the night card stock
+again, on night screenshots of the desk, the date-due column and the loan
+card at 1280 and 390 px. The night card stock stays, and stamps keep normal
+blending at night. The reasons:
+- The desk and the loan cards read as their own warm plane on the cool
+  night paper. Their card-rule border (1.7:1 on paper) closes them.
+- The date-due column reads as one warm band down the fleet table.
+- Violet and red-ink stamps on night card stock are crisp.
+- A selected slip reads through selected card, its checked box and the
+  count in the bulk bar. The violet focus frame is clear on every list.
+- No stamp sits on selected card yet. A checked slip loses its selection
+  when its APPROVED stamp lands, and table rows have no selection. So the
+  case of the first fallback does not occur, and both fallbacks wait for
+  row selection in phase 3.
+
+A slip under the pointer is almost invisible at night, as it is by day.
+Hover carries no information, so this is not a fault.
 
 ### Named Rules
 
@@ -699,8 +717,15 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 
 ### Footer
 - **Place:** a `<footer class="foot">` after `<main>` on every page with a signed-in viewer. A page with no viewer, such as a failed sign-in, has no footer.
-- **Style:** a flex row that wraps, with a 12 px gap and a maximum width of 1600 px. It has no top padding, 24 px side gutters and 24 px bottom padding. At 640 px and below the gutters and the bottom padding are 16 px. An empty footer takes no room. Without script, a footer that holds only the live line is empty too.
-- **Content:** on a page that polls, the footer holds the live line (see Live update in Feedback). Today the home page and the accounts page poll. The row has room for later controls: the theme control, and a switch for the keyboard shortcuts.
+- **Style:** a flex row that wraps, with a 12 px gap and a maximum width of 1600 px. It has no top padding, 24 px side gutters and 24 px bottom padding. At 640 px and below the gutters and the bottom padding are 16 px. An empty footer takes no room. Without script, a footer that holds only the live line and the keys is empty too.
+- **Content:** on a page that polls, the footer holds the live line (see Live update in Feedback). Today the home page and the accounts page poll. Every footer holds the keys: the switch and the Key list button (see Keys). The row has room for a later control, the theme control.
+
+### Keys
+- **Map:** `j` and `k` go to the next or the previous row of a list: the desk slips, the rows of Your requests, the fleet rows, the loan cards and the Needs attention rows. They stop at each end. On an open edit slip they stop on its heading, never on Save. Enter opens a desk slip or follows the link of the row. A row of Your requests has no action for Enter. `x` selects or clears the focused slip. `a` approves and `d` denies: the checked slips when any box is checked, else the focused slip. After `a` or `d` on a slip, the focus goes to the name of the next slip, never to its Approve or Deny. `/` goes to the search on the accounts page. `?` opens the key list.
+- **Scope:** `x`, `a` and `d` act only on the desk. Table rows get the focus frame, and row selection waits. A key never acts in a field that takes text, with Ctrl, Alt or Meta held, or while a dialog is open.
+- **Switch:** a plain 30 px button in the footer of every page with a viewer, "Keys on" or "Keys off". It holds both words, and the stylesheet shows the one that fits the `keys-off` class of `<html>`, so the switch never shows the wrong word while the page loads. It has no `aria-pressed`, because its word carries the state. A plain Key list button with a `?` keycap sits beside it. Both show only under `html.js`. The choice lasts for the browser, and each press writes one short message into the live region. The switch turns off every key, `?` too. While the keys are off, the Key list button still opens the list, and a note in the list names the switch.
+- **Key list:** a dialog (see Feedback) with the title "Keys", a list of keycaps and what they do, and Close. It lists only the keys that act on the page.
+- **Names:** Approve and Deny, on a slip and in the bulk bar, carry their key in `data-key`. `app.js` copies it into `aria-keyshortcuts` only while the keys are on. While a box is checked, only the bulk buttons carry it, because `a` and `d` then press them. While no box is checked, only the slip buttons carry it.
 
 ### Theme control
 - **Place:** the footer on every page. On a page that polls, the footer also holds the live-update line.
@@ -721,7 +746,7 @@ in UTC, and the `title` of the stamp holds the full time, such as
 - **Last 3 days:** the stamp changes to red ink. After the due date passes, the stamp stays red, and "past due" in 12 px semibold red ink sits under it.
 - **Renewal:** after an extension, the old date stays above the new stamp as "extended from OCT 20", with the old date in Courier Prime at 13.5 px and struck through with a 1 px ink line.
 - **No date yet:** a pending request shows a dashed card-rule box that says "Stamped at approval" in 12 px pencil grey. An account that AWS is still creating and that has no approved record says "Set when it is ready". An approved account that AWS is still creating already has a due date from the approved record, so it shows the date stamp. The box stays upright, because it is not a stamp. Its token is `date-unset`. A damaged expiry shows "unknown" in the same box. A closed or failed account shows a dash in pencil grey.
-- **Motion:** when someone approves or extends, the stamp lands in two frames over 90 ms with no fade. Frame 1 (0 ms) shows it at 112 percent size and upright. Frame 2 (45 ms) shows it at full size, turned 1.8 degrees. Under `prefers-reduced-motion`, frame 1 is skipped. Today +7d lands the date stamp of its account. An approval lands the APPROVED word stamp on its slip, and the date stamp of the new account shows without motion.
+- **Motion:** when someone approves or extends, the stamp lands in two frames over 90 ms with no fade. Frame 1 (0 ms) shows it at 112 percent size and upright. Frame 2 (45 ms) shows it at full size, at its own turn (see The Turned Stamp Rule). Under `prefers-reduced-motion`, frame 1 is skipped. Today +7d lands the date stamp of its account. An approval lands the APPROVED word stamp on its slip, and the date stamp of the new account shows without motion.
 
 ### Word stamps
 
@@ -875,7 +900,7 @@ in the slot above the accounts.
 
 ### Tables
 - **Head:** paper tint, 12 px semibold pencil-grey labels, 34 px tall, with panel rules above and below. A sortable head is a button. The sorted column turns ink and shows an arrow for its direction, drawn in `currentColor`, and the `<th>` sets `aria-sort`. Its focus ring sits inside the button, because the scroll box would clip a ring outside it. When a head gets the focus, the scroll box scrolls so that the whole head shows. On the accounts page every head but Actions sorts. The home page keeps plain heads.
-- **Rows:** a soft-rule line under each row. Hover is paper tint. A selected row is card stock with its due cell in selected card. A focused row has a 2 px violet frame. A stale or refused row has a 1 px dashed red-ink frame and shows the new values in place. Row selection and both frames are not built yet on table rows. The desk slips have both frames, and a checked slip is selected.
+- **Rows:** a soft-rule line under each row. Hover is paper tint. A selected row is card stock with its due cell in selected card. A focused row has a 2 px violet frame inside its edge, because the scroll box would cut a frame outside it. A loan card and a Needs attention row get the same frame. A stale or refused row has a 1 px dashed red-ink frame and shows the new values in place. Row selection and the stale frame are not built yet on table rows. The desk slips have both frames, and a checked slip is selected.
 - **Filter bar:** on the accounts page, a `<form role="search">` under the panel head holds the search field, the segmented control for admins, and the Status and Budget health selects. It wraps on a narrow window, and each label wraps together with its select. The focus ring of a segment sits inside it. On the current segment the ring is paper, because violet on ink is only about 2:1. It shows in every state of the panel. Search goes 400 ms after typing stops, and at once on Enter. A select goes at once. A filter change starts at page 1, and every change of the view replaces the address. The accounts page has the Status filter in place of Show closed. The home page has no Show closed. The admin home links to the accounts page with "All N accounts" under its fleet table.
 - **No match:** a filtered view with no rows says "No accounts match these filters." with a "Clear filters" link. "No open accounts." stays for a fleet that has none.
 - **Pager:** under the table when the view has more than one page of 50 rows. "Showing 51–100 of 112" in 13.5 px pencil grey on the left, then Previous and Next as 30 px plain buttons. At either end the button stays in place with `aria-disabled` and `hx-disable`, so it sends nothing. When the pager shows, it takes the bottom corners of the panel.
@@ -886,13 +911,13 @@ in the slot above the accounts.
 ### Feedback
 - **Inline note:** paper with a panel-rule border, 6px corners, a 16 px icon, a semibold first line and a 13.5 px body. A refusal uses a red-ink border and an alert icon and names the recovery. In a slot under a form, in the bulk bar or in a slip, a refusal has only the semibold first line. On an error page and in an unavailable accounts panel, the problem in semibold sits above a body with the recovery. An empty desk uses card stock.
 - **Error page:** a styled page with the title "Action refused" (400), "Not allowed" (403), "Page not found" or "Account not found" (404), or "Sign-in failed". The panel head holds the title, then the status code in pencil grey. Under it, a refusal note names the problem and the recovery, and one primary button leads back. A refused action on a page gets no error page, and its refusal shows on that page.
-- **Dialog:** a native `<dialog>` on paper with a 1 px ink border, 8px corners and a maximum width of 640 px. On a phone it keeps a 16 px gutter on each side. The head and the footer are separated by panel rules, and the footer is paper tint. The scrim sits behind it. Only three tasks use it: the deny reason, the bulk approval summary, and the consequences of Close. The deny dialog lists the requests that it denies and gives the focus to the required reason field. The summary lists each request with its owner, lifetime, budget and per-owner limit check. The close dialog names the account, its AWS account ID and its owner. In the summary and the close dialog, Cancel takes the focus first, because the safe button is the default. Escape and Cancel close a dialog and decide nothing.
+- **Dialog:** a native `<dialog>` on paper with a 1 px ink border, 8px corners and a maximum width of 640 px. On a phone it keeps a 16 px gutter on each side. The head and the footer are separated by panel rules, and the footer is paper tint. The scrim sits behind it. Only four tasks use it: the deny reason, the bulk approval summary, the consequences of Close, and the key list. The key list opens only when the viewer asks for it with `?` or the Key list button. The deny dialog lists the requests that it denies and gives the focus to the required reason field. The summary lists each request with its owner, lifetime, budget and per-owner limit check. The close dialog names the account, its AWS account ID and its owner. In the summary and the close dialog, Cancel takes the focus first, because the safe button is the default. In the key list, Close takes the focus. Escape, Cancel and Close close a dialog and decide nothing.
 - **Live update:** the live line in the footer of a page that polls: an 8 px shelf ink dot, the time of the last update in 13.5 px pencil grey, and a plain Pause button. The page polls every 15 seconds, and the server answers 204 when nothing changed. The line needs script, so it shows only under `html.js`. It is not a live region, so the page keeps its one region.
   - **Time:** "Updated just now", "Updated 12 seconds ago" or "Updated 3 minutes ago". The time ticks each second in the first minute and each minute after it. `app.js` resets it after each poll that the server answered with 200 or 204, also when nothing changed. A failed poll does not reset it, so the time says how old the data is. A poll answer that the page dropped, because an action started after the poll, does not reset it either. An action answer that brings a fresh accounts section, such as Sync, resets it, also while paused. While the accounts panel shows an unavailable list, the time does not reset either. When the page loads with an unavailable list, the line reads "Not updated yet" until a poll brings fresh data.
   - **Dot:** the dot hides for one 90 ms step only when a 200 answer brings new data, with no fade. Under `prefers-reduced-motion` it does not blink. While updates are paused, the dot hides.
   - **Pause:** the button says "Pause updates" or "Resume updates". While paused, the page drops each poll and the line reads "Paused. Updated 3 minutes ago". Resume polls at once. Each press writes one short message into the live region: "Live updates paused." or "Live updates on." The pause lasts for the browser tab, also across a reload, because `sessionStorage` holds it. A page that Back or Forward shows from the browser cache reads the pause again. Actions still answer and update the page while paused. An unavailable account list then says "Live updates are paused. Resume them to try again." in place of "The page tries again every 15 seconds."
   - **Hidden tab:** a hidden tab does not poll. When the tab shows again, the page polls once at once, unless the viewer paused updates.
-- **Keycap (not built yet):** 12 px semibold pencil grey on paper, with a panel-rule border that is 2 px at the bottom.
+- **Keycap:** a `<kbd>`, 12 px semibold pencil grey on paper at line height 1, with 2 px by 5 px padding, 4 px corners and a panel-rule border that is 2 px at the bottom. It shows in the key list and in the Key list button.
 
 ### Icons
 
