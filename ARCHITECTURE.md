@@ -823,9 +823,16 @@ as `provider state "ACTIVE"`. The rows and the account page show the
 `Account.Problem()` of the account in plain words, with times in the UTC
 format of the pages. For example: "AWS has not confirmed the closure since
 2026-11-19 20:01 UTC. Charges may continue." A failed creation adds the
-`core.FailureAdvice` sentence, or "An admin can see the reason in the log."
-when AWS gave no known reason. A `LastError` with no kind shows "Something
-went wrong with this account. An admin can see the details in the log." The
+`core.FailureAdvice` sentence. When AWS gave a reason with no known advice,
+it adds "An admin can see the reason in the log." When AWS gave no reason,
+it adds "AWS gave no reason. An admin can check the request in AWS." A
+`LastError` with no kind shows "Something went wrong with this account. An
+admin can see the details in the log." The refusals of Close and Sync use the
+same words. Core returns an account problem as a `core.AccountProblemError`.
+Its text is the raw text of the CLI, cron and the log, and it carries the
+account name and the `Problem`. The web UI shows the name and the words of
+the problem, for example "odd-box: AWS reports this account as suspended,
+not closed. Ask an admin to check it in AWS." The
 server log holds the raw text, the kind and the AWS state at the warn level.
 It writes them once for each new text, because the pages poll. The words live
 in `internal/web/problem.go`.

@@ -124,8 +124,9 @@ shows under its status. The account page shows the same line under
 - A failed account: "AWS could not create the account. Another AWS account
   already uses the root email of this name. Request the account again with
   another name." The second sentence tells you the next step for the reason
-  that AWS gave. If AWS gave no known reason, it says "An admin can see the
-  reason in the log."
+  that AWS gave. If AWS gave a reason with no known next step, it says "An
+  admin can see the reason in the log." If AWS gave no reason, it says "AWS
+  gave no reason. An admin can check the request in AWS."
 - A closing account: "AWS has not confirmed the closure since 2026-11-19
   20:01 UTC. Charges may continue." This line shows when AWS did not
   confirm the closure in time. The account also counts as *Needs
