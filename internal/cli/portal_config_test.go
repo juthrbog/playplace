@@ -28,6 +28,7 @@ func TestAccessPortalURLConfig(t *testing.T) {
 		{"http", nil, "http://example.awsapps.com/start", "", "must start with https://"},
 		{"javascript", nil, "javascript:alert(1)", "", "must start with https://"},
 		{"user info", nil, "https://user:pw@example.awsapps.com/start", "", "user name or password"},
+		{"space in the path", nil, "https://example.awsapps.com/st art", "", "spaces"},
 		{"missing host", nil, "https:///start", "", "must name a host"},
 		{"relative", nil, "/start", "", "full URL"},
 		{"no scheme", nil, "example.awsapps.com/start", "", "full URL"},
@@ -50,8 +51,10 @@ func TestAccessPortalURLConfig(t *testing.T) {
 			switch {
 			case tc.bad == "" && err != nil:
 				t.Fatalf("refused: %v", err)
-			case tc.bad != "" && (err == nil || !strings.Contains(err.Error(), tc.bad) || !strings.HasPrefix(err.Error(), "access-portal-url ")):
+			case tc.bad != "" && (err == nil || !strings.Contains(err.Error(), tc.bad) || !strings.HasPrefix(err.Error(), "access-portal-url: ")):
 				t.Fatalf("err = %v, want it to name the flag and contain %q", err, tc.bad)
+			case tc.bad != "" && tc.env != "" && strings.Contains(err.Error(), tc.env):
+				t.Fatalf("err = %v, want it to leave out the refused value", err)
 			case tc.bad == "" && cfg.AccessPortalURL != tc.want:
 				t.Fatalf("AccessPortalURL = %q, want %q", cfg.AccessPortalURL, tc.want)
 			}
@@ -90,5 +93,27 @@ func TestAccessPortalURLWithoutPermissionSetWarns(t *testing.T) {
 				t.Fatalf("warning shown = %v, want %v:\n%s", got, tc.warn, text)
 			}
 		})
+	}
+}
+
+// A refused address can hold a password. The error goes to stderr and so to
+// the service log, so it must not repeat the address.
+func TestAccessPortalURLErrorHidesThePassword(t *testing.T) {
+	cleanEnv(t)
+	t.Setenv("PLAYPLACE_ACCESS_PORTAL_URL", "https://admin:S3cret@example.awsapps.com/start")
+	var o options
+	cmd := &cobra.Command{Use: "test"}
+	o.bind(cmd)
+	if err := applyEnv(cmd); err != nil {
+		t.Fatal(err)
+	}
+	_, err := o.coreConfig()
+	if err == nil {
+		t.Fatal("the address with a password was accepted")
+	}
+	for _, secret := range []string{"S3cret", "admin"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("err = %q, it holds %q", err, secret)
+		}
 	}
 }

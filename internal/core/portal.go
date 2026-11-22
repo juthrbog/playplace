@@ -4,19 +4,22 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+	"unicode"
 )
 
 // CheckAccessPortalURL checks the address of the AWS access portal start
 // page. The web UI puts it in a link and the ready notice prints it, so it
-// must be an absolute https address with a host and no user name or
-// password. An empty value is allowed and means no link. The errors are
+// must be an absolute https address with a host, no spaces, and no user
+// name or password. An empty value is allowed and means no link. The errors are
 // plain sentences an operator can act on.
 func CheckAccessPortalURL(raw string) error {
 	if raw == "" {
 		return nil
 	}
-	if strings.TrimSpace(raw) != raw {
-		return errors.New("the address must not start or end with spaces")
+	// url.Parse accepts a space in the path, but the ready notice prints
+	// the address as it is, and a reader would see the link end there.
+	if strings.IndexFunc(raw, unicode.IsSpace) >= 0 {
+		return errors.New("the address must not contain spaces")
 	}
 	u, err := url.Parse(raw)
 	if err != nil {

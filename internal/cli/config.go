@@ -150,7 +150,8 @@ func (o *options) coreConfig() (core.Config, error) {
 	}
 	cfg.AccessPortalURL = strings.TrimSpace(o.AccessPortalURL)
 	if err := core.CheckAccessPortalURL(cfg.AccessPortalURL); err != nil {
-		return cfg, fmt.Errorf("access-portal-url %q: %w", cfg.AccessPortalURL, err)
+		// The value is left out: a refused address can hold a password.
+		return cfg, fmt.Errorf("access-portal-url: %w", err)
 	}
 	cfg.MaxPerOwner = o.MaxPerOwner
 	cfg.AllowSelfApproval = o.SelfApprove
