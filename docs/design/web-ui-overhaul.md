@@ -199,7 +199,8 @@ screen until its phase ships. After that, the real page is the reference.
   from the `HX-Current-URL` header, so each page gets only what it shows
   and its own 204.
 - **Live time and host.** The live line in the page footer shows the
-  Updated time. After each successful poll, `app.js` resets it. The live
+  Updated time. After each successful poll, `app.js` resets it. An action
+  answer with fresh data resets it too. The live
   dot blinks only when new data arrives. The response
   sends `Cache-Control: private, no-cache`. Polling works behind any host or
   proxy, so the design does not depend on the production host. The overhaul

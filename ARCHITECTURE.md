@@ -607,8 +607,10 @@ only its path. A page visit uses its own path. Any other path, or a missing
 header, counts as the home page. On the home page, the poll and the row
 actions (+7d, Close and Sync) answer with the accounts section and, out of
 band, the queue panel and, for an approver, the queue count. On the accounts page they answer
-with the accounts section only, because that page has no queue. The hash
-covers exactly what the page shows, so each page gets its own 204.
+with the accounts section, because that page has no queue panel. The shell
+shows an approver the queue count on every page, so an approver also gets
+the count out of band there. The hash covers exactly what the page shows,
+so each page gets its own 204.
 
 A page visit to `/accounts` gets a full page. It lists the same rows as the
 home page: admins see every account, and everyone else sees only the
@@ -622,11 +624,15 @@ and each fragment apart. It also sends `Cache-Control: private, no-cache`.
 Every page with a signed-in viewer ends in a footer. On a page that polls,
 the footer holds the live line: a dot, the time of the last update, and a
 Pause button. `app.js` resets the time after each poll that the server
-answered with 200 or 204. The line is not a live region. The poll waits
+answered with 200 or 204. It does not reset the time for a poll answer that
+it dropped because an action started after that poll. An action answer
+that brings a fresh accounts section also resets the time. The line is not a live region. The poll waits
 while the viewer paused live updates and while the tab is hidden. The pause
 lasts for the browser tab, because `sessionStorage` holds it. Resume, and a
 tab that shows again, make the poller poll at once through the custom
-`poll-now` event. Actions still answer and update the page while paused.
+`poll-now` event. A page that Back or Forward shows from the browser's
+back/forward cache reads the stored pause again and polls at once, unless
+the tab is paused. Actions still answer and update the page while paused.
 
 The queue lists each request as a slip, oldest first. The name opens the
 slip in place with every deciding fact. The server renders every slip
@@ -636,7 +642,10 @@ saved. The morph extension keeps the open state that the viewer chose,
 because the server does not know it.
 
 Notices and Slack link to `BASE/?req=<name>#req-<name>`. A page visit
-without a session passes its path and query to the sign-in as `next`. The
+without a session passes its path and query to the sign-in as `next`. An
+htmx request without a session, such as the poll of a page left open, gets
+401 with an `HX-Redirect` header. That address carries the path and query
+of the page from `HX-Current-URL` as `next`. The
 flow cookie carries it, and the callback returns there when it is a path on
 this host. `app.js` opens and focuses the slip that the address names. It
 then drops the name from the address, so a reload shows the queue. When
