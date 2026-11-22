@@ -77,7 +77,7 @@ func TestFilterBarOfAnAdmin(t *testing.T) {
 		`role="search" aria-label="Find accounts"`,
 		`hx-get="/accounts" hx-target="#accounts" hx-swap="morph" hx-replace-url="true"`,
 		`hx-trigger="submit, input changed delay:400ms target:#fleet-q, change target:select"`,
-		`hx-sync="this:replace"`,
+		`hx-sync="this:queue last"`,
 	} {
 		if !strings.Contains(tag, want) {
 			t.Errorf("the form tag lacks %s: %s", want, tag)
@@ -86,16 +86,16 @@ func TestFilterBarOfAnAdmin(t *testing.T) {
 	for _, want := range []string{
 		`<label class="vh" for="fleet-q">Search accounts</label>`,
 		`<input id="fleet-q" type="search" name="q" value="box" maxlength="100"`,
-		`<label class="bar-field" for="fleet-status">Status</label> <select id="fleet-status" name="status">`,
+		`<span class="bar-pair"><label class="bar-field" for="fleet-status">Status</label> <select id="fleet-status" name="status">`,
 		`<option value="open">Open</option>`,
 		`<option value="any" selected>Any status</option>`,
-		`<label class="bar-field" for="fleet-budget">Budget health</label> <select id="fleet-budget" name="budget">`,
+		`</select></span> <span class="bar-pair"><label class="bar-field" for="fleet-budget">Budget health</label> <select id="fleet-budget" name="budget">`,
 		`<option value="">Any</option>`,
 		`<option value="unchecked" selected>Not checked</option>`,
 		`<div class="segmented" role="group" aria-label="Accounts to show">`,
 		`<a id="fleet-all" href="/accounts?q=box&amp;status=any&amp;budget=unchecked&amp;sort=name&amp;dir=desc"`,
 		`<a id="fleet-mine" href="/accounts?q=box&amp;status=any&amp;budget=unchecked&amp;owner=me&amp;sort=name&amp;dir=desc"`,
-		`hx-get="/accounts?q=box&amp;status=any&amp;budget=unchecked&amp;attention=any&amp;sort=name&amp;dir=desc" hx-target="#accounts" hx-swap="morph" hx-replace-url="true" aria-current="true">Needs attention</a>`,
+		`hx-get="/accounts?q=box&amp;status=any&amp;budget=unchecked&amp;attention=any&amp;sort=name&amp;dir=desc" hx-target="#accounts" hx-swap="morph" hx-replace-url="true" hx-sync="#fleet-view:replace" data-fleet-nav aria-current="true">Needs attention</a>`,
 		`<input type="hidden" name="owner" value="">`,
 		`<input type="hidden" name="attention" value="any">`,
 		`<input type="hidden" name="sort" value="name">`,
@@ -205,8 +205,8 @@ func TestSortableHeads(t *testing.T) {
 	ts, _ := newServer(t)
 	_, body := do(t, ts, "GET", "/accounts?sort=name&page=2", "ops@example.com", true, nil, false)
 	for _, want := range []string{
-		`<th scope="col" aria-sort="ascending"><button type="button" id="fleet-sort-name" class="sort" hx-get="/accounts?sort=name&amp;dir=desc" hx-target="#accounts" hx-swap="morph" hx-replace-url="true">Name<svg class="i" aria-hidden="true" focusable="false"><use href="#i-arrow-up"></use></svg></button></th>`,
-		`<th scope="col"><button type="button" id="fleet-sort-owner" class="sort" hx-get="/accounts?sort=owner" hx-target="#accounts" hx-swap="morph" hx-replace-url="true">Owner</button></th>`,
+		`<th scope="col" aria-sort="ascending"><button type="button" id="fleet-sort-name" class="sort" hx-get="/accounts?sort=name&amp;dir=desc" hx-target="#accounts" hx-swap="morph" hx-replace-url="true" hx-sync="#fleet-view:replace" data-fleet-nav>Name<svg class="i" aria-hidden="true" focusable="false"><use href="#i-arrow-up"></use></svg></button></th>`,
+		`<th scope="col"><button type="button" id="fleet-sort-owner" class="sort" hx-get="/accounts?sort=owner" hx-target="#accounts" hx-swap="morph" hx-replace-url="true" hx-sync="#fleet-view:replace" data-fleet-nav>Owner</button></th>`,
 		`id="fleet-sort-status"`, `id="fleet-sort-account"`, `id="fleet-sort-spend"`,
 		`<button type="button" id="fleet-sort-due" class="sort" hx-get="/accounts" `,
 		`<th scope="col"><span class="vh">Actions</span></th>`,
@@ -266,7 +266,9 @@ func renderPanel(t *testing.T, f fleetView, total int, errMsg string) string {
 
 // The pager shows when the view has more than one page. It names the rows
 // it shows, and Previous and Next ask for the pages around it. At either
-// end the button stays, marked aria-disabled, and asks for nothing.
+// end the button stays, marked aria-disabled, and asks for nothing. It also
+// carries hx-disable: the morph keeps the button, and htmx would else keep
+// the click handler from the time the button was enabled.
 func TestPager(t *testing.T) {
 	f := defaultFleetView()
 	f.Q = "box"
@@ -278,10 +280,10 @@ func TestPager(t *testing.T) {
 		line       string
 		prev, next string
 	}{
-		{1, "Showing 1–50 of 112", `<button type="button" id="fleet-prev" aria-disabled="true">Previous</button>`,
-			`<button type="button" id="fleet-next" hx-get="/accounts?q=box&amp;page=2" hx-target="#accounts" hx-swap="morph" hx-replace-url="true">Next</button>`},
+		{1, "Showing 1–50 of 112", `<button type="button" id="fleet-prev" aria-disabled="true" hx-disable>Previous</button>`,
+			`<button type="button" id="fleet-next" hx-get="/accounts?q=box&amp;page=2" hx-target="#accounts" hx-swap="morph" hx-replace-url="true" hx-sync="#fleet-view:replace" data-fleet-nav>Next</button>`},
 		{2, "Showing 51–100 of 112", `<button type="button" id="fleet-prev" hx-get="/accounts?q=box" `, `id="fleet-next" hx-get="/accounts?q=box&amp;page=3" `},
-		{3, "Showing 101–112 of 112", `id="fleet-prev" hx-get="/accounts?q=box&amp;page=2" `, `<button type="button" id="fleet-next" aria-disabled="true">Next</button>`},
+		{3, "Showing 101–112 of 112", `id="fleet-prev" hx-get="/accounts?q=box&amp;page=2" `, `<button type="button" id="fleet-next" aria-disabled="true" hx-disable>Next</button>`},
 	} {
 		f.Page = c.page
 		got := renderPanel(t, f, 112, "")
@@ -415,5 +417,47 @@ func TestFleetControlsHaveTheirLook(t *testing.T) {
 	}
 	if _, ok := rules[".panel > .scroll:last-child, .panel > .pager:last-child"]; !ok {
 		t.Error("the pager does not take the rounded corners of the panel")
+	}
+}
+
+// The segments, the sort heads and the pager take the text that is in the
+// search box now, not the search of the last answer, and share the sync of
+// the form. A search that the debounce sends while one of them runs waits
+// for its answer.
+func TestFleetNavTakesTheTypedSearch(t *testing.T) {
+	var nav string
+	for _, body := range listeners(staticText(t, "app.js"), "htmx:configRequest") {
+		if strings.Contains(body, "data-fleet-nav") {
+			nav = body
+		}
+	}
+	holdsEach(t, "the data-fleet-nav listener", nav,
+		`document.getElementById("fleet-q")`, `elt.hasAttribute("data-fleet-nav")`,
+		`url.searchParams.set("q", q)`, `url.searchParams.delete("q")`,
+		`url.searchParams.delete("page")`, `ev.detail.path = url.pathname + url.search`)
+	f := defaultFleetView()
+	f.Page = 2
+	got := renderPanel(t, f, 112, "")
+	if n, want := strings.Count(got, ` hx-sync="#fleet-view:replace" data-fleet-nav`), len(fleetSegments)+len(fleetColumns)+2; n != want {
+		t.Errorf("%d controls carry the nav sync, want %d", n, want)
+	}
+}
+
+// A label and its select wrap as one item of the filter bar. The focus
+// ring of a sort head sits inside it, so the scroll box does not clip it,
+// and the ring of the current segment is paper on its ink.
+func TestFleetBarFocusAndWrapRules(t *testing.T) {
+	rules := cssRules(t)
+	for sel, want := range map[string][2]string{
+		".bar-pair":                 {"display", "inline-flex"},
+		"button.sort:focus-visible": {"outline-offset", "-2px"},
+		".segmented > a[aria-current=true]:focus-visible": {"outline-color", "var(--paper)"},
+	} {
+		if got := rules[sel][want[0]]; got != want[1] {
+			t.Errorf("%s { %s: %q }, want %q", sel, want[0], got, want[1])
+		}
+	}
+	if _, ok := rules[".bar-field"]["margin-right"]; ok {
+		t.Error(".bar-field still pulls its select close with a margin")
 	}
 }

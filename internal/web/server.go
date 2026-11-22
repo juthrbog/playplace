@@ -145,10 +145,7 @@ func returnPath(r *http.Request) string {
 	if r.Method != http.MethodGet {
 		return ""
 	}
-	if next := r.URL.RequestURI(); next != "/" {
-		return localPath(next)
-	}
-	return ""
+	return pageReturnPath(r.URL)
 }
 
 // htmxReturnPath is the address that a sign-in returns to after an htmx
@@ -159,10 +156,26 @@ func htmxReturnPath(r *http.Request) string {
 	if err != nil {
 		return ""
 	}
-	if next := u.RequestURI(); next != "/" {
-		return localPath(next)
+	return pageReturnPath(u)
+}
+
+// pageReturnPath is the path and query of u, when it is a path on this
+// host. A query can make the address longer than localPath allows, for
+// example a long search in other scripts, because each byte of a rune
+// takes three characters. The sign-in then returns to the path alone, so
+// the viewer still gets the page, in its default view.
+func pageReturnPath(u *url.URL) string {
+	next := u.RequestURI()
+	if next == "/" {
+		return ""
 	}
-	return ""
+	if p := localPath(next); p != "" {
+		return p
+	}
+	if u.RawQuery == "" || u.EscapedPath() == "/" {
+		return ""
+	}
+	return localPath(u.EscapedPath())
 }
 
 // shutdownDrain is how long a stop waits for the answers in flight. A

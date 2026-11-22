@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -83,6 +84,30 @@ func TestAPageVisitKeepsItsAddressThroughSignIn(t *testing.T) {
 	}
 	if res, _ := do(t, ts, "POST", "/refresh", "", false, nil, false); res.StatusCode != http.StatusFound || res.Header.Get("Location") != "/auth/login" {
 		t.Errorf("POST /refresh = %d %q, want 302 to /auth/login", res.StatusCode, res.Header.Get("Location"))
+	}
+}
+
+// A search of 100 runes that each take four bytes escapes to more than
+// maxReturnPath characters. The sign-in then returns to the path alone, so
+// the viewer still gets the accounts page. A long query on the home page or
+// on a path that a browser reads as another host still gets no return path.
+func TestALongViewKeepsItsPageThroughSignIn(t *testing.T) {
+	ts, _ := newServer(t)
+	long := "?q=" + url.QueryEscape(strings.Repeat("\U0001F600", fleetQueryMax))
+	if len(long) <= maxReturnPath {
+		t.Fatalf("the query is %d characters, want more than %d", len(long), maxReturnPath)
+	}
+	for _, c := range []struct{ path, want string }{
+		{"/accounts" + long, "/auth/login?next=%2Faccounts"},
+		{"/" + long, "/auth/login"},
+		{"//evil.example" + long, "/auth/login"},
+	} {
+		if res, _ := do(t, ts, "GET", c.path, "", false, nil, false); res.StatusCode != http.StatusFound || res.Header.Get("Location") != c.want {
+			t.Errorf("GET %.40s = %d %q, want 302 to %q", c.path, res.StatusCode, res.Header.Get("Location"), c.want)
+		}
+		if res, _ := fromPage(t, ts, "GET", "/accounts", c.path, "", false, false, nil, ""); res.StatusCode != http.StatusUnauthorized || res.Header.Get("HX-Redirect") != c.want {
+			t.Errorf("htmx poll from %.40s = %d %q, want 401 with HX-Redirect %q", c.path, res.StatusCode, res.Header.Get("HX-Redirect"), c.want)
+		}
 	}
 }
 

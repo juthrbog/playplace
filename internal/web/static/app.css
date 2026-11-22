@@ -808,10 +808,15 @@
   .fleet-bar input[type=search] {
     width: min(100%, 18rem);
   }
-  /* A label sits before its select, and the gap to the select is the 8 px
-     of a field and its label. */
+  /* A label and its select are one item of the bar, so the bar never
+     wraps between them. The gap to the select is the 8 px of a field and
+     its label. */
+  .bar-pair {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
   .bar-field {
-    margin-right: calc(var(--space-sm) - var(--space-md));
     color: var(--ink);
     font-size: 13.5px;
     font-weight: 600;
@@ -867,13 +872,22 @@
   .segmented > a:focus-visible {
     outline-offset: -2px;
   }
+  /* Violet on the ink of the current item is about 2:1, so its ring is
+     paper, the color of its text. */
+  .segmented > a[aria-current=true]:focus-visible {
+    outline-color: var(--paper);
+  }
   /* A sortable head is a button with the look of the head: no box, the
      12 px pencil-grey label, the full height of the head. The sorted
-     column turns ink and shows its arrow. */
+     column turns ink and shows its arrow. The head is the top of the scroll
+     box, which would clip a ring outside the button, so the ring sits
+     inside it. The 4 px side padding keeps the ring off the label, and the
+     margin keeps the label in line with its column. */
   button.sort {
     gap: var(--space-xs);
     height: var(--control-h);
-    padding: 0;
+    margin: 0 -4px;
+    padding: 0 4px;
     border: 0;
     border-radius: 0;
     background: none;
@@ -889,6 +903,9 @@
   button.sort > .i {
     width: 12px;
     height: 12px;
+  }
+  button.sort:focus-visible {
+    outline-offset: -2px;
   }
   /* The pager closes the table: the count of the rows on the left, then
      Previous and Next as 30 px plain buttons. */

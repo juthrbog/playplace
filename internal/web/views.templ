@@ -1027,7 +1027,15 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 // morph, and a focused search keeps what the viewer typed. Only an admin
 // sees the whole fleet, so only an admin gets the segments. They are links
 // with aria-current, because they change the address. The hidden fields
-// carry the parts of the view that the bar does not show.
+// carry the parts of the view that the bar does not show. Each label and
+// its select sit in one bar-pair, so a narrow window never splits them.
+//
+// The segments, the sort heads and the pager are data-fleet-nav controls.
+// Their address holds the search of the last answer, so app.js puts the
+// text that is in the search box now in its place. They share the sync of
+// the form: a click replaces a request of the bar that runs, and a search
+// that the debounce sends while a click runs waits for its answer, so it
+// sends the sort and the filters that the answer put in the form.
 templ fleetBar(pg page) {
 	<form
 		id="fleet-view"
@@ -1041,7 +1049,7 @@ templ fleetBar(pg page) {
 		hx-swap="morph"
 		hx-replace-url="true"
 		hx-trigger="submit, input changed delay:400ms target:#fleet-q, change target:select"
-		hx-sync="this:replace"
+		hx-sync="this:queue last"
 	>
 		<label class="vh" for="fleet-q">Search accounts</label>
 		<input id="fleet-q" type="search" name="q" value={ pg.Fleet.Q } maxlength={ strconv.Itoa(fleetQueryMax) } placeholder="Name, owner or account ID" autocomplete="off" spellcheck="false"/>
@@ -1055,6 +1063,8 @@ templ fleetBar(pg page) {
 						hx-target="#accounts"
 						hx-swap="morph"
 						hx-replace-url="true"
+						hx-sync="#fleet-view:replace"
+						data-fleet-nav
 						if segmentCurrent(pg.Fleet, seg) {
 							aria-current="true"
 						}
@@ -1062,18 +1072,22 @@ templ fleetBar(pg page) {
 				}
 			</div>
 		}
-		<label class="bar-field" for="fleet-status">Status</label>
-		<select id="fleet-status" name="status">
-			for _, o := range statusOptions() {
-				<option value={ o.Value } selected?={ o.Value == pg.Fleet.Status }>{ o.Label }</option>
-			}
-		</select>
-		<label class="bar-field" for="fleet-budget">Budget health</label>
-		<select id="fleet-budget" name="budget">
-			for _, o := range budgetOptions() {
-				<option value={ o.Value } selected?={ o.Value == pg.Fleet.Budget }>{ o.Label }</option>
-			}
-		</select>
+		<span class="bar-pair">
+			<label class="bar-field" for="fleet-status">Status</label>
+			<select id="fleet-status" name="status">
+				for _, o := range statusOptions() {
+					<option value={ o.Value } selected?={ o.Value == pg.Fleet.Status }>{ o.Label }</option>
+				}
+			</select>
+		</span>
+		<span class="bar-pair">
+			<label class="bar-field" for="fleet-budget">Budget health</label>
+			<select id="fleet-budget" name="budget">
+				for _, o := range budgetOptions() {
+					<option value={ o.Value } selected?={ o.Value == pg.Fleet.Budget }>{ o.Label }</option>
+				}
+			</select>
+		</span>
 		if pg.Viewer.Admin {
 			<input type="hidden" name="owner" value={ pg.Fleet.Owner }/>
 			<input type="hidden" name="attention" value={ pg.Fleet.Attention }/>
@@ -1095,7 +1109,7 @@ templ sortHead(f fleetView, c fleetColumn) {
 			aria-sort={ sortState(f, c.Key) }
 		}
 	>
-		<button type="button" id={ fleetControl + "sort-" + c.Key } class="sort" hx-get={ sortURL(f, c.Key) } hx-target="#accounts" hx-swap="morph" hx-replace-url="true">
+		<button type="button" id={ fleetControl + "sort-" + c.Key } class="sort" hx-get={ sortURL(f, c.Key) } hx-target="#accounts" hx-swap="morph" hx-replace-url="true" hx-sync="#fleet-view:replace" data-fleet-nav>
 			{ c.Label }@sortArrow(sortState(f, c.Key))
 		</button>
 	</th>
@@ -1124,12 +1138,14 @@ templ fleetPager(f fleetView, total int) {
 }
 
 // pagerButton is Previous or Next. At the end of the list it asks for
-// nothing.
+// nothing. The morph keeps the button, and htmx keeps the click handler
+// that it bound while the button was enabled. hx-disable makes htmx drop
+// that handler at the next click, so the click sends nothing.
 templ pagerButton(f fleetView, id, label string, to int, ok bool) {
 	if ok {
-		<button type="button" id={ fleetControl + id } hx-get={ pageURL(f, to) } hx-target="#accounts" hx-swap="morph" hx-replace-url="true">{ label }</button>
+		<button type="button" id={ fleetControl + id } hx-get={ pageURL(f, to) } hx-target="#accounts" hx-swap="morph" hx-replace-url="true" hx-sync="#fleet-view:replace" data-fleet-nav>{ label }</button>
 	} else {
-		<button type="button" id={ fleetControl + id } aria-disabled="true">{ label }</button>
+		<button type="button" id={ fleetControl + id } aria-disabled="true" hx-disable>{ label }</button>
 	}
 }
 

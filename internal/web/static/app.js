@@ -791,6 +791,31 @@ document.addEventListener("htmx:configRequest", function (ev) {
   }
 });
 
+// A segment, a sort head or Previous and Next of the accounts page asks for
+// an address that holds the search of the last answer. The viewer can type
+// in the search box while the debounce waits, so the request takes the text
+// that is in the box now. The answer then holds that text, and the morph
+// keeps it in the box. New text starts again at page 1.
+document.addEventListener("htmx:configRequest", function (ev) {
+  var elt = ev.detail.elt;
+  var box = document.getElementById("fleet-q");
+  if (!box || !elt || !elt.hasAttribute || !elt.hasAttribute("data-fleet-nav")) {
+    return;
+  }
+  var url = new URL(ev.detail.path, location.origin);
+  var q = box.value.trim();
+  if (q === (url.searchParams.get("q") || "")) {
+    return;
+  }
+  if (q) {
+    url.searchParams.set("q", q);
+  } else {
+    url.searchParams.delete("q");
+  }
+  url.searchParams.delete("page");
+  ev.detail.path = url.pathname + url.search;
+});
+
 // The morph keeps the accounts section in the page, so a poll answer that
 // arrives after an action would put the old state back. Every other
 // request, Show closed included, counts as an action, and the beforeSwap
