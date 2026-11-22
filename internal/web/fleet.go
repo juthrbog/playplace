@@ -334,9 +334,134 @@ func (f fleetView) apply(rows []accountRow, v Viewer, now time.Time) ([]accountR
 		return cmp.Or(c, strings.Compare(a.Account.ID, b.Account.ID))
 	})
 	total := len(out)
-	pages := max(1, (total+fleetPageSize-1)/fleetPageSize)
+	pages := fleetPages(total)
 	p := min(max(f.Page, 1), pages)
 	start := (p - 1) * fleetPageSize
 	end := min(start+fleetPageSize, total)
 	return out[start:end], total, p
+}
+
+// fleetControl starts the id of every control that changes the fleet view:
+// the filter bar, its segments, the sortable heads and the pager. The
+// answer to such a control names the canonical address of the view, so the
+// address bar follows it. The poller has its own id and never matches.
+const fleetControl = "fleet-"
+
+// fleetBudgets are the budget health values in the order of the Budget
+// health select: quiet, then settling, then the faults.
+var fleetBudgets = []string{
+	"ready", "alerts-only", "alerts-disabled", "retired",
+	"setup-pending", "restricting", "recovering", "retiring",
+	"restricted", "error",
+}
+
+// fleetOption is one choice of a select in the filter bar.
+type fleetOption struct {
+	Value, Label string
+}
+
+// capital is s with its first letter in upper case.
+func capital(s string) string {
+	r, n := utf8.DecodeRuneInString(s)
+	if n == 0 {
+		return s
+	}
+	return string(unicode.ToUpper(r)) + s[n:]
+}
+
+// statusOptions are the choices of the Status select: open accounts (the
+// default), each status, then every account.
+func statusOptions() []fleetOption {
+	out := []fleetOption{{fleetStatusOpen, "Open"}}
+	for _, s := range fleetStatuses {
+		out = append(out, fleetOption{string(s), capital(string(s))})
+	}
+	return append(out, fleetOption{fleetStatusAny, "Any status"})
+}
+
+// budgetOptions are the choices of the Budget health select: any (the
+// default), each budget health value, then not checked.
+func budgetOptions() []fleetOption {
+	out := []fleetOption{{"", "Any"}}
+	for _, b := range fleetBudgets {
+		out = append(out, fleetOption{b, capital(b)})
+	}
+	return append(out, fleetOption{fleetBudgetUnchecked, "Not checked"})
+}
+
+// fleetSegment is one link of the segmented control of an admin: All, Mine
+// or Needs attention. It sets the owner and attention filters.
+type fleetSegment struct {
+	ID, Label, Owner, Attention string
+}
+
+var fleetSegments = []fleetSegment{
+	{ID: fleetControl + "all", Label: "All"},
+	{ID: fleetControl + "mine", Label: "Mine", Owner: fleetOwnerMe},
+	{ID: fleetControl + "attention", Label: "Needs attention", Attention: fleetAnyReason},
+}
+
+// segmentURL is the address of the view with the owner and attention of
+// the segment, on its first page. The search and the other filters stay.
+func segmentURL(f fleetView, s fleetSegment) string {
+	f.Owner, f.Attention, f.Page = s.Owner, s.Attention, 1
+	return fleetURL(f)
+}
+
+// segmentCurrent reports whether the view is the view of the segment. An
+// owner filter that the segments do not name leaves none current.
+func segmentCurrent(f fleetView, s fleetSegment) bool {
+	return f.Owner == s.Owner && f.Attention == s.Attention
+}
+
+// fleetColumn is a sortable head of the fleet table.
+type fleetColumn struct {
+	Key, Label string
+}
+
+var fleetColumns = []fleetColumn{
+	{"name", "Name"}, {"owner", "Owner"}, {"status", "Status"},
+	{"account", "Account"}, {fleetSortDue, "Expires"}, {"spend", "Spend / Budget"},
+}
+
+// sortState is the aria-sort of a head: ascending or descending for the
+// sorted column, and empty for the others.
+func sortState(f fleetView, key string) string {
+	switch {
+	case f.Sort != key:
+		return ""
+	case f.Dir == fleetDirDesc:
+		return "descending"
+	}
+	return "ascending"
+}
+
+// sortURL is the address that a head asks for. The sorted column turns its
+// direction, and any other column sorts ascending. Both start at page 1.
+func sortURL(f fleetView, key string) string {
+	if f.Sort == key && f.Dir == fleetDirAsc {
+		f.Dir = fleetDirDesc
+	} else {
+		f.Dir = fleetDirAsc
+	}
+	f.Sort, f.Page = key, 1
+	return fleetURL(f)
+}
+
+// pageURL is the address of page p of the view.
+func pageURL(f fleetView, p int) string {
+	f.Page = p
+	return fleetURL(f)
+}
+
+// fleetPages is the number of pages that total rows fill.
+func fleetPages(total int) int {
+	return max(1, (total+fleetPageSize-1)/fleetPageSize)
+}
+
+// fleetShowing is the line of the pager, such as "Showing 51–100 of 112".
+func fleetShowing(f fleetView, total int) string {
+	first := (f.Page-1)*fleetPageSize + 1
+	last := min(f.Page*fleetPageSize, total)
+	return "Showing " + strconv.Itoa(first) + "–" + strconv.Itoa(last) + " of " + strconv.Itoa(total)
 }

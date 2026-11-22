@@ -725,6 +725,13 @@ func (s *Server) table(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, accountsPage(pg, rows, errMsg, hash))
 		return
 	}
+	// A control of the fleet view replaces the address with the canonical
+	// address of the view it shows: no empty or default fields, and a page
+	// past the end turned into the last page. The poll asks for that address
+	// already, and its id does not match, so it never replaces the address.
+	if pg.onAccounts() && strings.HasPrefix(r.Header.Get("HX-Trigger"), fleetControl) {
+		w.Header().Set("HX-Replace-Url", fleetURL(pg.Fleet))
+	}
 	if hash != "" && r.Header.Get(pollHashHeader) == hash {
 		w.WriteHeader(http.StatusNoContent)
 		return

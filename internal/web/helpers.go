@@ -270,3 +270,13 @@ func limitsNote(pg page) string {
 	}
 	return note + "."
 }
+
+// fleetInclude is the hx-include of Sync and the row actions, so their
+// answer keeps the view. On the accounts page that is the filter bar and the
+// page number, and on the home page Show closed.
+func fleetInclude(pg page) string {
+	if pg.onAccounts() {
+		return "#fleet-view, #fleet-page"
+	}
+	return "#show-closed"
+}

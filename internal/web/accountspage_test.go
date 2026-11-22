@@ -151,10 +151,12 @@ func TestAccountsPageByRole(t *testing.T) {
 		})
 	}
 
-	// Show closed survives a reload of the page. The old all=1 is the
-	// status filter any, and the poller asks for the canonical address.
+	// An old Show closed address survives a reload of the page. The old
+	// all=1 is the status filter any, the Status select shows it, and the
+	// poller asks for the canonical address. The page has no Show closed.
 	_, body := do(t, ts, "GET", "/accounts?all=1", "ops@example.com", true, nil, false)
-	if !strings.Contains(body, `name="all" value="1" checked`) || !strings.Contains(body, `hx-get="/accounts?status=any" hx-trigger="every 15s, poll-now"`) {
+	if !strings.Contains(body, `<option value="any" selected>Any status</option>`) || strings.Contains(body, `id="show-closed"`) ||
+		!strings.Contains(body, `hx-get="/accounts?status=any" hx-trigger="every 15s, poll-now"`) {
 		t.Errorf("the page with closed accounts does not keep the view:\n%s", body)
 	}
 	// The fragment for htmx says the same.
