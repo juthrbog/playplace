@@ -119,14 +119,15 @@ readKeys();
 // syncShortcuts sets aria-keyshortcuts on each button with data-key while
 // the keys are on, and removes it while they are off. While a box is
 // checked, a and d press the bulk buttons, so only the bulk buttons name
-// them. The server cannot know the switch, so showKeys and syncPicks call
+// them. While no box is checked, a and d press the slip buttons, so only
+// the slip buttons name them. The server cannot know the switch, so showKeys and syncPicks call
 // it, and syncPicks runs after each morph and each change of a box.
 function syncShortcuts() {
   var buttons = document.querySelectorAll("[data-key]");
   var picked = buttons.length > 0 && pickedCount() > 0;
   for (var i = 0; i < buttons.length; i++) {
     var b = buttons[i];
-    if (keysOn && (!picked || b.hasAttribute("data-bulk"))) {
+    if (keysOn && (picked ? b.hasAttribute("data-bulk") : !b.hasAttribute("data-bulk"))) {
       b.setAttribute("aria-keyshortcuts", b.getAttribute("data-key"));
     } else {
       b.removeAttribute("aria-keyshortcuts");

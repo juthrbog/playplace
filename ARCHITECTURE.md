@@ -961,8 +961,8 @@ for example that the viewer asked for it. A bulk button that a key
 pressed counts as an action, so the region says its message again after
 the focus moved, as after a click. Approve and Deny carry their key in
 `data-key`. `syncShortcuts()` copies it into `aria-keyshortcuts` only
-while the keys are on, and only on the bulk buttons while a box is
-checked. `showKeys()` and `syncPicks()` call it, so it runs after each
+while the keys are on. While a box is checked, only the bulk buttons get
+it. While no box is checked, only the slip buttons get it. `showKeys()` and `syncPicks()` call it, so it runs after each
 morph and each change of a box.
 
 The keys are on by default. The footer of every page with a viewer holds

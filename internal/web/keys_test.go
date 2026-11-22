@@ -213,13 +213,14 @@ func TestKeyListGivesTheFocusBack(t *testing.T) {
 
 // Approve and Deny name their keys in aria-keyshortcuts only while the
 // keys are on. While a box is checked, a and d press the bulk buttons, so
-// only those name them. syncPicks runs after each morph and each change
+// only those name them. While no box is checked, only the slip buttons
+// name them. syncPicks runs after each morph and each change
 // of a box, so it calls syncShortcuts, and so does showKeys.
 func TestShortcutsFollowTheSwitch(t *testing.T) {
 	js := staticText(t, "app.js")
 	holdsEach(t, "syncShortcuts", funcBody(t, js, "function syncShortcuts() {"),
 		`document.querySelectorAll("[data-key]")`, "pickedCount() > 0",
-		`keysOn && (!picked || b.hasAttribute("data-bulk"))`,
+		`keysOn && (picked ? b.hasAttribute("data-bulk") : !b.hasAttribute("data-bulk"))`,
 		`b.setAttribute("aria-keyshortcuts", b.getAttribute("data-key"))`,
 		`b.removeAttribute("aria-keyshortcuts")`)
 	holdsEach(t, "syncPicks", funcBody(t, js, "function syncPicks() {"), "syncShortcuts();")
