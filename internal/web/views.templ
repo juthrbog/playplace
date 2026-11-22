@@ -1035,7 +1035,8 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 // text that is in the search box now in its place. They share the sync of
 // the form: a click replaces a request of the bar that runs, and a search
 // that the debounce sends while a click runs waits for its answer, so it
-// sends the sort and the filters that the answer put in the form.
+// sends the sort and the filters that the answer put in the form. When that
+// search is the same as the one the click sent, app.js drops it.
 templ fleetBar(pg page) {
 	<form
 		id="fleet-view"

@@ -443,6 +443,49 @@ func TestFleetNavTakesTheTypedSearch(t *testing.T) {
 	}
 }
 
+// A click on a data-fleet-nav control notes the search that it sent. The
+// form then drops a request of the search box when its search is the same,
+// so the debounce does not ask for the same view again or go back to page
+// 1 after Next. The note is kept on both paths of the nav listener.
+func TestFleetNavDropsTheCoveredSearch(t *testing.T) {
+	js := staticText(t, "app.js")
+	var nav string
+	for _, body := range listeners(js, "htmx:configRequest") {
+		if strings.Contains(body, "data-fleet-nav") {
+			nav = body
+		}
+	}
+	before, _, ok := strings.Cut(nav, `if (q === (url.searchParams.get("q") || "")) {`)
+	if !ok || !strings.Contains(before, "navQ = q;") {
+		t.Errorf("the data-fleet-nav listener does not note navQ before its first return:\n%s", nav)
+	}
+	var drop string
+	for _, body := range listeners(js, "htmx:beforeRequest") {
+		if strings.Contains(body, `form.id !== "fleet-view"`) {
+			drop = body
+		}
+	}
+	holdsEach(t, "the fleet-view beforeRequest listener", drop,
+		`var q = navQ;`, `navQ = null;`, `t.type === "input"`,
+		`box.value.trim() === q`, `ev.preventDefault();`)
+	if first := listeners(js, "htmx:beforeRequest")[0]; strings.Contains(first, "fleet-view") {
+		t.Error("the fleet-view listener must not be the first beforeRequest listener, which is the poll guard")
+	}
+}
+
+// A sort head that the focus reaches is scrolled fully into its scroll box,
+// so the edge of the box does not cut its label or its focus ring.
+func TestSortHeadScrollsIntoViewOnFocus(t *testing.T) {
+	var body string
+	for _, b := range listeners(staticText(t, "app.js"), "focusin") {
+		if strings.Contains(b, "button.sort") {
+			body = b
+		}
+	}
+	holdsEach(t, "the sort head focusin listener", body,
+		`b.matches(".scroll button.sort")`, `scrollIntoView({ block: "nearest", inline: "nearest" })`)
+}
+
 // A label and its select wrap as one item of the filter bar. The focus
 // ring of a sort head sits inside it, so the scroll box does not clip it,
 // and the ring of the current segment is paper on its ink.
