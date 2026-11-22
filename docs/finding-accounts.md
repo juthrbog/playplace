@@ -9,7 +9,7 @@ loan cards, or types `/accounts` after the address of playplace.
 
 The home page is shorter:
 
-- Admins see the *Needs attention* list beside the approval queue. Below them, a table shows the first 50 open accounts, the soonest due first, with no search, filters or sort.
+- Admins see the *Needs attention* list beside the approval queue. Below them, a table shows the first 50 open accounts, the soonest due first, with no search, filters or sort. The link under the table, such as "All 112 accounts", gives the count on the accounts page. That count includes the pending requests, which the home table leaves out.
 - Everyone else sees their open accounts as loan cards. See [Requesting an account](requesting.md#while-you-have-it).
 - The home page shows no closed accounts and has no **Show closed** box. Use the Status filter on the accounts page to find closed accounts.
 

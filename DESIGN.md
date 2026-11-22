@@ -575,7 +575,7 @@ padding, a 16 px gap between panels, and a maximum width of 1600 px. The
 footer sits under the main area, with the same side gutters (see Footer).
 
 The home page puts the first job of each role at the top:
-- **Admin:** the "Needs attention" ledger (300 to 384 px) sits beside the approval desk. The fleet table runs full width below them. It shows the first 50 open accounts by due date in the compact density, then the link "All N accounts" to the accounts page.
+- **Admin:** the "Needs attention" ledger (300 to 384 px) sits beside the approval desk. The fleet table runs full width below them. It shows the first 50 open accounts by due date in the compact density, then the link "All N accounts" to the accounts page. N is the count that the accounts page shows, so it counts the pending requests too.
 - **Approver who is not an admin:** the approval desk, then Your accounts as loan cards.
 - **Anyone else:** Your accounts as loan cards, then Your requests.
 
@@ -596,8 +596,9 @@ text, such as a purpose, an email in the queue or an error, wraps.
 The spacing scale is 2, 4, 8, 12, 16, 24 and 32 px. Gaps inside a row use
 6 to 10 px.
 
-There are two breakpoints:
-- At 1000 px and below, the top row stacks into one column, and the shell hides the email address. The desk slips move their facts under the purpose as one 16 px line.
+There are three breakpoints:
+- At 1200 px and below, the top row of the admin home stacks into one column, so the desk slips keep their full width.
+- At 1000 px and below, the shell hides the email address. The desk slips move their facts under the purpose as one 16 px line.
 - At 640 px and below, the shell and the main area use 16 px side gutters, the same as the phone frames. The main area has 12 px top padding and 24 px bottom padding. The search field takes its own row, and the Sync button shows only its icon.
 
 The phone frames are 390 px wide. The phone serves two quick tasks: approving
@@ -777,7 +778,8 @@ qualifier such as "getting ready" or "overdue" follows in 12 px pencil grey.
 Spend sits above a thin bar. The inline meter is 96 by 4 px with 2 px
 corners on a soft-rule track. The account page, the loan card and the phone
 use a full-width 6 px meter. The loan card has it. The account page and
-the phone view of an account get it in phase 3.
+the phone view of an account get it in phase 3. On a loan card the track
+is card rule, because every rule on card stock is card rule.
 
 - **Below 75 percent:** shelf ink fill and no label.
 - **From 75 percent:** ink fill and an "NN% used" label in 12 px semibold ink.
@@ -800,9 +802,9 @@ that is not a pending request gets a card, soonest due first.
 - **Head:** the name in 16 px bold, which links to the account page, and the AWS account ID in Courier Prime at 13.5 px. An account with no AWS account ID says "not created yet" in pencil grey, or "not created" when it failed.
 - **Status:** the status label, with the same qualifier and error lines as the fleet row.
 - **Due date:** the 22 px date stamp, with the renewal line above it after an extension.
-- **Spend:** "$12.34 of $100 a month", the full-width meter under it, and the budget label. Unknown spend says "unavailable" with no meter.
+- **Spend:** "$12.34 of $100.00 a month", the full-width meter under it, and the budget label. Unknown spend says "unavailable" with no meter.
 - **Actions:** +7d and Close when they are allowed, as in the fleet row. Each button names its account for screen readers. On card stock a button has an ink-2 border. On a phone the name link and the buttons are 44 px tall.
-- **No cards:** the section says "You have no open accounts." with a link to the New request panel.
+- **No cards:** the section says "You have no open accounts." with a link to the New request panel. On a phone the link is 44 px tall.
 - **Below the cards:** the link "All your accounts" goes to the accounts page.
 
 The link to the AWS access portal is not built yet. It comes with phase 3.
@@ -866,7 +868,10 @@ shows as a note with a check in shelf ink. A Sync result has the sync icon in
 pencil grey. A refusal stays visible in its slot, and the region gets a
 visually hidden copy of the same text. The region is visually hidden while it
 is empty or holds only that copy. Off the home page, a refused Sync has no
-slot, so the region shows the refusal.
+slot, so the region shows the refusal. On the home page, a refused New request shows
+under its form, a refused action on a request shows in the slot of the
+request panel, and every other refusal, such as +7d, Close or Sync, shows
+in the slot above the accounts.
 
 ### Tables
 - **Head:** paper tint, 12 px semibold pencil-grey labels, 34 px tall, with panel rules above and below. A sortable head is a button. The sorted column turns ink and shows an arrow for its direction, drawn in `currentColor`, and the `<th>` sets `aria-sort`. Its focus ring sits inside the button, because the scroll box would clip a ring outside it. When a head gets the focus, the scroll box scrolls so that the whole head shows. On the accounts page every head but Actions sorts. The home page keeps plain heads.
