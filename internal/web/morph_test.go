@@ -59,7 +59,13 @@ func TestMorphSwapsEverywhereTheAccountsPanelChanges(t *testing.T) {
 		}
 		posts := tagsWith(tc.body, "hx-post=")
 		for _, tag := range posts {
-			if !strings.HasSuffix(tag, ` hx-sync="this:drop">`) && !strings.Contains(tag, ` hx-sync="this:drop" `) {
+			// The two bulk buttons share the desk form, so they drop a
+			// second click on either one through that form.
+			sync := ` hx-sync="this:drop"`
+			if strings.Contains(tag, ` form="desk-form"`) {
+				sync = ` hx-sync="#desk-form:drop"`
+			}
+			if !strings.HasSuffix(tag, sync+`>`) && !strings.Contains(tag, sync+` `) {
 				t.Errorf("%s: a form that posts sends a second click: %s", tc.name, tag)
 			}
 			// A decision in the pending card answers with the card.

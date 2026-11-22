@@ -686,6 +686,105 @@ the decisions, the answer still holds every result. The server log has one
 line at the info level for each request, with the action, the name, the
 version and the result.
 
+The approval desk is one form. An empty `<form id="desk-form">` sits in
+the bulk bar and holds only the hidden reason of a denial. Each checkbox
+of a slip joins that form with the `form="desk-form"` attribute, so no
+form nests in another. htmx collects the fields of a form through
+`form.elements`, which includes such fields. A slip has a checkbox only
+when it waits and the viewer can approve it. The `req` value of the box is
+the request name and its version, as the slip shows them. Each slip also
+adds a copy of its shown fields to the desk form. The name of each copy
+ends with the request name, so one post carries the values of many slips.
+The copies start disabled, and a disabled field is not sent. `app.js`
+turns on only the copies of a checked box, so a post carries the copies
+of the checked slips only. A long queue then does not make a small post
+larger than the server reads.
+Approve selected and Deny selected post the desk form to the decide route.
+The select-all box has no name, so the form never sends it.
+
+The server never renders a box checked, so the poll hash stays the same
+while the viewer selects. A morph keeps a checked box while its value
+stays the same. A request that changed has a new version and so a new
+value, and its box clears. A bulk decision then never acts on values that
+the approver did not see. After a decision, a decided slip has no box. A
+slip that was not decided keeps its box, so the approver can try again.
+`app.js` updates the count and the select-all box after each change and
+each swap.
+
+Each bulk button carries its cap, 10 or 50, and the refusal text of the
+server. When more boxes are checked, `app.js` writes that refusal into the
+refusal slot of the queue and a hidden copy into the live region. It does
+not post. The server stays the authority and still refuses such a post.
+
+Three tasks ask in a native `<dialog>` first: the deny reason, the
+summary of a bulk approval, and the consequences of Close. The dialogs
+render once on the home page, outside the queue and the fleet, so no poll
+or morph touches them. Only approvers get the deny and summary dialogs.
+Every viewer gets the close dialog, because anyone can own an account. A
+form or button with a `data-dialog` attribute opens its dialog from the
+`htmx:confirm` listener in `app.js`. The listener holds the request back.
+When the viewer presses the final button, `app.js` sends the request with
+`issueRequest(true)`. So the dialogs need no inline script and no `hx-on`
+handler, and the CSP holds. `app.js` writes names, owners and account IDs
+into a dialog as text, never as markup. Escape or Cancel closes a dialog
+and sends nothing.
+
+- Deny on a slip and Deny selected open the deny dialog. It lists the
+  requests and needs a reason of 1 to 500 characters. On Deny, `app.js`
+  copies the reason into the hidden `reason` field of the form that posts.
+  When the server refuses the reason, its answer has the
+  `X-Invalid-Field: reason` header. The dialog then opens again with the
+  text and the refusal, and the refusal slot of the queue clears, so the
+  refusal shows only once. A poll can change the hidden version of a slip
+  form while the dialog is open. So the dialog of a slip notes the hidden
+  fields of the form when it opens. On Deny, `app.js` writes the noted
+  values into the form, htmx reads the post, and then `app.js` writes the
+  live values back. The post carries the version that the viewer saw, and
+  the server refuses it if the request changed. An answer that does not
+  update the slip, such as a refused reason or a failed post, leaves no
+  old version in the form for the next dialog.
+- Approve selected opens the summary when two or more slips are selected.
+  Each line shows the owner, the lifetime, the budget and the check of the
+  per-owner limit. The box carries these facts in data attributes, as the
+  slip shows them. One selected slip approves at once. With no selection,
+  the post goes, and the server refuses it with its own words.
+- Close on a fleet row opens the close dialog. The Close form carries the
+  account name, the AWS account ID and the owner in data attributes.
+
+When the viewer confirms, `app.js` compares the selection with the one
+that the dialog showed. If a live update cleared a box in the meantime,
+the dialog opens again with the new selection. A summary that has fewer
+than two requests left does not open again. Its post then decides only
+requests that the summary showed. Withdraw keeps the confirm of htmx,
+because only the three tasks above get a dialog.
+
+A dialog opens only when no other dialog is open. htmx drops a second
+request of the same form while the first one runs, without a word. So a
+dialog does not open while its form has a request that runs. If such a
+request starts while a dialog is open, the confirm does not post. The
+deny dialog opens again with the reason and a note, and the other
+dialogs write the note into the region.
+
+Deny used the htmx prompt before. The prompt sent the reason in the
+`HX-Prompt` header. That path is gone, and the server reads the reason
+only from the `reason` field.
+
+A dialog closes before its request starts, and the browser gives the
+focus back to the button that opened it. So the focus rules above apply
+as they do to a button without a dialog. After a bulk decision, the focus
+stays on the bulk button while the desk still has a checkbox. When no
+checkbox is left, the bulk controls leave the bar, and the focus goes to
+the name of the first waiting slip, or to the queue heading when no slip
+waits. A poll can also take away the button that opened a dialog. For
+example, someone else decided the request, the viewer now owns it, or
+the account began to close. When the dialog closes, the focus goes to the
+slip or the row of the button if it still shows a control: the name of a
+slip that waits, or the account link of a fleet row. Else the focus goes
+to the name of the first waiting slip or to the queue heading, or for the
+close dialog to the fleet heading. On a confirm, the region says why
+nothing was sent. A slip that still waits is not called gone: the region
+says that the viewer can no longer decide it.
+
 The server needs management-account credentials, because AWS only allows
 CreateAccount and CloseAccount from there. Run it in the management account
 under a role limited to Organizations, Budgets, Cost Explorer, the two

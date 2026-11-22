@@ -17,9 +17,12 @@ updates.
   new account counts toward the account limit of the organization until 90
   days after it closes. If AWS cannot create the account, playplace sends a
   *creation failed* notice.
-- **Deny** asks you for a reason. The web UI does not deny a request without
-  one, and the reason can have at most 500 characters. The *denied* notice
-  and the history show the reason on one line.
+- **Deny** opens a dialog that asks for a reason. The web UI does not deny
+  a request without one, and the reason can have at most 500 characters.
+  Press **Deny** in the dialog to deny, or **Cancel** to go back. If
+  playplace refuses the reason, the dialog opens again with your text and
+  says why. The *denied* notice and the history show the reason on one
+  line.
 - **Edit** (admins only), in the open slip, changes the owner, days, budget,
   or purpose before approving. playplace saves only the fields you change. A
   lifetime that is not a whole number of days shows as part of a day, for
@@ -47,6 +50,40 @@ loaded the page*, and names what changed, for example budget $40 to $60.
 Read the new values, then click again. If the request no longer waits, its
 slip says so until the page updates. A refused edit or Withdraw shows its
 reason at the top of the queue instead, and the queue shows what waits now.
+
+## Deciding several requests
+
+Each slip that you can approve has a checkbox. Select the slips that you
+want to decide. The bar at the top of the queue shows how many you
+selected. The box in that bar selects or clears every slip at once. A
+selected slip stays selected while the page updates. If someone changes the
+request, its box clears, so you never decide values that you did not see.
+If a box clears while a dialog is open, the dialog opens again with the
+new selection when you confirm. A summary opens again only if two or more
+requests are still selected. If one is left, it is approved at once,
+because you saw it in the summary. If none are left, nothing is decided.
+
+- **Approve selected** approves the selected requests. If you selected two
+  or more, a summary opens first. It lists each request with its owner,
+  lifetime, budget and the per-owner limit. It also says that each new
+  account counts toward the account limit of the organization until 90 days
+  after it closes, and that you cannot undo an approval. **Cancel** has the
+  focus. Press **Approve 3**, with the number that you selected, to
+  approve them all. If you selected one, it is approved at once.
+- **Deny selected** opens the deny dialog. The dialog lists the requests,
+  and one reason goes with all of them.
+
+You can approve at most 10 requests at once and deny at most 50. If you
+select more, playplace says so and decides nothing.
+
+playplace decides each request on its own, oldest first. The bar says how
+many went through. Each slip shows its own result: a stamp, or the reason
+that playplace refused it. A refused request does not stop the others. Two
+things stop the rest: a failed call to AWS, and requests that together
+take longer than 45 seconds. AWS needs time for each new account. The slip
+of a request that playplace did not try says *playplace stopped before this
+request*. A request that was not decided keeps its box, so you can try it
+again.
 
 ## Limits
 

@@ -272,6 +272,12 @@ templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
 		// errMsg is the refusal text of a failed account load. The panel
 		// shows it, so the next good poll clears it.
 		@accountsPanel(pg, rows, errMsg, hash, false)
+		if pg.Viewer.Approver {
+			@denyDialog()
+			@summaryDialog()
+		}
+		// Anyone can own an account, so every viewer gets the close dialog.
+		@closeDialog()
 		<p class="help">
 			if pg.SignIn && !pg.Viewer.Admin {
 				You see the accounts you own.
@@ -296,9 +302,10 @@ templ queuePanel(pg page, oob bool) {
 
 // approvalDesk is the approval queue of an approver: card stock, the
 // bulk bar and the slips, oldest first. The bar holds the live region
-// and the refusal slot in every state, so a morph pairs them by id. A
-// queue that did not load says so, because an empty list reads as an
-// empty queue.
+// and the refusal slot in every state, so a morph pairs them by id. When
+// a slip has a checkbox, the bar also holds the desk form and the bulk
+// controls. A queue that did not load says so, because an empty list
+// reads as an empty queue.
 templ approvalDesk(pg page, oob bool) {
 	{{ items, slips, line := pg.left(), pg.slips(), deskLine(pg) }}
 	<section
@@ -318,6 +325,9 @@ templ approvalDesk(pg page, oob bool) {
 			}
 		</div>
 		<div id="desk-bar" class="desk-bar">
+			if anyPicks(pg, slips) {
+				@deskControls()
+			}
 			@region()
 			<div id="pending-error" class="refusal">
 				if len(items) > 0 {
@@ -345,6 +355,127 @@ templ approvalDesk(pg page, oob bool) {
 			</ol>
 		}
 	</section>
+}
+
+// deskControls are the desk form and the bulk controls. The form is empty
+// but for the reason of a denial. Each checkbox of a slip, and a copy of
+// the values that the slip shows, joins it with form="desk-form", so no
+// form nests in another. The copies start disabled, and app.js turns on
+// only the copies of a checked box, so a post carries only those. The select-all box has no name, so the form
+// never sends it. app.js keeps the count and the select-all box in step
+// with the checked slips. Each bulk button carries the most requests that
+// one post can decide and the refusal of the server above that, so app.js
+// refuses a larger selection before it posts.
+templ deskControls() {
+	<form id="desk-form" class="desk-form"><input type="hidden" name="reason" value=""/></form>
+	<div class="desk-controls">
+		<label class="check desk-all"><input type="checkbox" id="desk-all"/><span class="vh">Select every request you can decide</span></label>
+		<span id="desk-count" class="desk-count">0 selected</span>
+		<button type="button" id="desk-approve" class="btn-approve" form="desk-form" hx-post={ "/requests/decide?action=" + actionApprove } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="#desk-form:drop" data-bulk={ actionApprove } data-dialog="summary" data-cap={ strconv.Itoa(maxApprovals) } data-cap-note={ capRefusal(actionApprove, maxApprovals) }>@icon("stamp")@busyWord("Approve selected", "Approving")</button>
+		<button type="button" id="desk-deny" form="desk-form" hx-post={ "/requests/decide?action=" + actionDeny } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="#desk-form:drop" data-bulk={ actionDeny } data-dialog="deny" data-cap={ strconv.Itoa(maxDenials) } data-cap-note={ capRefusal(actionDeny, maxDenials) }>@busyWord("Deny selected", "Denying")</button>
+	</div>
+}
+
+// denyDialog asks for the reason of a denial: the Deny button of a slip and
+// Deny selected open it. It renders once on the home page, outside the
+// queue and the fleet, so no poll or morph touches it. app.js writes the
+// title, the list of requests and the final button, and on Deny copies the
+// reason into the hidden reason field of the form that posts. The refusal
+// slot is not a live region, because the page keeps one. The reason points
+// to it, so a screen reader reads a refusal with the field.
+templ denyDialog() {
+	<dialog id="deny-dialog" class="dialog" aria-labelledby="deny-title">
+		<form method="dialog" class="dialog-form">
+			<div class="dialog-head"><h2 id="deny-title">Deny requests?</h2></div>
+			<div class="dialog-body">
+				<ul id="deny-list" class="dialog-list"></ul>
+				<label class="field" for="deny-reason">Reason for denying</label>
+				<textarea id="deny-reason" class="dialog-reason" rows="4" maxlength={ strconv.Itoa(maxReason) } required autofocus aria-describedby="deny-help deny-error"></textarea>
+				<p id="deny-help" class="help">{ fmt.Sprintf("1 to %d characters. playplace sends it with the denied notice and keeps it in history.", maxReason) }</p>
+				<div id="deny-error" class="refusal"></div>
+			</div>
+			<div class="dialog-foot">
+				<button type="submit" value="cancel" formnovalidate>Cancel</button>
+				<button type="submit" value="confirm" id="deny-confirm" class="btn-deny">Deny</button>
+			</div>
+		</form>
+	</dialog>
+}
+
+// summaryDialog is the summary of a bulk approval: Approve selected opens
+// it when two or more slips are selected. One line names each request with
+// the facts that its slip shows. Cancel takes the focus first, because the
+// safe button is the default. It renders once on the home page, outside
+// the queue and the fleet, and app.js writes the title, the lines and the
+// final button.
+templ summaryDialog() {
+	<dialog id="summary-dialog" class="dialog" aria-labelledby="summary-title" aria-describedby="summary-facts">
+		<form method="dialog" class="dialog-form">
+			<div class="dialog-head"><h2 id="summary-title">Approve requests?</h2></div>
+			<div class="dialog-body">
+				<ul id="summary-list" class="dialog-list dialog-rows"></ul>
+				<div id="summary-facts" class="dialog-facts">
+					<p>Each new account counts toward the account limit of the organization until 90 days after it closes.</p>
+					<p>An approval cannot be undone.</p>
+				</div>
+			</div>
+			<div class="dialog-foot">
+				<button type="submit" value="cancel" formnovalidate autofocus>Cancel</button>
+				<button type="submit" value="confirm" id="summary-confirm" class="btn-approve">@icon("stamp")<span id="summary-word">Approve</span></button>
+			</div>
+		</form>
+	</dialog>
+}
+
+// closeDialog names the consequences of a closure: the Close button of a
+// fleet row opens it. It renders once on the home page, outside the fleet,
+// so no poll or morph touches it. app.js writes the title and the line
+// with the AWS account ID and the owner from the data attributes of the
+// Close form. Cancel takes the focus first, because the safe button is
+// the default. The final button is red, because a closure cannot be
+// undone from playplace.
+templ closeDialog() {
+	<dialog id="close-dialog" class="dialog" aria-labelledby="close-title" aria-describedby="close-who close-facts">
+		<form method="dialog" class="dialog-form">
+			<div class="dialog-head"><h2 id="close-title">Close account?</h2></div>
+			<div class="dialog-body">
+				<p id="close-who" class="dialog-who"></p>
+				<div id="close-facts" class="dialog-facts">
+					<p>AWS closes the account asynchronously. The account stays closing until AWS confirms that it is closed.</p>
+					<p>Charges can continue while closure is pending.</p>
+					<p>Commitments and subscriptions can outlive closure.</p>
+					<p>Recovery needs AWS Support during the 90-day post-closure period.</p>
+					<p>The account counts toward the account limit of the organization until 90 days after it closes.</p>
+				</div>
+			</div>
+			<div class="dialog-foot">
+				<button type="submit" value="cancel" formnovalidate autofocus>Cancel</button>
+				<button type="submit" value="confirm" id="close-confirm" class="btn-deny">Close account</button>
+			</div>
+		</form>
+	</dialog>
+}
+
+// slipPick is the checkbox of a slip that the viewer can approve. Its
+// value is the ref of the request as the page shows it, name and version,
+// so a bulk decision acts only on what the approver saw. The data
+// attributes hold the facts of the slip as the page shows them, for the
+// bulk approval summary. The copies of the shown values let the server
+// say what changed. The server never renders the box checked, so the
+// poll hash stays the same while the viewer selects.
+templ slipPick(pg page, q core.Request) {
+	<label class="slip-pick"><input type="checkbox" name="req" value={ refValue(q.Ref()) } form="desk-form" data-owner={ q.Owner } data-lifetime={ core.Lifetime(q.TTL) } data-budget={ core.Dollars(q.BudgetUSD) + " a month" } data-limits={ ownerStanding(pg, q) }/><span class="vh">{ "Select " + q.Name }</span>@shownCopies(q)</label>
+}
+
+// shownCopies are the shown values of q for the desk form. Each name ends
+// with the request name, so one post carries the values of many slips.
+// They are disabled, so the form does not send them. app.js turns them on
+// while the box of the slip is checked. A long queue then does not make a
+// post of two requests larger than the server reads.
+templ shownCopies(q core.Request) {
+	for _, f := range shownOf(q) {
+		<input type="hidden" name={ shownName(f.Field, q.Name) } value={ f.Value } form="desk-form" disabled/>
+	}
 }
 
 // leftNote fills the refusal slot of the queue with the lines that have
@@ -423,7 +554,11 @@ templ slip(pg page, s slipView) {
 				data-result={ s.Result.Kind.String() }
 			}
 		>
-			<span class="slip-pick"></span>
+			if picks(pg, s) {
+				@slipPick(pg, s.Req)
+			} else {
+				<span class="slip-pick"></span>
+			}
 			<div class="slip-main">
 				<div class="slip-top">
 					<h3 class="slip-title"><button type="button" id={ "name-" + s.Req.Name } class="slip-name" aria-expanded={ strconv.FormatBool(pg.Open == s.Req.Name) } aria-controls={ slipControls(pg, s) }>@chevrons()<span>{ s.Req.Name }</span></button></h3>
@@ -455,9 +590,12 @@ templ slip(pg page, s slipView) {
 								}
 							>@icon("stamp")@busyWord("Approve", "Approving")<span class="vh">{ " " + s.Req.Name }</span></button>
 						</form>
-						<form class="inline" hx-post={ "/requests/" + s.Req.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-prompt="Reason for denying, 1 to 500 characters. playplace sends it with the denied notice and keeps it in history." hx-sync="this:drop" data-action="deny">
+						// Deny opens the deny dialog first. app.js copies the
+						// reason from the dialog into the hidden reason field.
+						<form class="inline" hx-post={ "/requests/" + s.Req.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-dialog="deny" data-request={ s.Req.Name } data-action="deny">
 							@versionField(s.Req)
 							@shownFields(s.Req)
+							<input type="hidden" name="reason" value=""/>
 							<button
 								type="submit"
 								if s.Note != "" {
@@ -742,7 +880,7 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 		}
 	>
 		<div class="panel-head">
-			<h2 id="accounts-title">
+			<h2 id="accounts-title" tabindex="-1">
 				if pg.SignIn && !pg.Viewer.Admin {
 					Your accounts
 				} else {
@@ -838,7 +976,10 @@ templ accountTR(r accountRow) {
 					</form>
 				}
 				if r.Account.Status.CanClose() {
-					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/close" } hx-target="#accounts" hx-swap="morph" hx-include="#show-closed" hx-confirm={ "Request closure of " + r.Account.Name + "? AWS processes closure asynchronously. Charges may continue while pending, and commitments or subscriptions can outlive closure." } hx-sync="this:drop" data-action="close">
+					// Close opens the close dialog first. The data attributes
+					// carry what the dialog names: the account, its AWS
+					// account ID and its owner, as the row shows them.
+					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/close" } hx-target="#accounts" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-dialog="close" data-name={ r.Account.Name } data-account={ r.Account.ProviderID } data-owner={ r.Account.Owner } data-action="close">
 						<button type="submit">Close<span class="vh">{ " " + r.Account.Name }</span></button>
 					</form>
 				}

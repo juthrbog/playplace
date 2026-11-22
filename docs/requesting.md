@@ -68,11 +68,15 @@ when you can sign in.
   Cost Explorer lags about a day. If your organization set an alert address,
   AWS Budgets emails it at 80 percent of your budget and when the forecast
   passes it.
-- **Close early.** Press **Close** when you are done. Closure is asynchronous:
-  the account stays *closing* until AWS confirms it is closed. Charges can
-  continue while closure is pending, and existing commitments or subscriptions
-  can outlive closure. Recovery during the 90-day post-closure period requires
-  AWS Support.
+- **Close early.** Press **Close** when you are done. A dialog opens first.
+  It names the account, its AWS account ID and its owner, and says what
+  closure means. Closure is asynchronous: the account stays *closing* until
+  AWS confirms it is closed. Charges can continue while closure is pending,
+  and existing commitments or subscriptions can outlive closure. Recovery
+  during the 90-day post-closure period requires AWS Support. The account
+  counts toward the account limit of the organization until 90 days after it
+  closes. **Cancel** has the focus. Press **Close account** to close it, or
+  **Cancel** to keep it.
 - **History.** The account page lists what happened to it and who did it.
 
 ## Other ways to ask

@@ -718,6 +718,19 @@
     border-color: var(--violet-deep);
     color: var(--paper);
   }
+  /* The red button is only the final button of a dialog that denies or
+     closes an account. Red marks the step that cannot be undone, not the
+     button that opens the dialog. */
+  .btn-deny {
+    background: var(--red-ink);
+    border-color: var(--red-ink);
+    color: var(--paper);
+  }
+  .btn-deny:hover {
+    background: var(--red-deep);
+    border-color: var(--red-deep);
+    color: var(--paper);
+  }
   /* Row buttons stay on one line. A narrow table scrolls instead. */
   .row-actions {
     display: flex;
@@ -960,6 +973,109 @@
   .refusal:empty {
     display: none;
   }
+  /* The dialog is the only raised surface: paper, a 1 px ink border and
+     the scrim behind it, never a shadow. Panel rules close the head and
+     the footer, and the footer is paper tint. The page keeps a 16 px
+     gutter on each side on a phone. */
+  .dialog {
+    width: min(640px, calc(100% - 32px));
+    max-width: none;
+    max-height: calc(100% - 32px);
+    padding: 0;
+    border: 1px solid var(--ink);
+    border-radius: var(--r-panel);
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .dialog::backdrop {
+    background: var(--scrim);
+  }
+  .dialog-head {
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--rule);
+  }
+  .dialog-head > h2 {
+    overflow-wrap: anywhere;
+  }
+  .dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-lg);
+  }
+  .dialog-body > .refusal,
+  .dialog-body > .help {
+    margin-top: 0;
+  }
+  .dialog-foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+    padding: var(--space-md) var(--space-lg);
+    border-top: 1px solid var(--rule);
+    border-radius: 0 0 var(--r-panel) var(--r-panel);
+    background: var(--paper-tint);
+  }
+  .dialog-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    max-height: 40vh;
+    margin: 0 0 var(--space-sm);
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  /* A line of the summary: the name, then its facts in pencil grey, with
+     a soft rule between the lines. */
+  .dialog-rows > li {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: var(--space-xs);
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .dialog-meta {
+    color: var(--ink-2);
+    font-size: 13.5px;
+    font-weight: 400;
+  }
+  /* The line of the close dialog that names the AWS account ID and the
+     owner. A long owner address wraps. */
+  .dialog-who {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .dialog-facts {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    font-size: 13.5px;
+  }
+  .dialog-reason {
+    width: 100%;
+    min-height: 96px;
+    padding: var(--space-sm) 10px;
+    border: 1px solid var(--control-rule);
+    border-radius: var(--r-control);
+    background: var(--paper);
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+    resize: vertical;
+  }
+  .dialog-reason:focus-visible {
+    border-color: var(--violet);
+    outline: 2px solid var(--violet);
+    outline-offset: 1px;
+  }
+  .dialog-reason:user-invalid,
+  .dialog-reason[aria-invalid=true] {
+    border-color: var(--red-ink);
+  }
+
   /* A note with a recovery stacks two lines: the problem in semibold, then
      the recovery as the body. */
   .note-text {
@@ -1087,7 +1203,7 @@
     overflow-y: auto;
     background: var(--card);
   }
-  .desk-bar:has(> .notice > :not(.vh), > .refusal:not(:empty)) {
+  .desk-bar:has(> .desk-controls, > .notice > :not(.vh), > .refusal:not(:empty)) {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -1097,6 +1213,34 @@
   }
   .desk-bar > .refusal {
     margin-top: 0;
+  }
+  /* With the bulk controls the bar is 48 px: its top border, then one
+     34 px control row between 6 px above and below. The .desk prefix
+     makes this rule more specific than the padding rule above. When any
+     slip is selected, the bar is selected card too. The checked boxes
+     hold the selection, so a morph never loses it. */
+  .desk .desk-bar:has(> .desk-controls) {
+    min-height: 48px;
+    padding-block: 6px;
+  }
+  .desk:has(.slip-pick input:checked) .desk-bar {
+    background: var(--card-sel);
+  }
+  /* The desk form holds only hidden fields, so it takes no room. */
+  .desk-form {
+    display: none;
+  }
+  .desk-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    align-self: stretch;
+    gap: var(--space-sm) var(--space-md);
+    min-height: var(--control-h);
+  }
+  .desk-count {
+    color: var(--ink-2);
+    font-size: 13.5px;
   }
 
   /* An empty desk is an inline note on card stock. */
@@ -1156,6 +1300,22 @@
   }
   .slip-pick:empty {
     display: none;
+  }
+  /* The checkbox of a slip sits in the left gutter, centred on the name
+     line, so the columns of the slip stay as they are. Every slip of a
+     desk with a checkbox keeps the same gutter, so the names line up. */
+  .desk:has(.slip-pick > input) .slip {
+    position: relative;
+    padding-left: calc(var(--space-lg) + 16px + var(--space-md));
+  }
+  label.slip-pick {
+    position: absolute;
+    top: 9px;
+    left: var(--space-lg);
+    display: flex;
+    align-items: center;
+    height: 24px;
+    cursor: pointer;
   }
   .slip-main {
     grid-column: 1;
@@ -1600,6 +1760,23 @@
       position: static;
       max-height: none;
       overflow-y: visible;
+    }
+    /* On a phone the checkbox of a slip is a 44 px target that fills the
+       gutter, centred on the 44 px name line. */
+    .desk:has(.slip-pick > input) .slip {
+      padding-left: 48px;
+    }
+    label.slip-pick {
+      left: 0;
+      width: var(--touch);
+      height: var(--touch);
+      padding-left: var(--space-lg);
+    }
+    /* The select-all box is a 44 px target too, with the box centred. */
+    label.desk-all {
+      min-width: var(--touch);
+      min-height: var(--touch);
+      justify-content: center;
     }
     .slip {
       grid-template-columns: minmax(0, 1fr);
