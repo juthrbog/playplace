@@ -734,11 +734,15 @@ and sends nothing.
   copies the reason into the hidden `reason` field of the form that posts.
   When the server refuses the reason, its answer has the
   `X-Invalid-Field: reason` header. The dialog then opens again with the
-  text and the refusal. A poll can change the hidden version of a slip
+  text and the refusal, and the refusal slot of the queue clears, so the
+  refusal shows only once. A poll can change the hidden version of a slip
   form while the dialog is open. So the dialog of a slip notes the hidden
-  fields of the form when it opens and puts them back before the post.
-  The post then carries the version that the viewer saw, and the server
-  refuses it if the request changed.
+  fields of the form when it opens. On Deny, `app.js` writes the noted
+  values into the form, htmx reads the post, and then `app.js` writes the
+  live values back. The post carries the version that the viewer saw, and
+  the server refuses it if the request changed. An answer that does not
+  update the slip, such as a refused reason or a failed post, leaves no
+  old version in the form for the next dialog.
 - Approve selected opens the summary when two or more slips are selected.
   Each line shows the owner, the lifetime, the budget and the check of the
   per-owner limit. The box carries these facts in data attributes, as the
@@ -771,10 +775,15 @@ as they do to a button without a dialog. After a bulk decision, the focus
 stays on the bulk button while the desk still has a checkbox. When no
 checkbox is left, the bulk controls leave the bar, and the focus goes to
 the name of the first waiting slip, or to the queue heading when no slip
-waits. A poll can also take away the button that opened a dialog, for
-example when someone else decided the request. When the dialog closes,
-the focus goes the same way. On a confirm, the region says why nothing
-was sent.
+waits. A poll can also take away the button that opened a dialog. For
+example, someone else decided the request, the viewer now owns it, or
+the account began to close. When the dialog closes, the focus goes to the
+slip or the row of the button if it still shows a control: the name of a
+slip that waits, or the account link of a fleet row. Else the focus goes
+to the name of the first waiting slip or to the queue heading, or for the
+close dialog to the fleet heading. On a confirm, the region says why
+nothing was sent. A slip that still waits is not called gone: the region
+says that the viewer can no longer decide it.
 
 The server needs management-account credentials, because AWS only allows
 CreateAccount and CloseAccount from there. Run it in the management account
