@@ -567,7 +567,10 @@ With `--permission-set NAME_OR_ARN` (or `PLAYPLACE_PERMISSION_SET`), owners
 must be IAM Identity Center users, given by email or user name. When an
 account is placed in the OU the owner is assigned that permission set on it,
 so the account appears in their access portal. The grant is recorded in the
-`playplace:access` tag and removed when the account closes. Accounts adopted
+`playplace:access` tag and removed when the account closes. The grant writes
+an `access-granted` history event, and the removal writes an
+`access-revoked` event. Both have the principal ID in their details, and
+neither has raw provider text. Accounts adopted
 from the OU get the same treatment when their owner tag resolves to a user.
 Without the flag, owners are free text and nothing is granted.
 `Service.AccessEnabled` reports whether the flag is set, so that the CLI and
@@ -578,6 +581,31 @@ permission set must already exist; create one such as `PlaygroundOwner` with
 the policies your sandboxes allow. The Identity Center calls go to the
 default region, so `--aws-region` (or the profile's region) must be the
 Identity Center home region.
+
+`--access-portal-url` (or `PLAYPLACE_ACCESS_PORTAL_URL`) is the address of
+the AWS access portal start page. It is global and lives in
+`core.Config.AccessPortalURL`, next to `BaseURL`, so `serve` and a cron
+`reconcile` both use it. `core.CheckAccessPortalURL` refuses at start-up an
+address that is not absolute https, has no host, or holds a user name or
+password, because the web UI puts it in a link and the notice prints it.
+When it is set without `--permission-set`, start-up logs a warning:
+playplace grants nothing, but owners still get the link. When access was
+granted, the *ready* notice says "Sign in at" and the address if it is set,
+and "Sign in through the access portal" if it is not.
+
+The web UI shows the access state of an account in words, from
+`accessState` in `internal/web/access.go`. Only an active or expiring
+account has one. The first `Account.HandoffBlocker` kind that applies makes
+it "getting ready", with one plain sentence for each kind. Otherwise it is
+"not managed" when `Service.AccessEnabled` is false, "access granted" when
+a grant is recorded, and "getting ready" for owner access when not. A home
+loan card shows only the qualifier "getting ready". The account page shows
+the full line under the status. The words never hold the principal ID or
+the permission set name. `portalLink` gives the "Open AWS access portal"
+button only when the address is set, the viewer is the owner (an admin who
+is not the owner gets the words only), and the state is granted or not
+managed. The state and the button render inside the loan card, so the poll
+hash of the home page and of the account page covers them.
 
 
 ## Web UI and sign-in
@@ -1138,7 +1166,7 @@ future shared store, delivery guarantees, historical visibility, and retention.
 The no-database principle still describes the current runtime.
 
 Lifecycle operations attempt best-effort writes to a history sink: requested,
-edited, approved, denied, withdrawn, placed, access granted, extended, warned,
+edited, approved, denied, withdrawn, placed, access granted, access revoked, extended, warned,
 expired, close requested, closed, adopted, failed, and budget/closure health
 changes. Successful writes record when, who, a channel when supplied, and a
 sentence saying what happened, with details such as a deny reason or an edit diff.

@@ -678,7 +678,7 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 ### Buttons
 - **Shape:** gently squared (4px), 34 px tall, 13 px side padding, an icon and a word with a 7 px gap.
 - **Approve:** violet with paper text. The only violet button. Approve selected, the final button of the bulk approval summary and Extend use it too, with the stamp icon.
-- **Primary:** card stock with ink text. Inside a panel it gets a card-rule border. New request, Request, Save, Save budget, the way back on an error page and the AWS access portal link (not built yet) use it.
+- **Primary:** card stock with ink text. Inside a panel it gets a card-rule border. New request, Request, Save, Save budget, the way back on an error page and the AWS access portal link use it. On a loan card the link gets an ink-2 border, as a plain button there does, and on hover the card-sel fill and an ink border. It is never shelf green.
 - **Plain:** paper with ink text and a control-rule border. Deny on a row, Deny selected, Close, Cancel, Pause updates and the pager buttons Previous and Next use it.
 - **Ghost:** transparent on the shell, with card text and a shelf-rule border. Only Sync with AWS uses it.
 - **Deny:** red ink with paper text, and deep red ink on hover. It appears only as the final button in a dialog that denies a request or closes an account: Deny in the deny dialog and Close account in the close dialog. Red marks the step that cannot be undone, not the button that opens the dialog.
@@ -795,7 +795,7 @@ A status is an icon and a word, never color alone. Icons are 16 px. A
 qualifier such as "getting ready" or "overdue" follows in 12 px pencil grey.
 
 - **Normal** (no one needs to act): pending (slip, ink), active (check, shelf ink), closed (shut door, pencil grey). Budget: ready (check, shelf ink), alerts-only (bell), alerts-disabled (bell off), retired (minus), and not checked (dashed circle), all pencil grey.
-- **Settling** (progress, not failure): creating (clock arc, violet), closing (box, ink), and active while getting ready (check, shelf ink, not built yet). Budget: setup-pending (clock), restricting (lock), recovering (open lock) and retiring (minus), all violet, with the words "settling protection".
+- **Settling** (progress, not failure): creating (clock arc, violet), closing (box, ink), and active while getting ready (check, shelf ink, with the qualifier "getting ready"). Budget: setup-pending (clock), restricting (lock), recovering (open lock) and retiring (minus), all violet, with the words "settling protection".
 - **Needs attention** (someone must act): failed (crossed circle, red), unavailable (ban, ink), closing and overdue (box, red), expiring (hourglass, violet). Budget: restricted (lock, red), error (alert, red), and settling for over 2 hours (clock, red). The settling label for over 2 hours shows in the Needs attention ledger. The budget column keeps the settling state and the words "settling protection".
 
 ### Spend meter
@@ -826,10 +826,10 @@ is at least 300 px wide, or the full width on a phone. Each open account
 that is not a pending request gets a card, soonest due first.
 
 - **Head:** the name in 16 px bold, which links to the account page, and the AWS account ID in Courier Prime at 13.5 px. An account with no AWS account ID says "not created yet" in pencil grey, or "not created" when it failed.
-- **Status:** the status label, with the same qualifier and error lines as the fleet row.
+- **Status:** the status label, with the same qualifier and error lines as the fleet row. An active or expiring account that is still getting ready adds the qualifier "getting ready".
 - **Due date:** the 22 px date stamp, with the renewal line above it after an extension.
 - **Spend:** "$12.34 of $100.00 a month", the full-width meter under it, and the budget label. Unknown spend says "unavailable" with no meter.
-- **Actions:** +7d and Close when they are allowed, as in the fleet row. Each button names its account for screen readers. On card stock a button has an ink-2 border. On a phone the name link and the buttons are 44 px tall.
+- **Actions:** the AWS access portal link first when the viewer gets it (see below), then +7d and Close when they are allowed, as in the fleet row. Each button names its account for screen readers. On card stock a button has an ink-2 border. On a phone the name link and the buttons are 44 px tall.
 - **No cards:** the section says "You have no open accounts." with a link to the New request panel. On a phone the link is 44 px tall.
 - **Below the cards:** the link "All your accounts" goes to the accounts page.
 
@@ -850,7 +850,23 @@ request ID sits in a line of help text under the facts. Beside the AWS
 account ID, Copy ID is a plain 30 px button. It needs script, so it shows
 only under `html.js`, and the ID stays text that the viewer can select.
 
-The link to the AWS access portal is not built yet. It comes with phase 3.
+On the account page, a line under the status says where the AWS access
+of the owner stands, in 12 px pencil grey as a qualifier. It shows only for
+an active or expiring account:
+
+- **Access granted:** a check in shelf ink.
+- **Getting ready:** a clock in violet, and "Getting ready:" with one plain sentence for what the account waits for, such as "waiting for budget protection to be ready."
+- **Not managed:** a minus in pencil grey, and "playplace does not manage AWS access for this account."
+
+The line never shows the principal ID or the permission set name.
+
+The link "Open AWS access portal" is a primary button. It goes to the
+start page that `--access-portal-url` names and opens in a new tab, with
+`rel="noopener noreferrer"`. Visually hidden text says "(opens in a new
+tab)". It shows on the home loan card and on the account page only when
+the address is set, the viewer is the owner, the account is active or
+expiring, and access is granted or not managed. An admin who is not the
+owner sees the access line and no link. On a phone the link is 44 px tall.
 
 ### Needs attention ledger
 
