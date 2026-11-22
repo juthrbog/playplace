@@ -294,12 +294,16 @@ function askNames(elt) {
 }
 
 // askFirst opens the dialog of elt and reports whether it did. Then the
-// request waits for the dialog. A bulk button with no checked slip posts,
+// request waits for the dialog. The Close button of a fleet row always
+// asks. A bulk button with no checked slip posts,
 // so the server refuses it with its own words. Approve selected asks only
 // for two or more slips, because one slip approves at once. A page with
 // no such dialog posts too, and the server stays the authority.
 function askFirst(elt, issue) {
   var kind = elt.getAttribute("data-dialog");
+  if (kind === "close") {
+    return openClose(elt, issue);
+  }
   var names = askNames(elt);
   if (!names.length) {
     return false;
@@ -374,6 +378,29 @@ function openSummary(elt, names, issue) {
   document.getElementById("summary-title").textContent = "Approve " + names.length + " requests?";
   document.getElementById("summary-word").textContent = "Approve " + names.length;
   asking = { elt: elt, kind: "summary", names: names, issue: issue };
+  dialog.returnValue = "";
+  dialog.showModal();
+  var cancel = dialog.querySelector('button[value="cancel"]');
+  if (cancel) {
+    cancel.focus();
+  }
+  return true;
+}
+
+// openClose opens the close dialog for the Close form elt. The title
+// names the account, and one line names its AWS account ID and its owner,
+// from the data attributes of the form. Every part goes in as text, never
+// as markup. Cancel takes the focus, because the safe button is the
+// default. It returns false when the page has no close dialog.
+function openClose(elt, issue) {
+  var dialog = document.getElementById("close-dialog");
+  var name = elt.getAttribute("data-name");
+  if (!dialog || dialog.open || !name) {
+    return false;
+  }
+  document.getElementById("close-title").textContent = "Close account " + name + "?";
+  document.getElementById("close-who").textContent = "AWS account " + elt.getAttribute("data-account") + ", owned by " + elt.getAttribute("data-owner") + ".";
+  asking = { elt: elt, kind: "close", names: [name], issue: issue };
   dialog.returnValue = "";
   dialog.showModal();
   var cancel = dialog.querySelector('button[value="cancel"]');

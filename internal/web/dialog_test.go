@@ -1,6 +1,8 @@
 package web
 
 import (
+	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -23,18 +25,19 @@ func dialogIn(body, id string) string {
 	return ""
 }
 
-// The home page of an approver holds the deny dialog and the summary
-// dialog once, after the queue and the fleet, so no poll or morph touches
-// them. An htmx answer never carries them, and the page keeps one live
-// region. Someone who is not an approver gets no dialog. The ids of the
-// page stay unique.
+// The home page of an approver holds the deny dialog, the summary dialog
+// and the close dialog once, after the queue and the fleet, so no poll or
+// morph touches them. An htmx answer never carries them, and the page
+// keeps one live region. Someone who is not an approver gets only the
+// close dialog, because anyone can own an account. The ids of the page
+// stay unique.
 func TestDialogsRenderOnceOutsideTheMorphTargets(t *testing.T) {
 	d := newDesk(t, nil, nil, nil)
 	d.ask(t, "bobs-box", "bob@example.com")
 	d.ask(t, "carls-box", "carl@example.com")
 	_, home := doAs(t, d.ts, "GET", "/", "lead@example.com", false, true, nil, false)
 
-	for _, id := range []string{"deny-dialog", "summary-dialog"} {
+	for _, id := range []string{"deny-dialog", "summary-dialog", "close-dialog"} {
 		if n := strings.Count(home, `<dialog id="`+id+`"`); n != 1 {
 			t.Errorf("the home page has %d %s, want 1", n, id)
 		}
@@ -70,8 +73,8 @@ func TestDialogsRenderOnceOutsideTheMorphTargets(t *testing.T) {
 		t.Errorf("an htmx answer carries a dialog:\n%s", answer)
 	}
 	_, bobs := do(t, d.ts, "GET", "/", "bob@example.com", false, nil, false)
-	if strings.Contains(bobs, "<dialog") {
-		t.Errorf("someone who is not an approver gets a dialog:\n%s", bobs)
+	if n := strings.Count(bobs, "<dialog"); n != 1 || strings.Count(bobs, `<dialog id="close-dialog"`) != 1 {
+		t.Errorf("someone who is not an approver gets %d dialogs, want only the close dialog:\n%s", n, bobs)
 	}
 }
 
@@ -243,5 +246,104 @@ func TestDialogFollowsTheDesign(t *testing.T) {
 	wantDecls(t, "components", top, ".dialog-head", map[string]string{"border-bottom": "1px solid var(--rule)"})
 	wantDecls(t, "components", top, ".dialog-foot", map[string]string{"border-top": "1px solid var(--rule)", "background": "var(--paper-tint)"})
 	wantDecls(t, "components", top, ".btn-deny", map[string]string{"background": "var(--red-ink)", "border-color": "var(--red-ink)", "color": "var(--paper)"})
+	wantDecls(t, "components", top, ".dialog-who", map[string]string{"font-weight": "600", "overflow-wrap": "anywhere"})
 	wantDecls(t, "components", top, ".btn-deny:hover", map[string]string{"background": "var(--red-deep)", "border-color": "var(--red-deep)", "color": "var(--paper)"})
+}
+
+// The close dialog names the consequences of a closure, as the TUI and the
+// docs do: closure is asynchronous, charges can continue while it is
+// pending, commitments and subscriptions can outlive it, recovery needs
+// AWS Support within 90 days, and the account counts toward the account
+// limit for 90 days after it closes. Cancel comes first and takes the
+// focus, and the final button is the red Close account. It holds no live
+// region and no htmx attribute.
+func TestCloseDialogHoldsTheConsequences(t *testing.T) {
+	ts, _ := newServer(t)
+	_, home := do(t, ts, "GET", "/", "anna@example.com", false, nil, false)
+	dialog := dialogIn(home, "close-dialog")
+	for _, want := range []string{
+		`<dialog id="close-dialog" class="dialog" aria-labelledby="close-title" aria-describedby="close-who close-facts">`,
+		`<form method="dialog" class="dialog-form">`,
+		`<h2 id="close-title">Close account?</h2>`,
+		`<p id="close-who" class="dialog-who"></p>`,
+		`<p>AWS closes the account asynchronously. The account stays closing until AWS confirms that it is closed.</p>`,
+		`<p>Charges can continue while closure is pending.</p>`,
+		`<p>Commitments and subscriptions can outlive closure.</p>`,
+		`<p>Recovery needs AWS Support during the 90-day post-closure period.</p>`,
+		`<p>The account counts toward the account limit of the organization until 90 days after it closes.</p>`,
+		`<div class="dialog-foot"><button type="submit" value="cancel" formnovalidate autofocus>Cancel</button> <button type="submit" value="confirm" id="close-confirm" class="btn-deny">Close account</button></div>`,
+	} {
+		if !strings.Contains(dialog, want) {
+			t.Errorf("the close dialog lacks %s:\n%s", want, dialog)
+		}
+	}
+	for _, bad := range []string{"aria-live", `role="status"`, "hx-"} {
+		if strings.Contains(dialog, bad) {
+			t.Errorf("the close dialog holds %s:\n%s", bad, dialog)
+		}
+	}
+	if strings.Count(dialog, "autofocus") != 1 || strings.Index(dialog, "autofocus") > strings.Index(dialog, `value="confirm"`) {
+		t.Errorf("Cancel is not the one control that takes the focus first:\n%s", dialog)
+	}
+}
+
+// The Close button of a fleet row opens the close dialog. Its form names
+// the dialog and carries the name, the AWS account ID and the owner that
+// the row shows, and still ends with data-action="close" for the focus
+// rule. No form asks with the confirm of htmx for a closure any more, and
+// the row button keeps the plain word Close. The form still closes the
+// account when the dialog sends it.
+func TestCloseOpensTheDialog(t *testing.T) {
+	ts, _ := newServer(t)
+	_, home := do(t, ts, "GET", "/", "anna@example.com", false, nil, false)
+	form := regexp.MustCompile(`(?s)<form class="inline" hx-post="/accounts/111111111111/close"[^>]*>.*?</form>`).FindString(home)
+	if form == "" {
+		t.Fatalf("the home page has no Close form:\n%s", home)
+	}
+	if want := ` hx-sync="this:drop" data-dialog="close" data-name="annas-box" data-account="111111111111" data-owner="anna@example.com" data-action="close">`; !strings.Contains(form, want) {
+		t.Errorf("the Close form lacks %s:\n%s", want, form)
+	}
+	if !strings.Contains(form, `<button type="submit">Close<span class="vh"> annas-box</span></button>`) {
+		t.Errorf("the Close button is not the plain word Close:\n%s", form)
+	}
+	if strings.Contains(form, "btn-deny") {
+		t.Errorf("the row button is red; only the final button of the dialog is:\n%s", form)
+	}
+	if strings.Contains(form, "hx-confirm") {
+		t.Error("a Close form still asks with hx-confirm")
+	}
+	res, body := do(t, ts, "POST", "/accounts/111111111111/close", "anna@example.com", false, url.Values{}, true)
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "Requested closure of annas-box.") {
+		t.Errorf("the Close form after the dialog = %d:\n%s", res.StatusCode, body)
+	}
+	if strings.Contains(body, "<dialog") {
+		t.Errorf("the answer to a closure carries a dialog:\n%s", body)
+	}
+}
+
+// app.js opens the close dialog from the one htmx:confirm listener. It
+// writes the title and the line with the AWS account ID and the owner as
+// text, never as markup, puts the focus on Cancel and holds the request
+// until the viewer confirms.
+func TestCloseDialogLivesInAppJS(t *testing.T) {
+	js := staticText(t, "app.js")
+	holdsEach(t, "askFirst", funcBody(t, js, "function askFirst(elt, issue) {"),
+		`if (kind === "close") {`, `return openClose(elt, issue);`)
+	body := funcBody(t, js, "function openClose(elt, issue) {")
+	holdsEach(t, "openClose", body,
+		`document.getElementById("close-dialog")`,
+		`elt.getAttribute("data-name")`,
+		`elt.getAttribute("data-account")`,
+		`elt.getAttribute("data-owner")`,
+		`document.getElementById("close-title").textContent = "Close account " + name + "?";`,
+		`document.getElementById("close-who").textContent =`,
+		`kind: "close"`,
+		`dialog.showModal();`,
+		`button[value="cancel"]`,
+		`cancel.focus();`)
+	for _, bad := range []string{"innerHTML", "outerHTML", "insertAdjacentHTML"} {
+		if strings.Contains(body, bad) {
+			t.Errorf("openClose writes markup with %s", bad)
+		}
+	}
 }

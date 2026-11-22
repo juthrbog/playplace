@@ -276,6 +276,8 @@ templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
 			@denyDialog()
 			@summaryDialog()
 		}
+		// Anyone can own an account, so every viewer gets the close dialog.
+		@closeDialog()
 		<p class="help">
 			if pg.SignIn && !pg.Viewer.Admin {
 				You see the accounts you own.
@@ -419,6 +421,35 @@ templ summaryDialog() {
 			<div class="dialog-foot">
 				<button type="submit" value="cancel" formnovalidate autofocus>Cancel</button>
 				<button type="submit" value="confirm" id="summary-confirm" class="btn-approve">@icon("stamp")<span id="summary-word">Approve</span></button>
+			</div>
+		</form>
+	</dialog>
+}
+
+// closeDialog names the consequences of a closure: the Close button of a
+// fleet row opens it. It renders once on the home page, outside the fleet,
+// so no poll or morph touches it. app.js writes the title and the line
+// with the AWS account ID and the owner from the data attributes of the
+// Close form. Cancel takes the focus first, because the safe button is
+// the default. The final button is red, because a closure cannot be
+// undone from playplace.
+templ closeDialog() {
+	<dialog id="close-dialog" class="dialog" aria-labelledby="close-title" aria-describedby="close-who close-facts">
+		<form method="dialog" class="dialog-form">
+			<div class="dialog-head"><h2 id="close-title">Close account?</h2></div>
+			<div class="dialog-body">
+				<p id="close-who" class="dialog-who"></p>
+				<div id="close-facts" class="dialog-facts">
+					<p>AWS closes the account asynchronously. The account stays closing until AWS confirms that it is closed.</p>
+					<p>Charges can continue while closure is pending.</p>
+					<p>Commitments and subscriptions can outlive closure.</p>
+					<p>Recovery needs AWS Support during the 90-day post-closure period.</p>
+					<p>The account counts toward the account limit of the organization until 90 days after it closes.</p>
+				</div>
+			</div>
+			<div class="dialog-foot">
+				<button type="submit" value="cancel" formnovalidate autofocus>Cancel</button>
+				<button type="submit" value="confirm" id="close-confirm" class="btn-deny">Close account</button>
 			</div>
 		</form>
 	</dialog>
@@ -941,7 +972,10 @@ templ accountTR(r accountRow) {
 					</form>
 				}
 				if r.Account.Status.CanClose() {
-					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/close" } hx-target="#accounts" hx-swap="morph" hx-include="#show-closed" hx-confirm={ "Request closure of " + r.Account.Name + "? AWS processes closure asynchronously. Charges may continue while pending, and commitments or subscriptions can outlive closure." } hx-sync="this:drop" data-action="close">
+					// Close opens the close dialog first. The data attributes
+					// carry what the dialog names: the account, its AWS
+					// account ID and its owner, as the row shows them.
+					<form class="inline" hx-post={ "/accounts/" + r.Account.ID + "/close" } hx-target="#accounts" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-dialog="close" data-name={ r.Account.Name } data-account={ r.Account.ProviderID } data-owner={ r.Account.Owner } data-action="close">
 						<button type="submit">Close<span class="vh">{ " " + r.Account.Name }</span></button>
 					</form>
 				}
