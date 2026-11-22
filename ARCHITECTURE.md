@@ -71,8 +71,9 @@ next refresh. Cost Explorer bills per call, so `list` never touches it;
 `show`, `costs`, the TUI, and the web UI cache results for an hour.
 Spend is known only while the last pull of the account succeeded
 (`CostState`). After a failed pull, a pull that is not forced waits five
-minutes. A forced pull tries at once: Sync in the web UI, an account page
-whose spend is not known, and `r` and `S` in the TUI. Pulls of one account
+minutes. A forced pull tries at once: Sync in the web UI, a visit to an
+account page whose spend is not known, and `r` and `S` in the TUI. The
+15-second refresh of an account page never pulls. Pulls of one account
 can overlap, and the cost state keeps the answer of the newest one. `show`,
 `costs`, the TUI and the web UI show unknown spend as `unavailable`, never
 as $0.
@@ -657,8 +658,11 @@ changed, the server answers 204 No Content and the page stays as it is.
 
 The answer depends on the page that asked. htmx sends the address of the
 page in the `HX-Current-URL` header on every request, and the server reads
-only its path. A page visit uses its own path. Any other path, or a missing
-header, counts as the home page. On the home page, the poll and the row
+only its path. A page visit uses its own path. `askingPage` in
+`internal/web/server.go` knows three pages: the home page, the accounts
+page `/accounts`, and an account page. An account page is `/accounts/` and
+one account reference that matches `^[A-Za-z0-9][A-Za-z0-9-]{0,63}$`. Any
+other path, or a missing header, counts as the home page. On the home page, the poll and the row
 actions (+7d, Close and Sync) answer with the accounts section and, out of
 band, the queue panel, the Needs attention ledger `#attention` for an
 admin, and, for an approver, the queue count. A decision in the queue panel
@@ -668,6 +672,26 @@ with the accounts section, because that page has no queue panel. The shell
 shows an approver the queue count on every page, so an approver also gets
 the count out of band there. The hash covers exactly what the page shows,
 so each page gets its own 204.
+
+An account page polls its own address, `GET /accounts/{id}`, every 15
+seconds. Its poller is the account section `#account`: the loan card of the
+account and its facts. The refresh, +7d and Close from the page all answer
+with `accountAnswer`, which is only that section. It carries no queue, no
+ledger and no fleet. An action answer adds the message for the live region.
+The server reads the account again through `accountFor`, which resolves the
+reference of the asking page and checks `canSee`. If the account is gone,
+or the viewer can no longer see it, the section becomes the plain notice of
+`accountGone`, which shows nothing of the account and does not poll. The
+poll hash of the page, from `accountHash`, is the hash of the section
+rendered with no hash and with no landed stamp, so the poll after a +7d
+still gets 204. The refresh reads spend from the cost cache through
+`CostState` and never pulls. A page visit pulls spend that is not known
+first, and then reads the cache, so the first refresh gets 204. An htmx GET
+of `/accounts` from an account page also gets the answer of the account
+page, never a fleet. Both addresses send the same `Cache-Control` and
+`Vary` headers as the accounts page. The budget form of an admin, the
+history and the daily spend sit outside the section, so a refresh never
+touches a value that an admin typed.
 
 A page visit to `/accounts` gets a full page. It starts from the same rows
 as the home page: admins see every account, and everyone else sees only the
@@ -757,13 +781,15 @@ and Sync send `hx-include="#fleet-view, #fleet-page"`, so the answer shows
 the same view and page. On the home page they send nothing extra. A
 refused +7d or Close on the home page fills the `#account-error` slot above
 the accounts section, because the New request panel and its slot are below
-it.
+it. On an account page, a refused +7d or Close fills the `#account-error`
+slot above the account section, and a refused budget change fills the
+`#form-error` slot under its form. `refusalSlot` picks the slot.
 
 A row knows its spend only when `CostState` reports the last pull as good,
 as in the CLI. An account with no AWS account ID yet has spend that is
 known to be zero. Unknown spend shows "unavailable" with no meter, on both
-pages, and never counts as over budget. The account page pulls spend at once
-when it is not known. If that pull fails, the page shows "unavailable" for
+pages, and never counts as over budget. A visit to the account page pulls
+spend at once when it is not known. If that pull fails, the page shows "unavailable" for
 spend and "Spend is unavailable right now." in the daily panel. It never
 shows $0.00.
 
@@ -772,9 +798,9 @@ the footer holds the live line: a dot, the time of the last update, and a
 Pause button. `app.js` resets the time after each poll that the server
 answered with 200 or 204. It does not reset the time for a poll answer that
 it dropped because an action started after that poll. An action answer
-that brings a fresh accounts section also resets the time. On the home page
-that section comes out of band, and on the accounts page it is the main
-swap target, so `app.js` checks both. The line is not a live region. The poll waits
+that brings a fresh section of the poller also resets the time. On the home
+page that section comes out of band, and on the accounts page and an
+account page it is the main swap target, so `app.js` checks both. The line is not a live region. The poll waits
 while the viewer paused live updates and while the tab is hidden. The pause
 lasts for the browser tab, because `sessionStorage` holds it. Resume, and a
 tab that shows again, make the poller poll at once through the custom
@@ -924,8 +950,8 @@ not post. The server stays the authority and still refuses such a post.
 
 Three tasks ask in a native `<dialog>` first: the deny reason, the
 summary of a bulk approval, and the consequences of Close. The dialogs
-render once on the home page, outside the queue and the fleet, so no poll
-or morph touches them. Only approvers get the deny and summary dialogs.
+render once on the page, outside the queue, the fleet and the account
+section, so no poll or morph touches them. Only approvers get the deny and summary dialogs.
 Every viewer gets the close dialog, because anyone can own an account. A
 form or button with a `data-dialog` attribute opens its dialog from the
 `htmx:confirm` listener in `app.js`. The listener holds the request back.
@@ -954,8 +980,17 @@ and sends nothing.
   per-owner limit. The box carries these facts in data attributes, as the
   slip shows them. One selected slip approves at once. With no selection,
   the post goes, and the server refuses it with its own words.
-- Close on a fleet row opens the close dialog. The Close form carries the
-  account name, the AWS account ID and the owner in data attributes.
+- Close on a fleet row, a loan card or the account page opens the close
+  dialog. The Close form carries the account name, the AWS account ID and
+  the owner in data attributes. The home page, the accounts page and the
+  account page render the close dialog.
+
+Close fails closed. A closure cannot be undone from playplace, so
+`openClose` in `app.js` always holds the request back. If the page has no
+close dialog, or the form has no name, nothing is sent, and the region
+says "Reload the page to close this account." While another dialog is
+open, Close does nothing. A test makes sure that every page with a Close button
+renders the close dialog.
 
 When the viewer confirms, `app.js` compares the selection with the one
 that the dialog showed. If a live update cleared a box in the meantime,
@@ -987,7 +1022,8 @@ the account began to close. When the dialog closes, the focus goes to the
 slip or the row of the button if it still shows a control: the name of a
 slip that waits, or the account link of a fleet row. Else the focus goes
 to the name of the first waiting slip or to the queue heading, or for the
-close dialog to the fleet heading. On a confirm, the region says why
+close dialog to the fleet heading, or on an account page to the page
+heading `#account-title`. On a confirm, the region says why
 nothing was sent. A slip that still waits is not called gone: the region
 says that the viewer can no longer decide it.
 
@@ -1000,9 +1036,9 @@ cases:
 - The target takes text: an input other than a checkbox or a radio, a
   textarea, a select, or an editable element. A select picks an option by
   its first letter, so it counts as text.
-- `dialogOpen()` is true. `askFirst` lets a request go when a dialog is
-  open already, so without this guard a key could post Deny or Close
-  behind a dialog.
+- `dialogOpen()` is true. `askFirst` lets a Deny or a summary request go
+  when a dialog is open already, so without this guard a key can post
+  Deny behind a dialog.
 
 A held key repeats only `j`, `k` and `/`. The keys keep no state of their
 own: the row with the focus is the cursor. `j` and `k` move the focus to

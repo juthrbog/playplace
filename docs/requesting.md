@@ -98,8 +98,64 @@ accounts. See
   during the 90-day post-closure period requires AWS Support. The account
   counts toward the account limit of the organization until 90 days after it
   closes. **Cancel** has the focus. Press **Close account** to close it, or
-  **Cancel** to keep it.
-- **History.** The account page lists what happened to it and who did it.
+  **Cancel** to keep it. If the dialog cannot open, nothing is sent, and
+  the page says "Reload the page to close this account."
+- **See it all.** Press the name of the account on its card to open its
+  account page. See [The account page](#the-account-page).
+
+## The account page
+
+Each account has its own page at `/accounts/` and the name or the ID of the
+account. Open it from the name on a loan card, or from the name of a row in
+an accounts table. Only the owner of the account and admins can open it.
+Anyone else gets "Not allowed".
+
+The top of the page is the loan card of the account. The name of the
+account is the heading of the page. The card shows the AWS account ID, the
+status, the due date stamp and the spend:
+
+- **Status.** If something is wrong with the account, a line under the
+  status says what is wrong and what to do. See
+  [Finding accounts](finding-accounts.md#a-line-under-the-status).
+- **Spend.** The spend this month against the monthly budget, such as
+  "$22.50 of $50.00 a month", with a bar under it. A line under the bar
+  says what is left, such as "$27.50 left this month", or how far the spend
+  is over the budget. The line "Cost data lags about a day." comes last. If
+  the spend shows "unavailable", it has no bar. See
+  [Finding accounts](finding-accounts.md#spend-shows-unavailable).
+- **Buttons.** **+7d** and **Close** work as on the home page, and Close
+  opens the same dialog. After a close, you stay on the page, and the card
+  shows *closing*. If playplace refuses an action, the reason shows above
+  the card.
+
+The *Details* panel under the card lists the facts of the account: the
+owner, the AWS account ID, the purpose, who requested it, who approved it,
+when it was created, when it is due, its lifetime, the monthly budget, the
+state of budget protection and the root email. An older account can say
+"not recorded" for the purpose, the requester or the approver, because
+playplace did not keep them then. The lifetime counts from the creation to
+the due date, such as "10 days". When your organization sets a lifetime
+limit, it follows, such as "(the limit is 90 days)". A small line under the
+facts gives the creation request ID, for support.
+
+To copy the AWS account ID, press **Copy ID** next to it. The page then
+says "Copied 123456789012." If the browser cannot copy, the page says
+"Could not copy the ID. Select it and copy it yourself." Copy ID needs
+JavaScript, so it shows only when JavaScript is on.
+
+Below the details come *Change monthly budget* (only for admins), the
+*History* of the account and the *Daily spend*. History lists what happened
+to the account and who did it.
+
+The card and the details update by themselves every 15 seconds, as the home
+page does. See [Live updates](#live-updates). The budget form, the history
+and the daily spend do not update. Reload the page to see new history. When
+you open the page and playplace does not know the spend, it gets the spend
+from AWS at once. The updates every 15 seconds use the spend that playplace
+already has. If the account is gone, or you can no longer see it, the page
+shows "Account unavailable" in place of the card and the details.
+
+Only the `?` key works on the account page. See [Keys](#keys).
 
 ## Live updates
 
