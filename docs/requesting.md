@@ -124,7 +124,7 @@ The web UI has single-key shortcuts. After you sign in, press `?` on any
 page to see the keys that work on that page. **Key list** at the bottom of
 the page shows the same list. On your home page, `j` and `k` move to the
 next or the previous loan card or request, and Enter opens the account of
-a card. Approvers have more keys. See [Approving requests](approving.md#keys) and
+a card. Enter does nothing on a row of *Your requests*. Approvers have more keys. See [Approving requests](approving.md#keys) and
 [Finding accounts](finding-accounts.md#keys).
 
 The keys never act while you type in a field, while you hold Ctrl, Alt or
@@ -133,8 +133,8 @@ Command, or while a dialog is open.
 The keys are on by default. To turn them off, press **Keys on** at the
 bottom of the page. The button then says **Keys off**. Press it again to
 turn them on. The setting lasts for this browser, in every tab and after a
-reload. While the keys are off, `?` still shows the list, so you can find
-the button again. The keys need JavaScript, so the two buttons show only
+reload. While the keys are off, no key works, `?` too. **Key list** still
+shows the list. The keys need JavaScript, so the two buttons show only
 when JavaScript is on.
 
 ## Other ways to ask

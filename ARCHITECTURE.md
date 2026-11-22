@@ -935,29 +935,41 @@ own: the row with the focus is the cursor. `j` and `k` move the focus to
 the row control of the next or the previous row in the same list. The
 lists are the slips of `#pending` (the slip name, or the heading of a row
 of Your requests), the fleet rows and loan cards of `#accounts` (the
-account link), and the rows of `#attention` (the ledger link). They stop
+account link), and the rows of `#attention` (the ledger link). An open
+edit slip also takes the focus on its heading, so the focus never lands on
+Save. They stop
 at each end and skip a row with no control, such as a decided slip. With
 the focus in no list, they go to the first row of the desk for an
 approver, and else of the accounts. The row scrolls into view with
 `block: "nearest"`, and the `--bar-h` rule keeps it clear of the bulk bar.
-Enter is the native click of the link or the name button. `/` focuses and
+Enter is the native click of the link or the name button. A heading has
+no action for Enter, so the key list of a viewer who is not an approver
+names only the link. `/` focuses and
 selects `#fleet-q`, which only the accounts page has.
 
 `x`, `a` and `d` act only on the desk. `x` clicks the box of the focused
 slip, so the change listener updates the count and the copied fields. With
 a checked box, `a` and `d` click Approve selected or Deny selected, which
 keep the caps and the dialogs. Without one, they click Approve or Deny of
-the focused slip. Before Deny, `app.js` moves the focus to the slip name,
-so the dialog gives the focus back to the name and not to Deny. After the
-denial, `notePlace` then sends the focus to the name of the next slip. A
+the focused slip. Before Approve or Deny, `app.js` moves the focus to the
+slip name, so the deny dialog gives the focus back to the name and not to
+Deny. After the decision, `notePlace` then sends the focus to the name of
+the next slip, not to its Approve, so Enter after `a` never approves a
+second request. A
 slip with no box or button gets one sentence in the region that says why,
 for example that the viewer asked for it. A bulk button that a key
 pressed counts as an action, so the region says its message again after
-the focus moved, as after a click. Approve and Deny carry
-`aria-keyshortcuts`.
+the focus moved, as after a click. Approve and Deny carry their key in
+`data-key`. `syncShortcuts()` copies it into `aria-keyshortcuts` only
+while the keys are on, and only on the bulk buttons while a box is
+checked. `showKeys()` and `syncPicks()` call it, so it runs after each
+morph and each change of a box.
 
 The keys are on by default. The footer of every page with a viewer holds
-a `#keys-toggle` button with `aria-pressed`, and a Key list button. Both
+a `#keys-toggle` button and a Key list button. The toggle holds both of
+its words, Keys on and Keys off, and the stylesheet shows the one that
+fits the `keys-off` class, so the word is right before the first paint.
+The word carries the state, so the toggle has no `aria-pressed`. Both
 need script, so they show only under `html.js`. The toggle stores `off`
 under `playplace.keys` in `localStorage`, so the choice lasts for the
 browser, in every tab and after a reload. A `storage` event carries a
@@ -966,8 +978,8 @@ paint, again on `DOMContentLoaded`, and when the back/forward cache shows
 the page. It sets the `keys-off` class on `<html>`. Every read and write
 sits in try/catch. When the storage fails, the state in memory still
 works, and the keys stay on after a reload. The region speaks each change
-of the toggle. Single-key shortcuts that a person can turn off meet WCAG
-2.1.4.
+of the toggle. The toggle turns off every single-key shortcut, `?` too,
+so the keys meet WCAG 2.1.4.
 
 `?` and the Key list button open a fourth native `<dialog>`,
 `#keys-dialog`, through `openKeys()`. The dialog renders once on every
@@ -975,8 +987,14 @@ page with a viewer, outside the morph targets. `keyList` in
 `internal/web/keys.go` lists only the keys that act on that page: the
 desk keys only for an approver on the home page, `/` only on the
 accounts page, and `?` everywhere. `openKeys()` opens nothing while
-another dialog is open, and Close takes the focus. `?` opens the list
-also while the keys are off, and a note then names the toggle.
+another dialog is open, and Close takes the focus. While the keys are
+off, only the Key list button opens the list, and a note then names the
+toggle. `openKeys()` notes the slip or row that has the focus. When the
+list closes and a poll took that control away, `keysClosed()` sends the
+focus to the same control in its own row, or else to the first slip that
+waits or to the heading, as after the other dialogs. A slip that left
+gets a message in the region. Escape on an open dialog never closes the
+phone menu, so the dialog can give the focus back to a menu link.
 
 The server needs management-account credentials, because AWS only allows
 CreateAccount and CloseAccount from there. Run it in the management account

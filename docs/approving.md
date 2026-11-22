@@ -109,7 +109,7 @@ your home page, and only an approver decides with them:
 | `?` | Show the list of the keys for this page. |
 
 `j` and `k` stop at the first and the last slip. They skip a slip that you
-decided. They also move through the rows of *Needs attention* and the
+decided. On a slip that you edit, they stop on its name, not on **Save**. They also move through the rows of *Needs attention* and the
 accounts table, when one of those rows has the focus.
 
 If boxes are checked, `a` and `d` act on the selection, as **Approve
@@ -117,7 +117,8 @@ selected** and **Deny selected** do. The summary opens for two or more
 requests, and the limits of 10 and 50 still apply. If no box is checked,
 `a` and `d` act on the slip that has the focus. `a` then approves at once,
 as **Approve** does. `d` opens the deny dialog, which asks for a reason.
-After the denial, the focus goes to the name of the next slip.
+After `a` or `d`, the focus goes to the name of the next slip, not to its
+**Approve** button. Enter then opens that slip and decides nothing.
 
 If you cannot decide the slip, for example because it is your own request,
 `x`, `a` and `d` decide nothing, and the bar at the top of the queue says
