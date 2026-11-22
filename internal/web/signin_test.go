@@ -49,6 +49,7 @@ func TestAPageVisitKeepsItsAddressThroughSignIn(t *testing.T) {
 		{"GET", "/", "/auth/login"},
 		{"GET", "/?req=bobs-box", "/auth/login?next=%2F%3Freq%3Dbobs-box"},
 		{"GET", "/accounts/111111111111", "/auth/login?next=%2Faccounts%2F111111111111"},
+		{"GET", "/accounts?all=1", "/auth/login?next=%2Faccounts%3Fall%3D1"},
 		{"GET", "//evil.example", "/auth/login"},
 	} {
 		if res, _ := do(t, ts, c.method, c.path, "", false, nil, false); res.StatusCode != http.StatusFound || res.Header.Get("Location") != c.want {

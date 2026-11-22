@@ -264,18 +264,6 @@ func TestFailedPollShowsTheUnavailablePanel(t *testing.T) {
 	}
 }
 
-// The poll answer is a fragment of the home page, so a page visit goes to
-// the home page at the panel, with the same view.
-func TestDirectVisitToThePollGoesHome(t *testing.T) {
-	ts, _ := newServer(t)
-	for path, want := range map[string]string{"/accounts": "/#accounts", "/accounts?all=1": "/?all=1#accounts"} {
-		res, _ := do(t, ts, "GET", path, "anna@example.com", false, nil, false)
-		if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != want {
-			t.Errorf("%s = %d to %q, want 303 to %q", path, res.StatusCode, res.Header.Get("Location"), want)
-		}
-	}
-}
-
 // app.js sends the hash under the header name the server reads.
 func TestAppJSSendsThePollHash(t *testing.T) {
 	js := staticText(t, "app.js")

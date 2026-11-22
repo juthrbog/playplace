@@ -59,9 +59,10 @@ templ region() {
 // and Accounts, because the brand is their link home. The menu toggle comes
 // right after the brand, so the next Tab after it enters the menu. On a phone
 // the in-menu items hide behind it, and Queue and Sync stay in the bar. A
-// page for nobody, such as a failed sign-in, shows only the brand. Only the
-// home page has the accounts section, so Sync on any other page swaps
-// nothing, and its answer writes only into the live region.
+// page for nobody, such as a failed sign-in, shows only the brand. Accounts
+// is a page of its own, and its link is current only on that page. Only the
+// home page and the accounts page have the accounts section, so Sync on any
+// other page swaps nothing, and its answer writes only into the live region.
 templ shell(pg page) {
 	<header class="shell">
 		<a class="brand" href="/"><svg class="mark" aria-hidden="true" focusable="false"><use href="#i-mark"></use></svg><span class="brand-word"><b>play</b><span class="place">place</span></span></a>
@@ -90,7 +91,15 @@ templ shell(pg page) {
 							</li>
 						}
 						if pg.Viewer.Admin {
-							<li class="in-menu"><a class="nav-link" href="/#accounts">Accounts</a></li>
+							<li class="in-menu">
+								<a
+									class="nav-link"
+									href="/accounts"
+									if pg.Path == pathAccounts {
+										aria-current="page"
+									}
+								>Accounts</a>
+							</li>
 						}
 					</ul>
 				</nav>
@@ -98,7 +107,7 @@ templ shell(pg page) {
 					<form
 						class="sync"
 						hx-post="/refresh"
-						if pg.Path == "/" {
+						if hasAccountsSection(pg) {
 							hx-target="#accounts"
 							hx-swap="morph"
 							hx-include="#show-closed"
@@ -157,13 +166,14 @@ templ pendingUpdate(pg page) {
 }
 
 // accountsAnswer answers the poll and every request from outside the
-// queue panel: the accounts section is the main swap, and the queue panel
-// rides out of band. When the queue did not load, the panel and the count
-// stay out, so the page keeps the ones it shows. Rendered with no hash, it
-// is also what the poll hash covers.
+// queue panel: the accounts section is the main swap, and on the home page
+// the queue panel rides out of band. When the queue did not load, the panel
+// and the count stay out, so the page keeps the ones it shows. The accounts
+// page has no queue panel, so its answer is the section alone. Rendered with
+// no hash, it is also what the poll hash covers.
 templ accountsAnswer(pg page, rows []accountRow, errMsg, hash string) {
 	@accountsPanel(pg, rows, errMsg, hash, false)
-	if !pg.PendingFailed {
+	if !pg.PendingFailed && !pg.onAccounts() {
 		@pendingUpdate(pg)
 	}
 }
@@ -237,8 +247,8 @@ type accountRow struct {
 // indexPage is the home page. The shell is the visible heading, so the page
 // h1 is for screen readers only.
 templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
-	@layout(regionInCard(pg), "Accounts") {
-		<h1 class="vh">Accounts</h1>
+	@layout(regionInCard(pg), "Home") {
+		<h1 class="vh">Home</h1>
 		<section class="panel" id="request" aria-labelledby="request-title">
 			<div class="panel-head"><h2 id="request-title">New request</h2></div>
 			<div class="panel-body">
@@ -857,6 +867,28 @@ templ slipEdit(pg page, q core.Request) {
 	</li>
 }
 
+// accountsPage is the accounts page: the fleet for an admin, and their own
+// accounts for anyone else. The panel head is the visible heading, so the
+// page h1 is for screen readers only, and it and the title say what the
+// head says. The live region is first in main, as on every page but home.
+// The refusal slot under the h1 holds a refused row action, outside the
+// section that the poll redraws.
+templ accountsPage(pg page, rows []accountRow, errMsg, hash string) {
+	@layout(pg, accountsTitle(pg)) {
+		<h1 class="vh">{ accountsTitle(pg) }</h1>
+		<div id="form-error" class="refusal"></div>
+		@accountsPanel(pg, rows, errMsg, hash, false)
+		// Anyone can own an account, so every viewer gets the close dialog.
+		@closeDialog()
+		<p class="help">
+			if pg.SignIn && !pg.Viewer.Admin {
+				You see the accounts you own.
+			}
+			Spend is month to date from Cost Explorer and lags about a day.
+		</p>
+	}
+}
+
 // accountsPanel is the accounts panel. When the list did not load, errMsg
 // holds the text of refusal for the error, the head shows no count and the
 // panel says the list is unavailable. An empty list would look like a fleet
@@ -881,11 +913,7 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 	>
 		<div class="panel-head">
 			<h2 id="accounts-title" tabindex="-1">
-				if pg.SignIn && !pg.Viewer.Admin {
-					Your accounts
-				} else {
-					Accounts
-				}
+				{ accountsTitle(pg) }
 				if errMsg == "" {
 					<span class="muted">({ fmt.Sprint(len(rows)) })</span>
 				}
