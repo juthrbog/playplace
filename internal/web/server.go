@@ -456,7 +456,7 @@ func (s *Server) rows(ctx context.Context, pg *page, force bool) ([]accountRow, 
 	rows := make([]accountRow, 0, len(mine))
 	for _, a := range mine {
 		s.problems.note(s.log, a)
-		r := accountRow{Account: a, SpendKnown: a.ProviderID == "", Now: now}
+		r := s.rowOf(pg.Viewer, a, now)
 		if a.ProviderID != "" {
 			if pts, ok := s.svc.CostState(a.ProviderID, 31); ok {
 				r.Spend, r.SpendKnown = core.MonthToDate(pts, now), true
@@ -568,6 +568,19 @@ func (s *Server) writeAccounts(w http.ResponseWriter, r *http.Request, pg page, 
 	s.render(w, r, templ.Join(append([]templ.Component{main}, after...)...))
 }
 
+// rowOf is the row of a for the viewer v at now, with no spend yet: its
+// access state and, when v gets it, the AWS access portal button.
+func (s *Server) rowOf(v Viewer, a *core.Account, now time.Time) accountRow {
+	state := accessState(a, s.svc.AccessEnabled(), now)
+	return accountRow{
+		Account:    a,
+		SpendKnown: a.ProviderID == "",
+		Now:        now,
+		Access:     state,
+		Portal:     portalLink(s.svc.Config().AccessPortalURL, v, a, state),
+	}
+}
+
 // accountFor reads the account of the account page that asked, as the
 // viewer may see it. It is nil when the account is gone or the viewer may
 // not see it, so the answer then holds a plain notice and nothing of the
@@ -594,7 +607,7 @@ func (s *Server) accountFor(ctx context.Context, pg page) (*accountView, error) 
 // zero.
 func (s *Server) viewOf(pg page, a *core.Account) accountView {
 	s.problems.note(s.log, a)
-	row := accountRow{Account: a, SpendKnown: a.ProviderID == "", Now: pg.Now}
+	row := s.rowOf(pg.Viewer, a, pg.Now)
 	if a.ProviderID != "" {
 		if pts, ok := s.svc.CostState(a.ProviderID, 31); ok {
 			row.Spend, row.SpendKnown = core.MonthToDate(pts, pg.Now), true
