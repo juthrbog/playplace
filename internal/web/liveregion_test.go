@@ -86,7 +86,7 @@ func TestOnePoliteLiveRegionPerPage(t *testing.T) {
 			continue
 		}
 		if tc.home && (strings.Contains(tc.body, regionStart) || !regionInQueue(tc.body)) {
-			t.Errorf("%s: the empty live region is not in the pending card, under its head:\n%s", tc.name, tc.body)
+			t.Errorf("%s: the empty live region is not in the queue panel, under its head:\n%s", tc.name, tc.body)
 		}
 		if !tc.home && !strings.Contains(tc.body, regionStart) {
 			t.Errorf("%s: main does not start with the empty live region:\n%s", tc.name, tc.body)
@@ -192,7 +192,6 @@ func TestRefusalsAlsoReachTheRegion(t *testing.T) {
 		code             int
 		slot             string
 	}{
-		{"stale approve", "/requests/stale-one/approve", "lead@example.com", false, true, seen, http.StatusOK, "pending-error"},
 		{"bad budget", "/requests", "ops@example.com", true, true, url.Values{"name": {"big-one"}, "budget": {"lots"}}, http.StatusOK, "form-error"},
 		{"engineer sync", "/refresh", "anna@example.com", false, false, url.Values{}, http.StatusForbidden, "form-error"},
 		{"account gone", "/accounts/999999999999/extend", "ops@example.com", true, true, url.Values{}, http.StatusOK, "form-error"},
@@ -209,6 +208,20 @@ func TestRefusalsAlsoReachTheRegion(t *testing.T) {
 		if n := len(regionPart.FindAllString(body, -1)); n != 1 {
 			t.Errorf("%s: the answer writes the region %d times, want once", tc.name, n)
 		}
+	}
+
+	// A refused decision answers with the queue, which shows the refusal
+	// where the request was. The region gets the same text as a hidden copy.
+	res, body := doAs(t, ts, "POST", "/requests/stale-one/approve", "lead@example.com", false, true, seen, true)
+	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "1" || res.Header.Get("HX-Reswap") != "" || !queueAnswer(body) {
+		t.Fatalf("stale approve = %d %v, want the queue with X-Form-Error:\n%s", res.StatusCode, res.Header, body)
+	}
+	region := hiddenCopy.FindStringSubmatch(body)
+	if got := resultIn(body, "stale-one"); got != goneText("stale-one") || region == nil || region[1] != got {
+		t.Errorf("stale approve: want %q in the queue and the same text hidden in the region:\n%s", goneText("stale-one"), body)
+	}
+	if n := len(regionPart.FindAllString(body, -1)); n != 1 {
+		t.Errorf("stale approve: the answer writes the region %d times, want once", n)
 	}
 }
 

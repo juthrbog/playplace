@@ -81,7 +81,7 @@ func TestPollWithoutAHashIsAFullAnswer(t *testing.T) {
 		if !strings.HasPrefix(body, `<section id="accounts"`) || !regexp.MustCompile(`\sdata-poll-hash="[0-9a-f]{32}"$`).MatchString(tag) {
 			t.Errorf("%s: the answer does not start with the section, its hash last: %s>", tc.who, tag)
 		}
-		if !strings.Contains(body, `id="pending" class="panel" hx-swap-oob="morph"`) {
+		if !queueOOB(body) {
 			t.Errorf("%s: the poll leaves out the pending card:\n%s", tc.who, body)
 		}
 		if got := strings.Contains(body, `<span id="queue-count" hx-swap-oob="true">`); got != tc.approver {
@@ -135,7 +135,9 @@ func TestPollAfterAChangeGets200(t *testing.T) {
 }
 
 // Every answer that swaps the accounts section carries the hash of the new
-// state, so the poll after an action gets 204.
+// state, so the poll after an action gets 204. A decision answer also
+// covers its results, so the next poll gets 200 and redraws the queue
+// without them.
 func TestActionAnswersCarryTheNextPollHash(t *testing.T) {
 	ts, _ := newServer(t)
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"bobs-box"}}, true)
@@ -149,7 +151,6 @@ func TestActionAnswersCarryTheNextPollHash(t *testing.T) {
 		{"extend", "/accounts/111111111111/extend", "/accounts", "anna@example.com", false, false, url.Values{}},
 		{"extend, closed shown", "/accounts/111111111111/extend", "/accounts?all=1", "anna@example.com", false, false, url.Values{"all": {"1"}}},
 		{"close", "/accounts/111111111111/close", "/accounts", "anna@example.com", false, false, url.Values{}},
-		{"approve", "/requests/bobs-box/approve", "/accounts", "lead@example.com", false, true, refForm(refIn(t, home, "bobs-box"))},
 		{"sync", "/refresh", "/accounts", "ops@example.com", true, true, url.Values{}},
 	} {
 		res, body := doAs(t, ts, "POST", tc.path, tc.who, tc.admin, tc.approver, tc.form, true)
@@ -159,6 +160,18 @@ func TestActionAnswersCarryTheNextPollHash(t *testing.T) {
 		if res, body := poll(t, ts, tc.poll, tc.who, tc.admin, tc.approver, pollHashIn(t, body)); res.StatusCode != http.StatusNoContent {
 			t.Errorf("%s: the poll after the answer = %d, want 204:\n%s", tc.name, res.StatusCode, body)
 		}
+	}
+
+	res, body := doAs(t, ts, "POST", "/requests/bobs-box/approve", "lead@example.com", false, true, refForm(refIn(t, home, "bobs-box")), true)
+	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" || !strings.Contains(body, `data-state="decided"`) {
+		t.Fatalf("approve = %d:\n%s", res.StatusCode, body)
+	}
+	res, body = poll(t, ts, "/accounts", "lead@example.com", false, true, pollHashIn(t, body))
+	if res.StatusCode != http.StatusOK || strings.Contains(body, `data-state="decided"`) {
+		t.Fatalf("the poll after the approval = %d, want 200 without the decided slip:\n%s", res.StatusCode, body)
+	}
+	if res, body := poll(t, ts, "/accounts", "lead@example.com", false, true, pollHashIn(t, body)); res.StatusCode != http.StatusNoContent {
+		t.Errorf("the poll after the redraw = %d, want 204:\n%s", res.StatusCode, body)
 	}
 }
 
@@ -209,7 +222,7 @@ func TestFailedPollShowsTheUnavailablePanel(t *testing.T) {
 	flaky.fail.Store(true)
 
 	_, home := do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
-	if !strings.Contains(home, "The pending requests are unavailable.") || strings.Contains(home, "Nothing waiting") {
+	if !strings.Contains(home, "The pending requests are unavailable.") || strings.Contains(home, "No requests are waiting") {
 		t.Errorf("the home page shows a queue that did not load as empty:\n%s", home)
 	}
 
@@ -228,7 +241,7 @@ func TestFailedPollShowsTheUnavailablePanel(t *testing.T) {
 	if strings.Contains(body, "AccessDenied") || strings.Contains(body, "RequestID") {
 		t.Errorf("the failed panel shows the raw AWS error:\n%s", body)
 	}
-	for _, bad := range []string{"Nothing waiting", `id="pending"`, `id="queue-count"`} {
+	for _, bad := range []string{"No requests are waiting", `id="pending"`, `id="queue-count"`} {
 		if strings.Contains(body, bad) {
 			t.Errorf("the failed poll holds %s, which would replace the card or the count on the page:\n%s", bad, body)
 		}

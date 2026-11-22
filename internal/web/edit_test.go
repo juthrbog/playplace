@@ -243,8 +243,11 @@ func TestEditFormSavesChangedLifetimeAndBudget(t *testing.T) {
 	form.Set("ttl", "0.5")
 	form.Set("budget", "7.25")
 	res, body := do(t, ts, "POST", "/requests/odd/edit", "ops@example.com", true, form, true)
-	if res.Header.Get("X-Form-Error") != "" || !strings.Contains(body, "<td>12 hours</td>") || !strings.Contains(body, "<td>$7.25</td>") {
-		t.Fatalf("the edit should show the new values: %s", body)
+	if res.Header.Get("X-Form-Error") != "" {
+		t.Fatalf("the edit should work: %s", body)
+	}
+	if lifetime, budget := factsIn(t, body, "odd"); lifetime != "12 hours" || budget != "$7.25" {
+		t.Fatalf("the edit should show 12 hours and $7.25, not %s and %s: %s", lifetime, budget, body)
 	}
 	q, err := svc.GetRequest(context.Background(), "odd")
 	if err != nil || q.TTL != 12*time.Hour || q.BudgetUSD != 7.25 {

@@ -1434,8 +1434,7 @@ func (s *Service) SubmitRequest(ctx context.Context, in RequestInput, via string
 	}
 	if s.cfg.BaseURL != "" {
 		body.WriteString(" Approve or deny at ")
-		body.WriteString(strings.TrimRight(s.cfg.BaseURL, "/"))
-		body.WriteString("/#pending")
+		body.WriteString(RequestLink(s.cfg.BaseURL, r.Name))
 	}
 	s.notifyAll(ctx, "Playground account requested: "+r.Name, body.String(), "approvers", "req:"+r.Name)
 	return r, nil

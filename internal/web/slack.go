@@ -59,7 +59,7 @@ func (s *Slack) postRequest(ctx context.Context, q core.Request) error {
 		text += "\nPurpose: " + q.Purpose
 	}
 	if s.BaseURL != "" {
-		text += fmt.Sprintf("\n<%s/#pending|Open in playplace>", strings.TrimRight(s.BaseURL, "/"))
+		text += "\n<" + core.RequestLink(s.BaseURL, q.Name) + "|Open in playplace>"
 	}
 	value := refValue(q.Ref())
 	msg := map[string]any{

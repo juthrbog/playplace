@@ -51,7 +51,8 @@ account limit of the organization until 90 days after it closes.
 - Lifecycle notices (*requested*, *approved*, *edited*, *denied*, *expired*,
   *creation failed*, *ready*, *expiring*, *closed*, *overdue*, and budget
   notices) go to the log and to an optional Slack webhook. They never go to
-  a person. Notices and Slack link to `BASE/#pending`.
+  a person. Notices and Slack link to the slip of the request:
+  `BASE/?req=<name>#req-<name>`.
 - AWS takes a few minutes to create an account. Cost Explorer data lags
   about a day and is pulled at most once an hour per account. Closure is
   asynchronous, and charges can continue while an account is closing.

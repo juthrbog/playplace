@@ -199,10 +199,12 @@ func TestSignInErrorsAreStyledPages(t *testing.T) {
 	}
 }
 
-// TestSignInErrorsNameTheRecovery runs the callback to the claim checks. A
-// token endpoint returns an unsigned ID token, and the verifier skips the
-// signature check, so each refusal comes from the real callback code.
-func TestSignInErrorsNameTheRecovery(t *testing.T) {
+// testSignIn starts a token endpoint and an OIDCAuth that skips the
+// signature check. signIn signs f as the flow cookie and runs the
+// callback. The token endpoint answers with the default claims and
+// claims.
+func testSignIn(t *testing.T) (a *OIDCAuth, signIn func(claims map[string]any, f flow) *httptest.ResponseRecorder) {
+	t.Helper()
 	const issuer, client = "https://issuer.test", "playplace"
 	var claims map[string]any
 	tokens := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -218,25 +220,35 @@ func TestSignInErrorsNameTheRecovery(t *testing.T) {
 		}
 	}))
 	t.Cleanup(tokens.Close)
-	a := &OIDCAuth{
+	a = &OIDCAuth{
 		secret:   []byte("test-secret"),
 		cfg:      OIDCConfig{RedirectURL: "http://localhost/cb", SessionTTL: time.Hour, AllowedDomain: "example.com"},
 		oauth:    oauth2.Config{ClientID: client, ClientSecret: "s", Endpoint: oauth2.Endpoint{TokenURL: tokens.URL, AuthStyle: oauth2.AuthStyleInParams}, RedirectURL: "http://localhost/cb"},
 		verifier: oidc.NewVerifier(issuer, nil, &oidc.Config{ClientID: client, InsecureSkipSignatureCheck: true}),
 	}
-	signIn := func(c map[string]any) *httptest.ResponseRecorder {
+	signIn = func(c map[string]any, f flow) *httptest.ResponseRecorder {
 		claims = map[string]any{"iss": issuer, "aud": client, "sub": "1", "exp": time.Now().Add(time.Hour).Unix(), "nonce": "no"}
 		for k, v := range c {
 			claims[k] = v
 		}
-		f := flow{State: "st", Nonce: "no", Verifier: oauth2.GenerateVerifier(), Exp: time.Now().Add(time.Minute)}
 		rec := httptest.NewRecorder()
 		a.setSigned(rec, httptest.NewRequest("GET", "/", nil), flowCookie, f, f.Exp)
-		req := httptest.NewRequest("GET", "/auth/callback?state=st&code=c", nil)
+		req := httptest.NewRequest("GET", "/auth/callback?state="+url.QueryEscape(f.State)+"&code=c", nil)
 		req.AddCookie(rec.Result().Cookies()[0])
 		rec = httptest.NewRecorder()
 		a.callback(rec, req)
 		return rec
+	}
+	return a, signIn
+}
+
+// TestSignInErrorsNameTheRecovery runs the callback to the claim checks. A
+// token endpoint returns an unsigned ID token, and the verifier skips the
+// signature check, so each refusal comes from the real callback code.
+func TestSignInErrorsNameTheRecovery(t *testing.T) {
+	_, signInWith := testSignIn(t)
+	signIn := func(c map[string]any) *httptest.ResponseRecorder {
+		return signInWith(c, flow{State: "st", Nonce: "no", Verifier: oauth2.GenerateVerifier(), Exp: time.Now().Add(time.Minute)})
 	}
 	// A good token signs in, so the cases below fail at their own check.
 	if rec := signIn(map[string]any{"email": "ok@example.com"}); rec.Code != http.StatusFound || rec.Header().Get("Location") != "/" {

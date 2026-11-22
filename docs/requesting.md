@@ -17,7 +17,7 @@ Fill in the form at the top of the page.
 | budget | dollars per month, up to the limit shown under the form |
 | purpose | one line on what you will try |
 
-Press **Request**. Your request appears under *Your pending requests* with a
+Press **Request**. Your request appears under *Your requests* with a
 **Withdraw** button in case you change your mind. Approvers are told through
 whatever channel your organization connected, such as a Slack channel.
 
@@ -38,7 +38,7 @@ notices, check the web UI or ask an operator. See
 [Notices](configuration.md#notices).
 
 The *approved* or *denied* notice gives the outcome, with the reason if it
-was denied. The request then leaves *Your pending requests*. Once approved,
+was denied. The request then leaves *Your requests*. Once approved,
 AWS creates the account. In the table it shows as *creating*, then *active*,
 with the account id. After an hour as *creating*, the row also shows a note
 that the account waits outside the Playground OU for the next reconcile.

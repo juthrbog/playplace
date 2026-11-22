@@ -141,6 +141,13 @@ func (r Request) ExpiresAt(now time.Time) time.Time { return now.Add(r.TTL) }
 // request. Every rule and view of that moment uses it.
 func (r Request) DropsAt(ttl time.Duration) time.Time { return r.RequestedAt.Add(ttl) }
 
+// RequestLink is the web address of the slip of the request name,
+// under base, the address of the web UI. The query survives sign-in,
+// and the hash scrolls to the slip.
+func RequestLink(base, name string) string {
+	return strings.TrimRight(base, "/") + "/?req=" + name + "#req-" + name
+}
+
 // Validate checks every stored field against the tag rules.
 func (r Request) Validate() error {
 	if err := ValidateName(r.Name); err != nil {

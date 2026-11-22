@@ -45,7 +45,7 @@ func TestRefusalText(t *testing.T) {
 	gone := fmt.Errorf("%w: no pending request named box", core.ErrNotFound)
 	const (
 		changedText = "box changed after you loaded the page. Read the new values, then try again."
-		goneText    = "box is no longer waiting. Someone else decided it, the owner withdrew it, or it was dropped."
+		goneText    = "box is no longer waiting. Someone else decided it, the owner withdrew it, or playplace dropped it."
 	)
 	for _, c := range []struct {
 		name    string
@@ -406,7 +406,7 @@ func TestSlackRepliesWithTheSafeText(t *testing.T) {
 		t.Errorf("the log has no warning for the Slack click with the raw error:\n%s", logs.String())
 	}
 
-	if text := slackClick(t, ts, sl, stub, "approve", "missing 01ABC.v1"); text != "Not approved. missing is no longer waiting. Someone else decided it, the owner withdrew it, or it was dropped." {
+	if text := slackClick(t, ts, sl, stub, "approve", "missing 01ABC.v1"); text != "Not approved. missing is no longer waiting. Someone else decided it, the owner withdrew it, or playplace dropped it." {
 		t.Errorf("Slack approve of a request that is gone = %q", text)
 	}
 

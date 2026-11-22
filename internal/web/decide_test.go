@@ -33,14 +33,19 @@ const (
 	reasonCharacters = "The reason holds a hidden character, for example a control or text direction character. Type the reason again."
 )
 
-// The reasons that refusal gives for a request that changed or left the
-// queue.
-func changedText(name string) string {
-	return name + " changed after you loaded the page. Read the new values, then try again."
+// staleText is the note of a request that changed after the page showed it,
+// when the post did not send what the page showed.
+func staleText(action, name string) string {
+	if action == actionDeny {
+		return "Not denied. " + name + " changed after you loaded the page. Read the new values, then deny again."
+	}
+	return "Not approved. " + name + " changed after you loaded the page. Read the new values, then approve again."
 }
 
+// goneText is the reason that refusal gives for a request that left the
+// queue.
 func goneText(name string) string {
-	return name + " is no longer waiting. Someone else decided it, the owner withdrew it, or it was dropped."
+	return name + " is no longer waiting. Someone else decided it, the owner withdrew it, or playplace dropped it."
 }
 
 // clock is a time that a test moves. The service reads it, and the fakes
@@ -230,9 +235,13 @@ func TestDecideRunsTheQueueInOrder(t *testing.T) {
 	if got, _ := regionIn(body); got != checkIcon+"<span>Approved 3 requests. AWS is creating 3 accounts.</span>" {
 		t.Errorf("region = %q", got)
 	}
-	// The answer is the card, as for one row, with no refusal.
+	// The answer is the queue, as for one slip, with no refusal. Each
+	// request keeps a decided slip, in queue order.
 	if !queueAnswer(body) || len(undecidedIn(body)) != 0 {
-		t.Errorf("the answer is not the card with an empty slot:\n%s", body)
+		t.Errorf("the answer is not the queue with an empty slot:\n%s", body)
+	}
+	if got := decidedIn(body); !slices.Equal(got, names) {
+		t.Errorf("the decided slips are %v, want %v", got, names)
 	}
 	for _, name := range names {
 		if d.pending(t, name) {
@@ -273,7 +282,7 @@ func TestDecideReportsEachResult(t *testing.T) {
 		t.Errorf("the answer lists %v, want %v:\n%s", got, want, body)
 	}
 	for name, want := range map[string]string{
-		"stale-box": changedText("stale-box"),
+		"stale-box": staleText(actionApprove, "stale-box"),
 		"leads-box": "Not approved. You requested it, so another approver must approve it.",
 		"gone-box":  goneText("gone-box"),
 		"ok-box":    "",
@@ -282,10 +291,10 @@ func TestDecideReportsEachResult(t *testing.T) {
 			t.Errorf("the reason for %s = %q, want %q", name, got, want)
 		}
 	}
-	// The card shows the queue as it is now: the new budget, and no request
-	// that left.
-	if !strings.Contains(slipIn(body, "stale-box"), "$61") || slipIn(body, "ok-box") != "" || slipIn(body, "gone-box") != "" {
-		t.Errorf("the card does not show the queue as it is now:\n%s", body)
+	// The queue shows what waits now: the new budget, the stamp of the
+	// approved request, and no slip for the request that left.
+	if !strings.Contains(slipIn(body, "stale-box"), "$61") || !slices.Equal(decidedIn(body), []string{"ok-box"}) || slipIn(body, "gone-box") != "" {
+		t.Errorf("the queue does not show the requests as they are now:\n%s", body)
 	}
 	for name, want := range map[string]bool{"ok-box": false, "stale-box": true, "leads-box": true} {
 		if got := d.pending(t, name); got != want {
@@ -326,15 +335,15 @@ func TestDecideKeepsTheOwnRuleForDenials(t *testing.T) {
 		t.Error("only other-box may leave the queue")
 	}
 	// The single Approve button applies the rule as the decide route does.
-	_, body = doAs(t, d.ts, "POST", "/requests/for-ops/approve", "ops@example.com", true, true, refForm(refs[1]), true)
-	if slot := slotPart.FindStringSubmatch(body); slot == nil || slot[2] != "Not approved. It names you as the owner, so another approver must approve it." {
-		t.Errorf("approving a request that names you as the owner:\n%s", body)
+	res, body = doAs(t, d.ts, "POST", "/requests/for-ops/approve", "ops@example.com", true, true, refForm(refs[1]), true)
+	if got := resultIn(body, "for-ops"); res.Header.Get("X-Form-Error") != "1" || got != "Not approved. It names you as the owner, so another approver must approve it." {
+		t.Errorf("approving a request that names you as the owner = %v, %q:\n%s", res.Header, got, body)
 	}
 }
 
 // The own rule runs on the version that the viewer saw. An admin gives the
 // request to the approver after the approver loaded the page. The click
-// carries the old version, so it gets the changed text and the card with the
+// carries the old version, so it gets the changed text and the slip with the
 // new values, as core refuses it.
 func TestDecideChecksTheOwnRuleOnTheVersionThatThePageShowed(t *testing.T) {
 	d := newDesk(t, nil, nil, nil)
@@ -347,19 +356,19 @@ func TestDecideChecksTheOwnRuleOnTheVersionThatThePageShowed(t *testing.T) {
 		t.Fatalf("edit = %s", body)
 	}
 	for _, c := range []struct {
-		path string
-		form url.Values
+		path, action string
+		form         url.Values
 	}{
-		{"/requests/box/approve", refForm(old)},
-		{"/requests/decide?action=approve", decideForm("", old)},
-		{"/requests/decide?action=deny", decideForm("no", old)},
+		{"/requests/box/approve", actionApprove, refForm(old)},
+		{"/requests/decide?action=approve", actionApprove, decideForm("", old)},
+		{"/requests/decide?action=deny", actionDeny, decideForm("no", old)},
 	} {
 		_, body := doAs(t, d.ts, "POST", c.path, "lead@example.com", false, true, c.form, true)
-		if slot := slotPart.FindStringSubmatch(body); slot == nil || slot[2] != changedText("box") {
-			t.Errorf("%s with the old version gets %v, want the changed text:\n%s", c.path, slot, body)
+		if got := resultIn(body, "box"); got != staleText(c.action, "box") {
+			t.Errorf("%s with the old version gets %q, want the changed text:\n%s", c.path, got, body)
 		}
 		if !strings.Contains(slipIn(body, "box"), "lead@") {
-			t.Errorf("%s does not show the card with the new owner:\n%s", c.path, body)
+			t.Errorf("%s does not show the slip with the new owner:\n%s", c.path, body)
 		}
 	}
 	if !d.pending(t, "box") {
@@ -603,8 +612,9 @@ func TestDecideStopsAfterTheFirstAWSFailure(t *testing.T) {
 	refs := d.refs(t, names...)
 	aws.set(0, true)
 	res, body := d.decide(t, "lead@example.com", true, actionApprove, decideForm("", refs...), true)
-	// Nothing went through, so the answer is a refusal.
-	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "1" || res.Header.Get("HX-Reswap") != "none" {
+	// Nothing went through, so the answer is a refusal. It is still the
+	// queue, which shows each reason in its slip.
+	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "1" || res.Header.Get("HX-Reswap") != "" || !queueAnswer(body) {
 		t.Fatalf("decide = %d %v\n%s", res.StatusCode, res.Header, body)
 	}
 	if got, _ := regionIn(body); got != alertIcon+"<span>No requests were approved. The queue shows why.</span>" {
@@ -614,7 +624,7 @@ func TestDecideStopsAfterTheFirstAWSFailure(t *testing.T) {
 		t.Errorf("creations = %v, want box-one alone", got)
 	}
 	notTried := "Not approved. playplace stopped before this request. Approve it again."
-	for name, want := range map[string]string{"box-one": awsFailed, "box-two": notTried, "box-three": notTried} {
+	for name, want := range map[string]string{"box-one": "Not approved. " + awsFailed, "box-two": notTried, "box-three": notTried} {
 		if got := resultIn(body, name); got != want {
 			t.Errorf("the reason for %s = %q, want %q", name, got, want)
 		}
@@ -664,7 +674,7 @@ func TestDecideGoesOnAfterARefusalOfCore(t *testing.T) {
 	if got, _ := regionIn(body); got != checkIcon+"<span>Approved 1 of 2 requests. AWS is creating 1 account. The queue shows why 1 request was not approved.</span>" {
 		t.Errorf("region = %q", got)
 	}
-	if got, want := resultIn(body, "gone-box"), `Owner "gone@example.com" is not a user in the identity store. Use the engineer's email or user name.`; got != want {
+	if got, want := resultIn(body, "gone-box"), `Not approved. Owner "gone@example.com" is not a user in the identity store. Use the engineer's email or user name.`; got != want {
 		t.Errorf("the reason for gone-box = %q, want %q", got, want)
 	}
 	if got := resultIn(body, "next-box"); got != "" {
@@ -778,7 +788,7 @@ func TestDecideEndsACallThatAWSNeverAnswers(t *testing.T) {
 	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "1" {
 		t.Fatalf("decide = %d %v\n%s", res.StatusCode, res.Header, body)
 	}
-	for name, want := range map[string]string{"box-one": awsSlow, "box-two": notTried(actionApprove)} {
+	for name, want := range map[string]string{"box-one": "Not approved. " + awsSlow, "box-two": notTried(actionApprove)} {
 		if got := resultIn(body, name); got != want {
 			t.Errorf("the reason for %s = %q, want %q", name, got, want)
 		}
@@ -955,8 +965,8 @@ func TestDecideDropsDuplicateRequests(t *testing.T) {
 	// The first ref of other-box is stale, so the current one after it never
 	// counts.
 	res, body = d.decide(t, "lead@example.com", true, actionApprove, decideForm("", old("other-box"), refs[1]), true)
-	if slot := slotPart.FindStringSubmatch(body); res.Header.Get("X-Form-Error") != "1" || slot == nil || slot[2] != changedText("other-box") {
-		t.Errorf("the stale ref first = %v:\n%s", res.Header, body)
+	if got := resultIn(body, "other-box"); res.Header.Get("X-Form-Error") != "1" || got != staleText(actionApprove, "other-box") {
+		t.Errorf("the stale ref first = %v, %q:\n%s", res.Header, got, body)
 	}
 	if d.pending(t, "dup-box") || !d.pending(t, "other-box") {
 		t.Error("want dup-box approved and other-box waiting")

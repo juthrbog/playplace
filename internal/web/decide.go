@@ -14,8 +14,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/a-h/templ"
-
 	"playplace/internal/core"
 )
 
@@ -90,6 +88,18 @@ type decision struct {
 	Ref  core.RequestRef
 	Kind decisionKind
 	Why  string
+	// Action is the decision that the post asked for: approve or deny.
+	Action string
+	// Req is the record that a decision that went through acted on. Its
+	// decided slip shows it. It is empty when the queue held another
+	// version of the request.
+	Req core.Request
+	// Reason is the reason of a denial that went through.
+	Reason string
+	// Shown are the values that the page showed for a request that the
+	// post did not decide, from its shown fields. They name what changed,
+	// and they place the slip of a request that left the queue.
+	Shown shownValues
 }
 
 // done reports whether the decision went through.
@@ -98,7 +108,7 @@ func (d decision) done() bool { return d.Kind == decidedApproved || d.Kind == de
 func (s *Server) approve(w http.ResponseWriter, r *http.Request) { s.decideOne(w, r, actionApprove) }
 func (s *Server) deny(w http.ResponseWriter, r *http.Request)    { s.decideOne(w, r, actionDeny) }
 
-// decideOne is the Approve or Deny button of one row. It decides one ref:
+// decideOne is the Approve or Deny button of one slip. It decides one ref:
 // the name from the path and the version from the form. The checks run in
 // the same order as on the decide route: the role, the form, the reason,
 // then core.
@@ -203,8 +213,8 @@ func (s *Server) readDecisionForm(w http.ResponseWriter, r *http.Request) bool {
 }
 
 // refuseForm answers a decision form that playplace refused as a whole. The
-// htmx answer keeps its status and fills the refusal slot of the pending
-// card, with a hidden copy in the region. app.js swaps it because it asks
+// htmx answer keeps its status and fills the refusal slot of the queue
+// panel, with a hidden copy in the region. app.js swaps it because it asks
 // for no main swap. A page visit gets the styled error page.
 func (s *Server) refuseForm(w http.ResponseWriter, r *http.Request, code int, why string) {
 	s.log.Warn("decision form refused", "path", r.URL.Path, "status", code, "why", why)
@@ -307,6 +317,10 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request, action string, r
 			cancel()
 			stopped = d.Kind == decisionFailed
 		}
+		d.Action = action
+		if !d.done() {
+			d.Shown = readShown(r.PostForm, ref.Name)
+		}
 		s.log.Info("decision", "action", action, "name", ref.Name, "version", ref.Version, "result", d.Kind.String(), "by", pg.Viewer.Email)
 		results = append(results, d)
 	}
@@ -347,10 +361,20 @@ func (s *Server) decideRef(ctx context.Context, r *http.Request, pg page, action
 		s.log.Warn("decision failed", "path", r.URL.Path, "action", action, "name", ref.Name, "err", err)
 		return undecided(action, ref, err)
 	case action == actionApprove:
-		return decision{Ref: ref, Kind: decidedApproved}
+		return decision{Ref: ref, Kind: decidedApproved, Req: decidedRecord(q, ref)}
 	default:
-		return decision{Ref: ref, Kind: decidedDenied}
+		return decision{Ref: ref, Kind: decidedDenied, Req: decidedRecord(q, ref), Reason: reason}
 	}
+}
+
+// decidedRecord is q when it is the version that the decision acted
+// on, and an empty record otherwise. A cached record of another
+// version holds values that nobody decided, so it gets no slip.
+func decidedRecord(q core.Request, ref core.RequestRef) core.Request {
+	if q.Version() == ref.Version {
+		return q
+	}
+	return core.Request{}
 }
 
 // undecided is the result of a ref that err refused. The checks run in the
@@ -397,75 +421,70 @@ func notTried(action string) string {
 	return "Not approved. playplace stopped before this request. Approve it again."
 }
 
-// answerDecisions answers a decision post with every result. When some
-// went through, the pending card is the main swap, as for one row, and the
-// region says what happened. The card lists each request that was not
-// decided in its refusal slot. A failed account list then shows as the
-// failed panel, so the results still reach the page. When none went
-// through, the answer is a refusal. One request gets its reason in the slot
-// and the hidden copy. Several get the list in the card.
+// answerDecisions answers a decision post with every result. The
+// queue is the main swap, as for one slip. A request that went through
+// keeps a slip with its stamp, and a request that did not shows the
+// reason in its slip. A request that left the queue keeps a gone slip
+// in its place. With no place, it gets a line in the bulk bar. The
+// region says how many went through. When none did, the answer is
+// a refusal: one request gets a hidden copy of its reason, and several
+// get the sentence. A failed account list shows its failed panel, so
+// the results still reach the page. A page visit that decided nothing
+// gets the styled page.
 func (s *Server) answerDecisions(w http.ResponseWriter, r *http.Request, action string, results []decision) {
-	var left []decision
-	stale := false
+	done, stale := 0, false
 	for _, d := range results {
-		if !d.done() {
-			left = append(left, d)
+		if d.done() {
+			done++
 		}
 		stale = stale || d.Kind == decisionGone || d.Kind == decisionChanged
 	}
 	said := decisionSentence(action, results)
-	if len(left) == len(results) {
-		s.refuseDecisions(w, r, action, left, stale, said)
+	// A request that changed or left makes the queue read live, so the
+	// answer shows what waits now.
+	if stale {
+		s.svc.Invalidate()
+	}
+	if done == 0 && r.Header.Get("HX-Request") != "true" {
+		s.refusePage(w, r, action, results)
 		return
 	}
 	pg := s.pageFor(r)
-	pg.Undecided = left
+	pg.Results = results
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
 	var errMsg string
 	if err != nil {
 		s.log.Warn("accounts", "path", r.URL.Path, "err", err)
 		rows, errMsg = nil, listFailure(err)
 	}
-	s.writeAccounts(w, r, pg, rows, errMsg, s.pollHash(r.Context(), pg, rows, errMsg), true, noticeFragment("check", said))
+	region := noticeFragment("check", said)
+	if done == 0 {
+		w.Header().Set("X-Form-Error", "1")
+		region = noticeFragment("alert", said)
+		if len(results) == 1 {
+			region = hiddenNotice(pg.resultText(results[0]))
+		}
+	}
+	s.writeAccounts(w, r, pg, rows, errMsg, s.pollHash(r.Context(), pg, rows, errMsg), true, region)
 }
 
-// refuseDecisions answers a decision post that decided nothing. A request
-// that changed or left the queue renders the card again, so the viewer sees
-// what waits now. The card lands first, and the refusal then fills its
-// slot. A page visit gets the styled page with the reason of each request,
-// because the home page cannot show them.
-func (s *Server) refuseDecisions(w http.ResponseWriter, r *http.Request, action string, left []decision, stale bool, said string) {
-	if stale {
-		s.svc.Invalidate()
-	}
-	if r.Header.Get("HX-Request") != "true" {
-		msg := left[0].Why
-		if len(left) > 1 {
-			verb := "approved"
-			if action == actionDeny {
-				verb = "denied"
-			}
-			parts := []string{"No requests were " + verb + "."}
-			for _, d := range left {
-				parts = append(parts, d.Ref.Name+": "+d.Why)
-			}
-			msg = strings.Join(parts, " ")
+// refusePage answers a page visit whose decision post decided
+// nothing. The home page cannot show the results, so the styled page
+// names the reason of each request.
+func (s *Server) refusePage(w http.ResponseWriter, r *http.Request, action string, left []decision) {
+	msg := left[0].Why
+	if len(left) > 1 {
+		verb := "approved"
+		if action == actionDeny {
+			verb = "denied"
 		}
-		s.errorPage(w, r, errorView{Code: http.StatusBadRequest, Title: "Action refused", Message: msg, Recovery: "Go back to Home and try again.", Back: "/", BackLabel: "Go to Home"})
-		return
-	}
-	w.Header().Set("HX-Reswap", "none")
-	w.Header().Set("X-Form-Error", "1")
-	if len(left) == 1 {
-		if stale {
-			s.render(w, r, pendingUpdate(s.pageFor(r)))
+		parts := []string{"No requests were " + verb + "."}
+		for _, d := range left {
+			parts = append(parts, d.Ref.Name+": "+d.Why)
 		}
-		s.render(w, r, errorFragment("pending-error", left[0].Why))
-		return
+		msg = strings.Join(parts, " ")
 	}
-	pg := s.pageFor(r)
-	pg.Undecided = left
-	s.render(w, r, templ.Join(pendingUpdate(pg), noticeFragment("alert", said)))
+	s.errorPage(w, r, errorView{Code: http.StatusBadRequest, Title: "Action refused", Message: msg, Recovery: "Go back to Home and try again.", Back: "/", BackLabel: "Go to Home"})
 }
 
 // decisionSentence is what the region says after a decision post. One

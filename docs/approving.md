@@ -4,8 +4,13 @@ Approvers are named when playplace is set up. Admins are approvers too.
 
 ## The queue
 
-Sign in to the web UI. The *Pending approvals* card lists every request
-waiting: who asked, for whom, how long, how much, and why.
+Sign in to the web UI. The *Approval queue* lists every request that waits,
+oldest first. A slip shows the name, the purpose, who asked and for whom,
+the exact lifetime and budget, and the request version. Click the name, or
+press Enter on it, to open the slip. The open slip shows every fact that
+decides it: when it arrived, the ceilings, the per-owner limit, the whole
+purpose, and when playplace drops it. The slip stays open while the page
+updates.
 
 - **Approve** creates the account, and AWS takes a few minutes. playplace
   sends an *approved* [notice](#notices). You cannot undo an approval. The
@@ -15,23 +20,33 @@ waiting: who asked, for whom, how long, how much, and why.
 - **Deny** asks you for a reason. The web UI does not deny a request without
   one, and the reason can have at most 500 characters. The *denied* notice
   and the history show the reason on one line.
-- **Edit** (admins only) changes the owner, days, budget, or purpose before
-  approving. playplace saves only the fields you change. A lifetime that is
-  not a whole number of days shows as part of a day, for example 1.5, with
-  the hours next to it. The *edited* notice lists each change.
-- **Withdraw** removes a request. Requesters and owners can withdraw their
-  own; admins can withdraw any. The command line and the TUI can withdraw
-  too.
+- **Edit** (admins only), in the open slip, changes the owner, days, budget,
+  or purpose before approving. playplace saves only the fields you change. A
+  lifetime that is not a whole number of days shows as part of a day, for
+  example 1.5, with the hours next to it. The *edited* notice lists each
+  change.
+- **Withdraw**, in the open slip, removes a request. Requesters and owners
+  can withdraw their own, and admins can withdraw any. The command line and
+  the TUI can withdraw too.
+
+After a decision, the slip shows a stamp, APPROVED or DENIED, with the
+version that you decided. An approved slip says that AWS is creating the
+account. A denied slip shows the reason. The stamped slip stays until the
+page updates.
 
 You cannot approve a request you made or one that would give you the
 account. Someone else must. The web UI does not let you deny such a request
-either, but you can withdraw it.
+either, but you can withdraw it. The slip of such a request shows *Your
+request* in place of the buttons, and the open slip says why.
 
 Each button acts on the request as your page showed it. Someone can edit the
 request after your page loads. The request can also end, and someone can
 submit a new request with the same name. In both cases, playplace refuses the
-click and shows the current request. Read the request again, then click
-again.
+click. The slip then shows the current request, marks it *changed after you
+loaded the page*, and names what changed, for example budget $40 to $60.
+Read the new values, then click again. If the request no longer waits, its
+slip says so until the page updates. A refused edit or Withdraw shows its
+reason at the top of the queue instead, and the queue shows what waits now.
 
 ## Limits
 
@@ -65,6 +80,11 @@ approvals channel with **Approve** and **Deny** buttons. Requests made with
 the command line or the TUI do not post. A click acts on the same request as
 the web UI, and the message then shows the outcome. Your Slack email must be
 on the approver list.
+
+The message links to the request in playplace, and the link opens its slip.
+If you are not signed in, playplace signs you in first and then opens the
+slip. If the request no longer waits, playplace says so at the top of the
+queue.
 
 The message shows the exact budget, the exact lifetime, and any limit
 override. playplace does not update the message when someone edits,

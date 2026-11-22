@@ -74,11 +74,11 @@ func TestQueueWritesTheRequestTimeInUTC(t *testing.T) {
 	edt := time.FixedZone("EDT", -4*60*60)
 	q := core.Request{Name: "x", Owner: "anna@example.com", RequestedBy: "anna@example.com", Via: "web", TTL: 24 * time.Hour, BudgetUSD: 50, RequestedAt: t0.In(edt)}
 	var buf bytes.Buffer
-	if err := pendingRow(page{}, q).Render(context.Background(), &buf); err != nil {
+	if err := slip(page{}, slipView{Req: q}).Render(context.Background(), &buf); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if want := `<td title="2026-09-15T12:00:00Z">Sep 15 12:00 UTC</td>`; !strings.Contains(out, want) {
+	if want := `<time datetime="2026-09-15T12:00:00Z">Sep 15, 12:00 UTC</time>`; !strings.Contains(out, want) {
 		t.Errorf("missing %s:\n%s", want, out)
 	}
 	for _, local := range []string{"EDT", "08:00", "-04:00"} {

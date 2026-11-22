@@ -52,13 +52,26 @@ func TestRequestNotificationFormatting(t *testing.T) {
 						want += " Purpose: try S3."
 					}
 					if baseURL != "" {
-						want += " Approve or deny at https://playplace.example/#pending"
+						want += " Approve or deny at https://playplace.example/?req=builder-output#req-builder-output"
 					}
 					if len(h.note.msgs) != 1 || h.note.msgs[0].Body != want || h.note.msgs[0].Subject != "Playground account requested: builder-output" {
 						t.Fatalf("notification=%+v; want body %q", h.note.msgs, want)
 					}
 				})
 			}
+		}
+	}
+}
+
+// A link names the slip of one request. The query survives sign-in, and
+// the hash scrolls to the slip.
+func TestRequestLink(t *testing.T) {
+	for base, want := range map[string]string{
+		"https://x.example///": "https://x.example/?req=box#req-box",
+		"":                     "/?req=box#req-box",
+	} {
+		if got := core.RequestLink(base, "box"); got != want {
+			t.Errorf("RequestLink(%q, box) = %q, want %q", base, got, want)
 		}
 	}
 }

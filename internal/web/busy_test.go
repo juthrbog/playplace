@@ -166,12 +166,13 @@ func TestBusyStateLivesInAppJS(t *testing.T) {
 	}
 }
 
-// Every control whose answer takes the focused button away names its
-// action: a decision takes its row out of the pending card, Edit, Save and
-// Cancel swap the row type, and Close takes the buttons of the account row
-// away. app.js then puts the focus on the next control in that row, or on
-// the same button of the next row, and the heading takes the focus when
-// the card is empty.
+// Every control whose answer takes the focused control away names its
+// action. A decision turns its slip into a decided slip or takes it away.
+// Edit, Save and Cancel swap the slip type, and Close takes the buttons of
+// the account row away. app.js then puts the focus on the same control in
+// that slip or row, or in the next slip that waits, then the one before it.
+// The heading takes the focus when no slip waits. Every swap runs the rule,
+// a poll too.
 func TestFocusHasAPlaceAfterARowLeaves(t *testing.T) {
 	ts, _ := newServer(t)
 	do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"bobs-box"}}, true)
@@ -214,9 +215,31 @@ func TestFocusHasAPlaceAfterARowLeaves(t *testing.T) {
 	if len(settle) != 1 {
 		t.Fatalf("app.js has %d htmx:afterSettle listeners, want 1", len(settle))
 	}
-	for _, want := range []string{"ev.detail.xhr !== leaving.xhr", "document.activeElement !== document.body", "document.getElementById(was.row)", "row.querySelector(was.want)", `getElementById("pending-title")`, "rows.length - 1"} {
+	for _, want := range []string{
+		"focusPlace.xhr",
+		"var active = document.activeElement",
+		"active !== document.body && !ended",
+		`li.slip:not([data-state="pending"])`,
+		"controlIn(document.getElementById(was.row), was.want)",
+		"i++",
+		"j--",
+		`getElementById("pending-title")`,
+		"rows.length - 1",
+		"watchBar()",
+	} {
 		if !strings.Contains(settle[0], want) {
 			t.Errorf("the focus move lacks %s", want)
+		}
+	}
+	// The place of the focus is noted right before the swap, so a poll runs
+	// the rule too.
+	swap := listeners(js, "htmx:beforeSwap")
+	if len(swap) != 1 || !strings.Contains(swap[0], "notePlace(xhr, swapSource)") {
+		t.Errorf("app.js has %d htmx:beforeSwap listeners, want 1 that notes the place of the focus", len(swap))
+	}
+	for _, bad := range []string{"leaving", "controlOf"} {
+		if strings.Contains(js, bad) {
+			t.Errorf("app.js still holds %s", bad)
 		}
 	}
 }
