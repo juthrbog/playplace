@@ -10,7 +10,9 @@ the exact lifetime and budget, and the request version. Click the name, or
 press Enter on it, to open the slip. The open slip shows every fact that
 decides it: when it arrived, the ceilings, the per-owner limit, the whole
 purpose, and when playplace drops it. The slip stays open while the page
-updates.
+updates. The page updates every 15 seconds. To stop the updates for a
+while, press **Pause updates** at the bottom of the page. See
+[Live updates](requesting.md#live-updates).
 
 - **Approve** creates the account, and AWS takes a few minutes. playplace
   sends an *approved* [notice](#notices). You cannot undo an approval. The

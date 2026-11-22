@@ -79,6 +79,23 @@ when you can sign in.
   **Cancel** to keep it.
 - **History.** The account page lists what happened to it and who did it.
 
+## Live updates
+
+The page updates by itself every 15 seconds. The line at the bottom of the
+page shows a green dot and the time of the last update, for example
+"Updated 12 seconds ago". If an update fails, the time does not reset, so
+it tells you how old the data on the page is. The line shows only when
+JavaScript is on.
+
+Press **Pause updates** to stop the updates, for example while you read a
+long list. The line then starts with "Paused". Press **Resume updates** to
+get the latest data at once. The pause lasts for this browser tab, also
+after a reload. When you close the tab, the pause ends. Your own actions, such as
+**+7d** or **Close**, still update the page while it is paused.
+
+A tab that is in the background does not update. When you come back to it,
+it updates at once, unless you paused it.
+
 ## Other ways to ask
 
 Depending on how your organization runs playplace, you may also be able to

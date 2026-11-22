@@ -172,7 +172,7 @@ func TestEmptyAccountsPanelHasNoTable(t *testing.T) {
 		// The Show closed box has its own hx-get, so the poll check reads
 		// the section tag alone.
 		tag, _, _ := strings.Cut(section, ">")
-		for _, want := range []string{tc.poll, `hx-trigger="every 15s"`} {
+		for _, want := range []string{tc.poll, `hx-trigger="every 15s, poll-now"`} {
 			if !strings.Contains(tag, want) {
 				t.Errorf("%s: the section tag lacks %s: <section id=\"accounts\"%s>", tc.path, want, tag)
 			}
@@ -207,8 +207,8 @@ func TestFailedAccountLoadIsNotAnEmptyFleet(t *testing.T) {
 	}
 
 	_, section := render(listFailure(&core.ProviderError{Op: "list playground accounts", Err: errors.New("AccessDenied")}))
-	want := `<div id="accounts-error" class="refusal">` + alertIcon + `<div class="note-text"><p class="note-title">The account list is unavailable.</p>` +
-		`<p class="note-body">` + listFailed + ` The page tries again every 15 seconds.</p></div></div>`
+	want := `<div id="accounts-error" class="refusal" data-stale>` + alertIcon + `<div class="note-text"><p class="note-title">The account list is unavailable.</p>` +
+		`<p class="note-body">` + listFailed + ` ` + retryNote + `</p></div></div>`
 	if !strings.Contains(section, want) {
 		t.Errorf("the panel does not name the problem, the error and the recovery in its own note:\n%s", section)
 	}
@@ -221,7 +221,7 @@ func TestFailedAccountLoadIsNotAnEmptyFleet(t *testing.T) {
 		}
 	}
 	tag, _, _ := strings.Cut(section, ">")
-	if !strings.Contains(tag, `hx-get="/accounts"`) || !strings.Contains(tag, `hx-trigger="every 15s"`) {
+	if !strings.Contains(tag, `hx-get="/accounts"`) || !strings.Contains(tag, `hx-trigger="every 15s, poll-now"`) {
 		t.Errorf("the section stops polling after a failed load: <section id=\"accounts\"%s>", tag)
 	}
 

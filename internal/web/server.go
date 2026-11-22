@@ -113,8 +113,14 @@ func (s *Server) Handler() http.Handler {
 		}
 		v, ok := s.auth.Authenticate(r)
 		if !ok {
+			// An htmx request, such as the poll of a page left open, names
+			// that page in HX-Current-URL. The sign-in then returns there.
 			if r.Header.Get("HX-Request") == "true" {
-				w.Header().Set("HX-Redirect", s.auth.LoginPath())
+				to := s.auth.LoginPath()
+				if next := htmxReturnPath(r); next != "" {
+					to += "?next=" + url.QueryEscape(next)
+				}
+				w.Header().Set("HX-Redirect", to)
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
@@ -140,6 +146,20 @@ func returnPath(r *http.Request) string {
 		return ""
 	}
 	if next := r.URL.RequestURI(); next != "/" {
+		return localPath(next)
+	}
+	return ""
+}
+
+// htmxReturnPath is the address that a sign-in returns to after an htmx
+// request: the path and query of the page in HX-Current-URL, when it is a
+// path on this host. The home page needs none.
+func htmxReturnPath(r *http.Request) string {
+	u, err := url.Parse(r.Header.Get("HX-Current-URL"))
+	if err != nil {
+		return ""
+	}
+	if next := u.RequestURI(); next != "/" {
 		return localPath(next)
 	}
 	return ""
@@ -189,6 +209,9 @@ type page struct {
 	// RegionInCard marks the home page, which holds the live region in the
 	// queue panel. The layout then leaves out its own.
 	RegionInCard bool
+	// Polls marks a page whose content polls, the home page and the
+	// accounts page. Its footer then holds the live line.
+	Polls bool
 	// Open names the request whose slip the page renders opened. That is
 	// the request of the address (?req=), the slip that Cancel puts back,
 	// or the request that an admin just saved. Every other slip renders
@@ -211,6 +234,42 @@ type page struct {
 	// Missing names the request of the address (?req=) when the queue
 	// that loaded does not list it. The bar then says why no slip opens.
 	Missing string
+	// Asker is the page that sent the request, as askingPage reads it:
+	// pathAccounts or "/". The poll and the action answers show only
+	// what that page holds, and the poll hash covers exactly that.
+	Asker string
+}
+
+// pathAccounts is the path of the accounts page.
+const pathAccounts = "/accounts"
+
+// askingPage is the page that sent the request. htmx sends the address of
+// the page in HX-Current-URL on every request, and only its path matters. A
+// page visit is its own page, so it uses the request path. An htmx request
+// with no such header, or with one that does not parse, and any page other
+// than the accounts page count as the home page, which shows the most.
+func askingPage(r *http.Request) string {
+	path := r.URL.Path
+	if r.Header.Get("HX-Request") == "true" {
+		path = "/"
+		if u, err := url.Parse(r.Header.Get("HX-Current-URL")); err == nil {
+			path = u.Path
+		}
+	}
+	if path == pathAccounts {
+		return pathAccounts
+	}
+	return "/"
+}
+
+// onAccounts reports whether the answer goes to the accounts page, which has
+// no queue panel.
+func (pg page) onAccounts() bool { return pg.Asker == pathAccounts }
+
+// polling is pg for the layout of a page that polls.
+func polling(pg page) page {
+	pg.Polls = true
+	return pg
 }
 
 // regionInCard is pg for the home page layout.
@@ -222,7 +281,7 @@ func regionInCard(pg page) page {
 func (s *Server) pageFor(r *http.Request) page {
 	// "all" arrives as a query parameter on GET and, thanks to hx-include on
 	// the switch, in the body of every action, so the view survives actions.
-	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), ShowAll: r.FormValue("all") == "1", Limits: s.svc.Config(), Path: r.URL.Path, InSlack: s.slack != nil || s.noticesInSlack}
+	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), ShowAll: r.FormValue("all") == "1", Limits: s.svc.Config(), Path: r.URL.Path, Asker: askingPage(r), InSlack: s.slack != nil || s.noticesInSlack}
 	all, err := s.svc.PendingRequests(r.Context())
 	if err != nil {
 		s.log.Warn("pending requests", "err", err)
@@ -338,9 +397,10 @@ func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request, fromCar
 const pollHashHeader = "X-Poll-Hash"
 
 // pollHash is the hash of what a poll answer shows: the accounts section
-// without its own hash, then the queue panel and the count. The home page,
-// the poll and every action answer use it, so the section always carries
-// the hash of what the page shows. It is empty if the render fails, and the
+// without its own hash, then, on the home page, the queue panel and the
+// count, and on the accounts page the count alone. Each page, its poll and every action answer to it use it, so the
+// section always carries the hash of what that page shows, and each page
+// gets its own 204. It is empty if the render fails, and the
 // section then carries none, so every poll gets the full answer. The hash
 // covers a failed list as one state, also when its refusal text changes, for
 // example from a throttle to another failure. The same outage then answers
@@ -365,12 +425,14 @@ func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMs
 }
 
 // writeAccounts answers with the accounts section, which carries hash for
-// the next poll, and the queue panel. fromCard makes the panel the main
-// swap, for a decision made in the panel. after holds parts that follow,
-// such as the Sync message.
+// the next poll, and on the home page the queue panel. fromCard makes the
+// panel the main swap, for a decision made in the panel. The accounts page
+// has no panel, so its answer is always the section, with the count for an
+// approver. after holds parts that
+// follow, such as the Sync message.
 func (s *Server) writeAccounts(w http.ResponseWriter, r *http.Request, pg page, rows []accountRow, errMsg, hash string, fromCard bool, after ...templ.Component) {
 	main := accountsAnswer(pg, rows, errMsg, hash)
-	if fromCard {
+	if fromCard && !pg.onAccounts() {
 		main = cardAnswer(pg, rows, errMsg, hash)
 	}
 	s.render(w, r, templ.Join(append([]templ.Component{main}, after...)...))
@@ -612,20 +674,13 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, indexPage(pg, rows, msg, s.pollHash(r.Context(), pg, rows, msg)))
 }
 
-// table answers the 15 s poll and the Show closed box. A poll that sends the
-// hash of the current answer gets 204 and no body. A failed list is a panel
-// that says so, with the text of refusal. Its hash leaves out that text, so
-// the same outage answers 204, and the next good poll clears it.
+// table is the accounts page for a page visit. For htmx it answers the 15 s
+// poll and the Show closed box with the accounts section, and on the home
+// page the queue panel too. A poll that sends the hash of the current answer
+// gets 204 and no body. A failed list is a panel that says so, with the text
+// of refusal. Its hash leaves out that text, so the same outage answers 204,
+// and the next good poll clears it.
 func (s *Server) table(w http.ResponseWriter, r *http.Request) {
-	// The answer is a fragment of the home page, so a page visit goes there.
-	if r.Header.Get("HX-Request") != "true" {
-		to := "/#accounts"
-		if r.FormValue("all") == "1" {
-			to = "/?all=1#accounts"
-		}
-		http.Redirect(w, r, to, http.StatusSeeOther)
-		return
-	}
 	pg := s.pageFor(r)
 	rows, err := s.rows(r.Context(), pg.Viewer, pg.ShowAll, false)
 	var errMsg string
@@ -633,9 +688,16 @@ func (s *Server) table(w http.ResponseWriter, r *http.Request) {
 		s.log.Warn("accounts poll", "path", r.URL.Path, "err", err)
 		rows, errMsg = nil, listFailure(err)
 	}
-	// The answer changes with the data, so a cache must ask every time.
+	// The answer changes with the data, so a cache must ask every time. The
+	// same address is a page or a fragment, and the fragment depends on the
+	// page that asked, so a cache keeps them apart.
 	w.Header().Set("Cache-Control", "private, no-cache")
+	w.Header().Set("Vary", "HX-Request, HX-Current-URL")
 	hash := s.pollHash(r.Context(), pg, rows, errMsg)
+	if r.Header.Get("HX-Request") != "true" {
+		s.render(w, r, accountsPage(pg, rows, errMsg, hash))
+		return
+	}
 	if hash != "" && r.Header.Get(pollHashHeader) == hash {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -644,7 +706,7 @@ func (s *Server) table(w http.ResponseWriter, r *http.Request) {
 }
 
 // syncFromShell is the HX-Target of Sync on a page with no accounts
-// section. The answer then holds only the live region part.
+// section, which is every page but the home page and the accounts page. The answer then holds only the live region part.
 const syncFromShell = "notice"
 
 func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
@@ -676,8 +738,8 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	s.writeAccounts(w, r, pg, rows, "", s.pollHash(r.Context(), pg, rows, ""), false, noticeFragment("sync", msg))
 }
 
-// failSync reports a failed Sync. Off the home page there is no refusal slot
-// near the button, so the refusal shows in the live region itself.
+// failSync reports a failed Sync. On a page with no accounts section there
+// is no refusal slot near the button, so the refusal shows in the live region itself.
 func (s *Server) failSync(w http.ResponseWriter, r *http.Request, err error) {
 	if r.Header.Get("HX-Request") != "true" || r.Header.Get("HX-Target") != syncFromShell {
 		s.fail(w, r, err)

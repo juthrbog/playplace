@@ -232,7 +232,7 @@ func TestFailedPollShowsTheUnavailablePanel(t *testing.T) {
 	}
 	// The page tries again by itself, so the panel never tells the person to
 	// try again.
-	for _, want := range []string{`<div id="accounts-error" class="refusal">`, `<p class="note-title">The account list is unavailable.</p>`, `<p class="note-body">The call to AWS failed. If it keeps failing, ask an admin to read the playplace log. The page tries again every 15 seconds.</p>`} {
+	for _, want := range []string{`<div id="accounts-error" class="refusal" data-stale>`, `<p class="note-title">The account list is unavailable.</p>`, `<p class="note-body">The call to AWS failed. If it keeps failing, ask an admin to read the playplace log. ` + retryNote + `</p>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the failed panel lacks %s:\n%s", want, body)
 		}
@@ -261,18 +261,6 @@ func TestFailedPollShowsTheUnavailablePanel(t *testing.T) {
 	}
 	if !strings.Contains(body, "bobs-box") || !strings.Contains(body, `<span id="queue-count" hx-swap-oob="true">`) {
 		t.Errorf("the recovered poll does not bring the card and the count back:\n%s", body)
-	}
-}
-
-// The poll answer is a fragment of the home page, so a page visit goes to
-// the home page at the panel, with the same view.
-func TestDirectVisitToThePollGoesHome(t *testing.T) {
-	ts, _ := newServer(t)
-	for path, want := range map[string]string{"/accounts": "/#accounts", "/accounts?all=1": "/?all=1#accounts"} {
-		res, _ := do(t, ts, "GET", path, "anna@example.com", false, nil, false)
-		if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != want {
-			t.Errorf("%s = %d to %q, want 303 to %q", path, res.StatusCode, res.Header.Get("Location"), want)
-		}
 	}
 }
 

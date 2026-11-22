@@ -41,6 +41,9 @@ templ layout(pg page, title string) {
 				}
 				{ children... }
 			</main>
+			if !pg.SignedOut {
+				@footer(pg)
+			}
 		</body>
 	</html>
 }
@@ -54,14 +57,33 @@ templ region() {
 	<p id="notice" class="notice" role="status" aria-live="polite"></p>
 }
 
+// footer is the foot of every page with a viewer. It is a row with room for
+// more controls. On a page that polls, it holds the live line: the dot, the
+// time of the last update and the Pause button. The line needs script, so
+// the stylesheet shows it only under html.js. It is not a live region, so
+// the page keeps its one region. app.js writes the time and the word of the
+// button.
+templ footer(pg page) {
+	<footer class="foot">
+		if pg.Polls {
+			<div class="live">
+				<span class="live-dot" aria-hidden="true"></span>
+				<span id="live-ago" class="live-ago">Updated just now</span>
+				<button type="button" id="live-pause" class="live-pause">Pause updates</button>
+			</div>
+		}
+	</footer>
+}
+
 // shell is the bar on every page. The links depend on the role: engineers
 // get Home, approvers also get Queue with its count, and admins get Queue
 // and Accounts, because the brand is their link home. The menu toggle comes
 // right after the brand, so the next Tab after it enters the menu. On a phone
 // the in-menu items hide behind it, and Queue and Sync stay in the bar. A
-// page for nobody, such as a failed sign-in, shows only the brand. Only the
-// home page has the accounts section, so Sync on any other page swaps
-// nothing, and its answer writes only into the live region.
+// page for nobody, such as a failed sign-in, shows only the brand. Accounts
+// is a page of its own, and its link is current only on that page. Only the
+// home page and the accounts page have the accounts section, so Sync on any
+// other page swaps nothing, and its answer writes only into the live region.
 templ shell(pg page) {
 	<header class="shell">
 		<a class="brand" href="/"><svg class="mark" aria-hidden="true" focusable="false"><use href="#i-mark"></use></svg><span class="brand-word"><b>play</b><span class="place">place</span></span></a>
@@ -90,7 +112,15 @@ templ shell(pg page) {
 							</li>
 						}
 						if pg.Viewer.Admin {
-							<li class="in-menu"><a class="nav-link" href="/#accounts">Accounts</a></li>
+							<li class="in-menu">
+								<a
+									class="nav-link"
+									href="/accounts"
+									if pg.Path == pathAccounts {
+										aria-current="page"
+									}
+								>Accounts</a>
+							</li>
 						}
 					</ul>
 				</nav>
@@ -98,7 +128,7 @@ templ shell(pg page) {
 					<form
 						class="sync"
 						hx-post="/refresh"
-						if pg.Path == "/" {
+						if hasAccountsSection(pg) {
 							hx-target="#accounts"
 							hx-swap="morph"
 							hx-include="#show-closed"
@@ -157,14 +187,20 @@ templ pendingUpdate(pg page) {
 }
 
 // accountsAnswer answers the poll and every request from outside the
-// queue panel: the accounts section is the main swap, and the queue panel
-// rides out of band. When the queue did not load, the panel and the count
-// stay out, so the page keeps the ones it shows. Rendered with no hash, it
-// is also what the poll hash covers.
+// queue panel: the accounts section is the main swap, and on the home page
+// the queue panel rides out of band. When the queue did not load, the panel
+// and the count stay out, so the page keeps the ones it shows. The accounts
+// page has no queue panel, but the shell shows an approver the count beside
+// Queue on every page, so that answer carries the count alone. Rendered with
+// no hash, it is also what the poll hash covers.
 templ accountsAnswer(pg page, rows []accountRow, errMsg, hash string) {
 	@accountsPanel(pg, rows, errMsg, hash, false)
 	if !pg.PendingFailed {
-		@pendingUpdate(pg)
+		if !pg.onAccounts() {
+			@pendingUpdate(pg)
+		} else if pg.Viewer.Approver {
+			@queueCount(pg, true)
+		}
 	}
 }
 
@@ -237,8 +273,8 @@ type accountRow struct {
 // indexPage is the home page. The shell is the visible heading, so the page
 // h1 is for screen readers only.
 templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
-	@layout(regionInCard(pg), "Accounts") {
-		<h1 class="vh">Accounts</h1>
+	@layout(polling(regionInCard(pg)), "Home") {
+		<h1 class="vh">Home</h1>
 		<section class="panel" id="request" aria-labelledby="request-title">
 			<div class="panel-head"><h2 id="request-title">New request</h2></div>
 			<div class="panel-body">
@@ -857,21 +893,46 @@ templ slipEdit(pg page, q core.Request) {
 	</li>
 }
 
+// accountsPage is the accounts page: the fleet for an admin, and their own
+// accounts for anyone else. The panel head is the visible heading, so the
+// page h1 is for screen readers only, and it and the title say what the
+// head says. The live region is first in main, as on every page but home.
+// The refusal slot under the h1 holds a refused row action, outside the
+// section that the poll redraws.
+templ accountsPage(pg page, rows []accountRow, errMsg, hash string) {
+	@layout(polling(pg), accountsTitle(pg)) {
+		<h1 class="vh">{ accountsTitle(pg) }</h1>
+		<div id="form-error" class="refusal"></div>
+		@accountsPanel(pg, rows, errMsg, hash, false)
+		// Anyone can own an account, so every viewer gets the close dialog.
+		@closeDialog()
+		<p class="help">
+			if pg.SignIn && !pg.Viewer.Admin {
+				You see the accounts you own.
+			}
+			Spend is month to date from Cost Explorer and lags about a day.
+		</p>
+	}
+}
+
 // accountsPanel is the accounts panel. When the list did not load, errMsg
 // holds the text of refusal for the error, the head shows no count and the
 // panel says the list is unavailable. An empty list would look like a fleet
 // with no accounts. The section keeps polling, so the next good poll fills
 // it. oob marks it as an out-of-band part of an htmx answer. hash is the
 // poll hash of this answer. pollHash renders the section with no hash, so
-// the hash never covers itself.
+// the hash never covers itself. data-poll marks the section as the
+// poller of the page for app.js, and poll-now is the event that makes it
+// poll at once: on Resume, and when a hidden tab shows again.
 templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 	<section
 		id="accounts"
 		class="panel"
 		hx-get={ tableURL(pg.ShowAll) }
-		hx-trigger="every 15s"
+		hx-trigger="every 15s, poll-now"
 		hx-swap="morph"
 		aria-labelledby="accounts-title"
+		data-poll
 		if oob {
 			hx-swap-oob="morph"
 		}
@@ -881,11 +942,7 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 	>
 		<div class="panel-head">
 			<h2 id="accounts-title" tabindex="-1">
-				if pg.SignIn && !pg.Viewer.Admin {
-					Your accounts
-				} else {
-					Accounts
-				}
+				{ accountsTitle(pg) }
 				if errMsg == "" {
 					<span class="muted">({ fmt.Sprint(len(rows)) })</span>
 				}
@@ -896,9 +953,13 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 		// the error and the recovery. An empty list is one plain line, as in
 		// Your requests. Neither has column heads. The head keeps Show
 		// closed, and the section keeps polling. The error note has an id, so
-		// a morph never pairs it with the table that replaces it.
+		// a morph never pairs it with the table that replaces it. data-stale
+		// tells app.js that the section shows no fresh data, so the Updated
+		// time does not reset. While the viewer paused live updates, the
+		// page does not try again, so the stylesheet shows the other
+		// recovery.
 		if errMsg != "" {
-			<div id="accounts-error" class="refusal">@icon("alert")<div class="note-text"><p class="note-title">The account list is unavailable.</p><p class="note-body">{ errMsg + " The page tries again every 15 seconds." }</p></div></div>
+			<div id="accounts-error" class="refusal" data-stale>@icon("alert")<div class="note-text"><p class="note-title">The account list is unavailable.</p><p class="note-body">{ errMsg + " " }<span class="retry-live">The page tries again every 15 seconds.</span><span class="retry-paused">Live updates are paused. Resume them to try again.</span></p></div></div>
 		} else if len(rows) == 0 {
 			<p class="empty">
 				if pg.ShowAll {

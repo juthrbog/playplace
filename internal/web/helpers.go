@@ -16,6 +16,22 @@ func tableURL(showAll bool) string {
 	return "/accounts"
 }
 
+// accountsTitle is the head of the accounts panel and the name of the
+// accounts page. With sign-in on, anyone but an admin sees only their own
+// accounts.
+func accountsTitle(pg page) string {
+	if pg.SignIn && !pg.Viewer.Admin {
+		return "Your accounts"
+	}
+	return "Accounts"
+}
+
+// hasAccountsSection reports whether the page shows the accounts section,
+// so Sync there morphs it.
+func hasAccountsSection(pg page) bool {
+	return pg.Path == "/" || pg.Path == pathAccounts
+}
+
 func expiresIn(t time.Time) string {
 	if t.IsZero() {
 		return "unknown"

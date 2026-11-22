@@ -71,6 +71,8 @@ func TestOnePoliteLiveRegionPerPage(t *testing.T) {
 	}{
 		{"admin home", page("/", "ops@example.com", true, http.StatusOK), `id="pending"`, true},
 		{"engineer home", page("/", "anna@example.com", false, http.StatusOK), `id="form-error"`, true},
+		{"admin accounts page", page("/accounts", "ops@example.com", true, http.StatusOK), `id="accounts"`, false},
+		{"engineer accounts page", page("/accounts", "anna@example.com", false, http.StatusOK), `Your accounts`, false},
 		{"admin account page", page("/accounts/111111111111", "ops@example.com", true, http.StatusOK), `id="form-error"`, false},
 		{"bad history cursor", journey(&audit.Memory{}, "/accounts/111111111111?history_cursor=bad"), "Invalid history cursor", false},
 		{"history unavailable", journey(unavailableHistory{}, "/accounts/111111111111"), "History is unavailable", false},

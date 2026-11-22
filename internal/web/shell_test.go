@@ -25,13 +25,13 @@ func TestShellByRole(t *testing.T) {
 	}{
 		{"engineer", "anna@example.com", false, false,
 			[]string{home, `<span class="person-email">anna@example.com</span>`},
-			[]string{`href="/#pending"`, `href="/#accounts"`, "Sync with AWS", `class="badge"`}},
+			[]string{`href="/#pending"`, `href="/accounts"`, "Sync with AWS", `class="badge"`}},
 		{"approver", "lead@example.com", false, true,
 			[]string{home, `href="/#pending"`},
-			[]string{`href="/#accounts"`, "Sync with AWS", `class="badge"`}},
+			[]string{`href="/accounts"`, "Sync with AWS", `class="badge"`}},
 		{"admin", "ops@example.com", true, true,
-			[]string{`href="/#pending"`, `href="/#accounts"`, "Sync with AWS", `class="badge">admin<`},
-			[]string{">Home</a>"}},
+			[]string{`href="/#pending"`, `<a class="nav-link" href="/accounts">Accounts</a>`, "Sync with AWS", `class="badge">admin<`},
+			[]string{">Home</a>", `href="/#accounts"`}},
 	} {
 		t.Run(c.who, func(t *testing.T) {
 			_, body := doAs(t, ts, "GET", "/", c.user, c.admin, c.approver, nil, false)
@@ -56,8 +56,20 @@ func TestShellByRole(t *testing.T) {
 			}
 		})
 	}
-	// Only Home is a page of its own, so no link is current elsewhere.
-	_, body := do(t, ts, "GET", "/accounts/111111111111", "anna@example.com", false, nil, false)
+	// Home and Accounts are pages of their own. The Accounts link is
+	// current only on that exact path, so no link is current on the page
+	// of one account.
+	_, body := do(t, ts, "GET", "/accounts", "ops@example.com", true, nil, false)
+	if !strings.Contains(body, `<a class="nav-link" href="/accounts" aria-current="page">Accounts</a>`) || strings.Count(body, "aria-current") != 1 {
+		t.Errorf("only the Accounts link is current on the accounts page:\n%s", body)
+	}
+	if _, body := do(t, ts, "GET", "/accounts?all=1", "ops@example.com", true, nil, false); !strings.Contains(body, `href="/accounts" aria-current="page"`) {
+		t.Errorf("the query does not change the current page:\n%s", body)
+	}
+	if _, body := do(t, ts, "GET", "/accounts/111111111111", "ops@example.com", true, nil, false); strings.Contains(body, "aria-current") {
+		t.Errorf("no shell link is the account page of an admin:\n%s", body)
+	}
+	_, body = do(t, ts, "GET", "/accounts/111111111111", "anna@example.com", false, nil, false)
 	if strings.Contains(body, "aria-current") {
 		t.Fatalf("no shell link is the account page:\n%s", body)
 	}
@@ -148,16 +160,18 @@ func TestNoticeLivesInMain(t *testing.T) {
 	}
 }
 
-// Only the home page has the accounts section. On any other page, Sync
-// targets the live region and swaps nothing, so htmx sends the request and
+// Only the home page and the accounts page have the accounts section. On
+// any other page, Sync targets the live region and swaps nothing, so htmx sends the request and
 // the answer is the region part alone. A target that is not on the page
 // would make htmx drop the click with no word.
 func TestSyncOffTheHomePageWritesOnlyTheRegion(t *testing.T) {
 	ts, _ := newServer(t)
 	syncForm := regexp.MustCompile(`<form class="sync"[^>]*>`)
-	_, home := do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
-	if tag := syncForm.FindString(home); !strings.Contains(tag, `hx-target="#accounts"`) || !strings.Contains(tag, `hx-swap="morph"`) {
-		t.Errorf("Sync on the home page does not morph the accounts section: %s", tag)
+	for _, path := range []string{"/", "/accounts", "/accounts?all=1"} {
+		_, page := do(t, ts, "GET", path, "ops@example.com", true, nil, false)
+		if tag := syncForm.FindString(page); !strings.Contains(tag, `hx-target="#accounts"`) || !strings.Contains(tag, `hx-swap="morph"`) || !strings.Contains(tag, `hx-include="#show-closed"`) {
+			t.Errorf("%s: Sync does not morph the accounts section: %s", path, tag)
+		}
 	}
 	for _, path := range []string{"/accounts/111111111111", "/nope"} {
 		_, body := do(t, ts, "GET", path, "ops@example.com", true, nil, false)

@@ -355,6 +355,24 @@
     max-width: 1600px;
     padding: var(--space-lg) var(--space-xl) var(--space-xxl);
   }
+  /* The footer is a row under main, with the same side gutters. It has
+     room for more controls later. */
+  .foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-md);
+    max-width: 1600px;
+    padding: 0 var(--space-xl) var(--space-xl);
+  }
+  .foot:empty {
+    display: none;
+  }
+  /* Without script the live line is hidden, so a footer that holds only
+     the live line is empty too. */
+  html:not(.js) .foot:not(:has(> :not(.live))) {
+    display: none;
+  }
 
   /* The browser scrolls a focused control into view by its border box.
      The root keeps 8 px clear above and below that box, so the focus
@@ -381,6 +399,9 @@
     main {
       gap: var(--space-md);
       padding: var(--space-md) var(--space-lg) var(--space-xl);
+    }
+    .foot {
+      padding: 0 var(--space-lg) var(--space-lg);
     }
   }
 }
@@ -1610,6 +1631,61 @@
     .stamp-new {
       animation: none;
     }
+  }
+
+  /* The live line needs script, so it shows only under html.js. It is
+     pencil grey on the ground, after an 8 px shelf-ink dot. */
+  .live {
+    display: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+  html.js .live {
+    display: flex;
+  }
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--shelf-ink);
+  }
+  /* A plain button at the toolbar size. */
+  .live-pause {
+    height: var(--control-h-sm);
+    padding: 0 11px;
+  }
+  /* When new data arrives, the dot hides for one 90 ms step and never
+     fades. Under prefers-reduced-motion it does not blink. */
+  .live-dot.blink {
+    animation: live-blink 90ms steps(1);
+  }
+  @keyframes live-blink {
+    from,
+    to {
+      visibility: hidden;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live-dot.blink {
+      animation: none;
+    }
+  }
+  /* While live updates are paused, the dot hides, and an unavailable
+     account list names the recovery that fits: Resume, not a wait. */
+  .retry-paused {
+    display: none;
+  }
+  html.poll-paused .live-dot {
+    visibility: hidden;
+  }
+  html.poll-paused .retry-live {
+    display: none;
+  }
+  html.poll-paused .retry-paused {
+    display: inline;
   }
 
   @media (max-width: 1000px) {

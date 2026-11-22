@@ -42,13 +42,15 @@ func TestLocalPathKeepsTheSignInOnThisHost(t *testing.T) {
 // A page visit without a session passes its path and query to the sign-in,
 // so a link to a slip opens the slip after sign-in. The home page needs no
 // return path, and a path that a browser reads as another host gets none.
-// An htmx request and a form post keep the plain login path.
+// A form post keeps the plain login path. An htmx request keeps the page it
+// names in HX-Current-URL.
 func TestAPageVisitKeepsItsAddressThroughSignIn(t *testing.T) {
 	ts, _ := newServer(t)
 	for _, c := range []struct{ method, path, want string }{
 		{"GET", "/", "/auth/login"},
 		{"GET", "/?req=bobs-box", "/auth/login?next=%2F%3Freq%3Dbobs-box"},
 		{"GET", "/accounts/111111111111", "/auth/login?next=%2Faccounts%2F111111111111"},
+		{"GET", "/accounts?all=1", "/auth/login?next=%2Faccounts%3Fall%3D1"},
 		{"GET", "//evil.example", "/auth/login"},
 	} {
 		if res, _ := do(t, ts, c.method, c.path, "", false, nil, false); res.StatusCode != http.StatusFound || res.Header.Get("Location") != c.want {
@@ -57,6 +59,27 @@ func TestAPageVisitKeepsItsAddressThroughSignIn(t *testing.T) {
 	}
 	if res, _ := do(t, ts, "GET", "/accounts", "", false, nil, true); res.StatusCode != http.StatusUnauthorized || res.Header.Get("HX-Redirect") != "/auth/login" {
 		t.Errorf("htmx GET /accounts = %d %q, want 401 with HX-Redirect /auth/login", res.StatusCode, res.Header.Get("HX-Redirect"))
+	}
+	// An htmx request names its page in HX-Current-URL, so the poll of a page
+	// left open past the session returns to that page after sign-in.
+	for _, c := range []struct{ current, want string }{
+		{"/accounts?all=1", "/auth/login?next=%2Faccounts%3Fall%3D1"},
+		{"/", "/auth/login"},
+	} {
+		if res, _ := fromPage(t, ts, "GET", "/accounts", c.current, "", false, false, nil, ""); res.StatusCode != http.StatusUnauthorized || res.Header.Get("HX-Redirect") != c.want {
+			t.Errorf("htmx poll from %s = %d %q, want 401 with HX-Redirect %q", c.current, res.StatusCode, res.Header.Get("HX-Redirect"), c.want)
+		}
+	}
+	req, _ := http.NewRequest("GET", ts.URL+"/accounts", nil)
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Current-URL", "https://evil.example//evil.example/x")
+	if res, err := http.DefaultClient.Do(req); err != nil {
+		t.Fatal(err)
+	} else {
+		if res.Header.Get("HX-Redirect") != "/auth/login" {
+			t.Errorf("htmx poll from another host = %q, want /auth/login", res.Header.Get("HX-Redirect"))
+		}
+		_ = res.Body.Close()
 	}
 	if res, _ := do(t, ts, "POST", "/refresh", "", false, nil, false); res.StatusCode != http.StatusFound || res.Header.Get("Location") != "/auth/login" {
 		t.Errorf("POST /refresh = %d %q, want 302 to /auth/login", res.StatusCode, res.Header.Get("Location"))

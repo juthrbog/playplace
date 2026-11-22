@@ -108,7 +108,8 @@ func TestStampsFollowTheDesign(t *testing.T) {
 
 // The One Motion Rule. A stamp that the viewer's own action made lands in
 // two frames over 90 ms and never fades. Under prefers-reduced-motion it
-// shows at once. Nothing else on the page moves.
+// shows at once. The live dot is the only other thing that changes on its
+// own (live_test.go). Nothing else on the page moves.
 func TestStampLandsInTwoFrames(t *testing.T) {
 	top, media := layerRules(t, "components")
 	wantDecls(t, "components", top, ".stamp-new", map[string]string{"animation": "stamp-land 90ms steps(2, jump-none)"})
@@ -120,8 +121,8 @@ func TestStampLandsInTwoFrames(t *testing.T) {
 	for _, r := range cssRuleSets(t) {
 		sel := strings.Join(r.sels, ", ")
 		for prop := range r.decls {
-			if (prop == "animation" || strings.HasPrefix(prop, "animation-")) && sel != ".stamp-new" {
-				t.Errorf("%s sets %s, but the stamp is the only motion", sel, prop)
+			if (prop == "animation" || strings.HasPrefix(prop, "animation-")) && sel != ".stamp-new" && sel != ".live-dot.blink" {
+				t.Errorf("%s sets %s, but the stamp and the live dot are the only motion", sel, prop)
 			}
 		}
 	}
