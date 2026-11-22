@@ -533,7 +533,7 @@ blending at night. The reasons:
 - No stamp sits on selected card yet. A checked slip loses its selection
   when its APPROVED stamp lands, and table rows have no selection. So the
   case of the first fallback does not occur, and both fallbacks wait for
-  row selection in phase 3.
+  row selection. Row selection waits for a bulk action on accounts.
 
 A slip under the pointer is almost invisible at night, as it is by day.
 Hover carries no information, so this is not a fault.
@@ -900,7 +900,7 @@ in the slot above the accounts.
 
 ### Tables
 - **Head:** paper tint, 12 px semibold pencil-grey labels, 34 px tall, with panel rules above and below. A sortable head is a button. The sorted column turns ink and shows an arrow for its direction, drawn in `currentColor`, and the `<th>` sets `aria-sort`. Its focus ring sits inside the button, because the scroll box would clip a ring outside it. When a head gets the focus, the scroll box scrolls so that the whole head shows. On the accounts page every head but Actions sorts. The home page keeps plain heads.
-- **Rows:** a soft-rule line under each row. Hover is paper tint. A selected row is card stock with its due cell in selected card. A focused row has a 2 px violet frame inside its edge, because the scroll box would cut a frame outside it. A loan card and a Needs attention row get the same frame. A stale or refused row has a 1 px dashed red-ink frame and shows the new values in place. Row selection and the stale frame are not built yet on table rows. The desk slips have both frames, and a checked slip is selected.
+- **Rows:** a soft-rule line under each row. Hover is paper tint. A selected row is card stock with its due cell in selected card. A focused row has a 2 px violet frame inside its edge, because the scroll box would cut a frame outside it. A loan card and a Needs attention row get the same frame. A stale or refused row has a 1 px dashed red-ink frame and shows the new values in place. Row selection and the stale frame are not built on table rows. They wait for a bulk action on accounts. The desk slips have both frames, and a checked slip is selected.
 - **Filter bar:** on the accounts page, a `<form role="search">` under the panel head holds the search field, the segmented control for admins, and the Status and Budget health selects. It wraps on a narrow window, and each label wraps together with its select. The focus ring of a segment sits inside it. On the current segment the ring is paper, because violet on ink is only about 2:1. It shows in every state of the panel. Search goes 400 ms after typing stops, and at once on Enter. A select goes at once. A filter change starts at page 1, and every change of the view replaces the address. The accounts page has the Status filter in place of Show closed. The home page has no Show closed. The admin home links to the accounts page with "All N accounts" under its fleet table.
 - **No match:** a filtered view with no rows says "No accounts match these filters." with a "Clear filters" link. "No open accounts." stays for a fleet that has none.
 - **Pager:** under the table when the view has more than one page of 50 rows. "Showing 51–100 of 112" in 13.5 px pencil grey on the left, then Previous and Next as 30 px plain buttons. At either end the button stays in place with `aria-disabled` and `hx-disable`, so it sends nothing. When the pager shows, it takes the bottom corners of the panel.

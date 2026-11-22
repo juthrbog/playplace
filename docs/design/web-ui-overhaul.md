@@ -335,6 +335,24 @@ The plan:
    `impeccable document` scan updated `DESIGN.md` and
    `.impeccable/design.json`.
 3. **Account page.** Sign-in link, extend control, spend chart, history.
+   The maintainer split it into six PRs on 2026-11-22. They ship in this
+   order, but PRs 3, 4 and 5 can go in any order after PR 2:
+   1. Groundwork. Core gives typed account problems, a handoff block kind,
+      the latest allowed expiry and whether playplace manages access. Rows
+      and the account page show problems in plain words, never the raw AWS
+      text. The account page shows "unavailable" when its cost pull fails.
+   2. The page frame. The loan card with the 22 px stamp, the full-width
+      meter with spend for the month to date, the facts, Close with its
+      dialog, Copy ID and a poll of its own.
+   3. The sign-in link and the access state.
+   4. The Extend control: 3, 7 or 14 days or a date, the latest allowed
+      date, and an explicit override for admins.
+   5. The 30-day spend chart, drawn by the server.
+   6. The history timeline, a phone pass, the docs and the
+      `impeccable document` scan at the end of the phase.
+
+   Row selection and the stale-row frame on table rows leave phase 3. They
+   wait for a phase that adds a bulk action on accounts.
 4. **Request form.** The form page with its live slip and stated limits.
 5. **Notices and History hub.** After their backend work.
 
@@ -461,7 +479,8 @@ sections above hold the details.
   normal blending at night. The desk and the loan cards read as their own
   warm plane, closed by their card-rule border, and the stamps on them are
   crisp. No stamp sits on selected card yet, so the two fallbacks in
-  `DESIGN.md` wait for row selection in phase 3.
+  `DESIGN.md` wait for row selection, which waits for a bulk action on
+  accounts.
 
 ## Open questions
 

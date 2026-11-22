@@ -115,6 +115,34 @@ pending request says "Stamped at approval". An account that AWS still
 creates without an approved request says "Set when it is ready". A damaged
 expiry says "unknown", and a closed or failed account shows a dash.
 
+## A line under the status
+
+When something is wrong with an account, a red line with an alert icon
+shows under its status. The account page shows the same line under
+**failure**. Some examples:
+
+- A failed account: "AWS could not create the account. Another AWS account
+  already uses the root email of this name. Request the account again with
+  another name." The second sentence tells you the next step for the reason
+  that AWS gave. If AWS gave no known reason, it says "An admin can see the
+  reason in the log."
+- A closing account: "AWS has not confirmed the closure since 2026-11-19
+  20:01 UTC. Charges may continue." This line shows when AWS did not
+  confirm the closure in time. The account also counts as *Needs
+  attention*.
+- An unavailable account: "AWS reports this account as suspended, not
+  closed. Ask an admin to check it in AWS."
+
+An account that AWS created, but that is not in the playground OU yet, shows
+a grey line with a clock, such as "Waiting for AWS to place the account
+since 2026-11-19 20:01 UTC." This is not a failure. On the account page it
+shows under **placement**.
+
+Times in these lines are in UTC. The lines never show the raw text from
+AWS. If playplace has no words for a problem, the line says "Something went
+wrong with this account. An admin can see the details in the log." The
+server log of playplace holds the raw text.
+
 ## Spend shows "unavailable"
 
 The Spend column shows "unavailable" when playplace could not get the spend
@@ -125,4 +153,6 @@ shows $0.00, because it cannot have spend.
 
 The home page shows "unavailable" in the same way. playplace tries again
 later by itself. The account page tries at once, and so does **Sync with
-AWS**, which only admins have.
+AWS**, which only admins have. If the account page cannot get the spend, it
+shows "unavailable" for spend and "Spend is unavailable right now." in place
+of the daily spend. It does not show $0.00.
