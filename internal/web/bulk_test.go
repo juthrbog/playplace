@@ -48,6 +48,15 @@ func deskFields(t *testing.T, page string, checked ...string) url.Values {
 				continue
 			}
 		}
+		// A copy of the shown values starts disabled, and app.js turns it
+		// on while the box of its slip is checked. The browser leaves a
+		// disabled field out of the form data.
+		if strings.Contains(tag, " disabled") {
+			_, rest, _ := strings.Cut(strings.TrimPrefix(n[1], "shown-"), "-")
+			if !slices.Contains(checked, rest) {
+				continue
+			}
+		}
 		out.Add(n[1], value)
 	}
 	return out
@@ -137,10 +146,12 @@ func assertNoNestedForms(t *testing.T, body string) {
 
 // A bulk post built from the page's own desk form decides each checked
 // request and reports a result for each row. The form sends the ref of
-// each checked box and the shown values of every slip, so a stale request
-// names what changed. A request that changed comes back with a new value
-// in its box, so app.js clears that box. A slip that the post did not
-// decide keeps its box for a retry.
+// each checked box and the shown values of each checked slip, so a stale
+// request names what changed. The copies of an unchecked slip stay
+// disabled, so a long queue does not make the post too large. A request
+// that changed comes back with a new value in its box, so app.js clears
+// that box. A slip that the post did not decide keeps its box for a
+// retry.
 func TestBulkPostFromTheDeskForm(t *testing.T) {
 	d := newDesk(t, nil, nil, nil)
 	d.ask(t, "gone-box", "gone@example.com")
@@ -164,8 +175,16 @@ func TestBulkPostFromTheDeskForm(t *testing.T) {
 	if got := form["req"]; len(got) != 3 || form.Get("reason") != "" || !form.Has("reason") {
 		t.Fatalf("the desk form sends req %v and reason %v, want 3 refs and an empty reason", got, form["reason"])
 	}
-	if form.Get("shown-budget-stale-box") != "50" || form.Get("shown-owner-later-box") != "later@example.com" {
-		t.Errorf("the desk form does not send the shown values of every slip: %v", form)
+	if form.Get("shown-budget-stale-box") != "50" || form.Get("shown-owner-ok-box") != "ok@example.com" {
+		t.Errorf("the desk form does not send the shown values of the checked slips: %v", form)
+	}
+	if form.Has("shown-owner-later-box") {
+		t.Errorf("the desk form sends the shown values of an unchecked slip: %v", form)
+	}
+	for _, tag := range deskJoined.FindAllString(home, -1) {
+		if strings.Contains(tag, `type="hidden"`) && !strings.HasSuffix(tag, " disabled>") {
+			t.Errorf("a copy of the shown values does not start disabled: %s", tag)
+		}
 	}
 	res, body := d.decide(t, "lead@example.com", true, actionApprove, form, true)
 	if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
@@ -259,7 +278,22 @@ func TestSelectionLivesInAppJS(t *testing.T) {
 		`node.name !== "req" || !node.checked`,
 		`next.getAttribute("value") === node.getAttribute("value")`,
 		`next.checked = true;`)
-	holdsEach(t, "the morph", js, "beforeNodeMorphed: function (node, next) {", "keepPick(node, next);")
+	// keepPick must run in beforeNodeMorphed, before idiomorph copies the
+	// checked state from the new node to the old one.
+	_, morph, ok := strings.Cut(js, "beforeNodeMorphed: function (node, next) {")
+	if !ok {
+		t.Fatal("app.js has no beforeNodeMorphed callback")
+	}
+	morph, _, ok = strings.Cut(morph, "beforeAttributeUpdated:")
+	if !ok {
+		t.Fatal("app.js has no beforeAttributeUpdated callback after beforeNodeMorphed")
+	}
+	holdsEach(t, "beforeNodeMorphed", morph, "keepPick(node, next);")
+	// Only the copies of a checked box go with a bulk post. syncPicks turns
+	// them on and off, and runs again just before a bulk post.
+	holdsEach(t, "syncPicks", funcBody(t, js, "function syncPicks() {"),
+		`boxes[b].parentNode.querySelectorAll('input[type="hidden"][form="desk-form"]')`,
+		`copies[c].disabled = !boxes[b].checked;`)
 	holdsEach(t, "syncPicks", funcBody(t, js, "function syncPicks() {"),
 		`count.textContent = n + " selected"`,
 		`all.checked = boxes.length > 0 && n === boxes.length`,
@@ -275,6 +309,9 @@ func TestSelectionLivesInAppJS(t *testing.T) {
 	confirm := listeners(js, "htmx:confirm")
 	if len(confirm) != 1 || !strings.Contains(confirm[0], `hasAttribute("data-bulk") && overCap(elt)`) || !strings.Contains(confirm[0], "ev.preventDefault();") {
 		t.Errorf("app.js has no htmx:confirm listener that stops a bulk post over the cap")
+	}
+	if len(confirm) == 1 && !strings.Contains(confirm[0], "if (elt.hasAttribute(\"data-bulk\")) {\n    syncPicks();\n  }") {
+		t.Errorf("the htmx:confirm listener does not sync the copies before a bulk post:\n%s", confirm[0])
 	}
 	holdsEach(t, "overCap", funcBody(t, js, "function overCap(button) {"),
 		`parseInt(button.getAttribute("data-cap"), 10)`,
@@ -309,4 +346,5 @@ func TestDeskSelectionFollowsTheDesign(t *testing.T) {
 	phone := media["(max-width: 640px)"]
 	wantDecls(t, "components (max-width: 640px)", phone, "label.slip-pick", map[string]string{"width": "var(--touch)", "height": "var(--touch)"})
 	wantDecls(t, "components (max-width: 640px)", phone, ".desk:has(.slip-pick > input) .slip", map[string]string{"padding-left": "48px"})
+	wantDecls(t, "components (max-width: 640px)", phone, "label.desk-all", map[string]string{"min-width": "var(--touch)", "min-height": "var(--touch)", "justify-content": "center"})
 }

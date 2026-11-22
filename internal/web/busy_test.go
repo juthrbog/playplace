@@ -159,9 +159,16 @@ func TestBusyStateLivesInAppJS(t *testing.T) {
 			t.Errorf("app.js lacks %s", want)
 		}
 	}
+	// Only syncPicks writes the disabled state, and only on the hidden
+	// copies of the shown values, never on a button.
+	picks := funcBody(t, js, "function syncPicks() {")
+	if !strings.Contains(picks, "copies[c].disabled = !boxes[b].checked;") {
+		t.Error("syncPicks does not turn the copies of a box on and off")
+	}
+	rest := strings.Replace(js, picks, "", 1)
 	for _, bad := range []string{".disabled", `"disabled"`} {
-		if strings.Contains(js, bad) {
-			t.Errorf("app.js writes %s", bad)
+		if strings.Contains(rest, bad) {
+			t.Errorf("app.js writes %s outside syncPicks", bad)
 		}
 	}
 }

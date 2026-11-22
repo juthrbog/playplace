@@ -83,11 +83,11 @@ func TestQueueIsADeskOfSlips(t *testing.T) {
 	start := `<li id="req-older-box" class="slip" data-state="pending"><label class="slip-pick">` +
 		`<input type="checkbox" name="req" value="` + refValue(ref) + `" form="desk-form" data-owner="bob@example.com" data-lifetime="14 days" data-budget="$50 a month" data-limits="At the per-owner limit of 1.">` +
 		`<span class="vh">Select older-box</span>` +
-		`<input type="hidden" name="shown-owner-older-box" value="bob@example.com" form="desk-form">` +
-		`<input type="hidden" name="shown-ttl-older-box" value="336" form="desk-form">` +
-		`<input type="hidden" name="shown-budget-older-box" value="50" form="desk-form">` +
-		`<input type="hidden" name="shown-purpose-older-box" value="" form="desk-form">` +
-		`<input type="hidden" name="shown-at-older-box" value="2026-09-15T12:00:00Z" form="desk-form"></label>` +
+		`<input type="hidden" name="shown-owner-older-box" value="bob@example.com" form="desk-form" disabled>` +
+		`<input type="hidden" name="shown-ttl-older-box" value="336" form="desk-form" disabled>` +
+		`<input type="hidden" name="shown-budget-older-box" value="50" form="desk-form" disabled>` +
+		`<input type="hidden" name="shown-purpose-older-box" value="" form="desk-form" disabled>` +
+		`<input type="hidden" name="shown-at-older-box" value="2026-09-15T12:00:00Z" form="desk-form" disabled></label>` +
 		`<div class="slip-main"><div class="slip-top"><h3 class="slip-title"><button type="button" id="name-older-box" class="slip-name" aria-expanded="false" aria-controls="details-older-box">`
 	if !strings.HasPrefix(slip, start) {
 		t.Errorf("the slip does not start with its checkbox and its closed name button:\n%s", slip)

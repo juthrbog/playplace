@@ -191,12 +191,23 @@ function keepPick(node, next) {
 
 // syncPicks keeps the bulk controls in step with the checked slips. The
 // count names how many are checked. The select-all box is checked when
-// every box is, and mixed when only some are. A morph and a page load
+// every box is, and mixed when only some are. The server renders the
+// copies of the shown values in each box label disabled, and syncPicks
+// turns on only the copies of a checked box. A disabled field is not
+// sent, so a bulk post carries the copies of the checked slips only, and
+// a long queue does not make the post too large. A morph and a page load
 // both reset the controls, so the afterSettle listener and the
 // DOMContentLoaded listener call it, and so does each change of a box.
+// The htmx:confirm listener and confirmAsk call it before a bulk post.
 function syncPicks() {
   var boxes = document.querySelectorAll(deskPicks);
   var n = pickedCount();
+  for (var b = 0; b < boxes.length; b++) {
+    var copies = boxes[b].parentNode.querySelectorAll('input[type="hidden"][form="desk-form"]');
+    for (var c = 0; c < copies.length; c++) {
+      copies[c].disabled = !boxes[b].checked;
+    }
+  }
   var count = document.getElementById("desk-count");
   if (count) {
     count.textContent = n + " selected";
@@ -246,14 +257,23 @@ function overCap(button) {
   return true;
 }
 
-// htmx asks this listener before each request. A bulk button over its cap
-// sends nothing. An element with data-dialog asks in its dialog first, and
-// the dialog sends the request when the viewer confirms. Any other request
+// htmx asks this listener before each request. An element with
+// data-dialog whose request already runs sends nothing and opens no
+// dialog, as the drop of hx-sync does. A bulk button over its cap sends
+// nothing. An element with data-dialog asks in its dialog first, and the
+// dialog sends the request when the viewer confirms. Any other request
 // goes on.
 document.addEventListener("htmx:confirm", function (ev) {
   var elt = ev.detail.elt;
   if (!elt || !elt.hasAttribute) {
     return;
+  }
+  if (elt.hasAttribute("data-dialog") && syncBusy(elt)) {
+    ev.preventDefault();
+    return;
+  }
+  if (elt.hasAttribute("data-bulk")) {
+    syncPicks();
   }
   if (elt.hasAttribute("data-bulk") && overCap(elt)) {
     ev.preventDefault();
@@ -271,6 +291,70 @@ document.addEventListener("htmx:confirm", function (ev) {
 // again with the same text.
 var asking = null;
 var lastDeny = null;
+
+// dialogOpen reports whether any dialog of the page is open. A dialog
+// opens only when no other one is, so two dialogs never stack and never
+// share asking.
+function dialogOpen() {
+  return !!document.querySelector("dialog[open]");
+}
+
+// syncBusy reports whether a request already runs for the hx-sync element
+// of elt. The bulk buttons share the desk form, and a slip form or a
+// Close form syncs on itself. A running request keeps aria-busy on its
+// button. htmx would drop a second request without a word, so app.js
+// checks first.
+function syncBusy(elt) {
+  if (elt.hasAttribute("data-bulk")) {
+    return !!document.querySelector('[form="desk-form"][aria-busy="true"]');
+  }
+  return !!(elt.querySelector && elt.querySelector('[aria-busy="true"]'));
+}
+
+// busyNote is the note when a dialog cannot send its request, because
+// another request of the same form still runs.
+var busyNote = "Another decision is still being sent. Wait for it, then try again.";
+
+// hiddenOf returns the name and the value of each hidden field of the
+// form of elt, except the reason. The deny dialog of a slip notes them
+// when it opens. A poll can change them while the dialog is open, so
+// confirmAsk puts them back before the post. The post then carries the
+// version that the viewer saw, and the server refuses it as changed.
+function hiddenOf(elt) {
+  var form = elt.tagName === "FORM" ? elt : elt.form;
+  if (!form) {
+    return [];
+  }
+  var fields = form.querySelectorAll('input[type="hidden"]:not([name="reason"])');
+  var out = [];
+  for (var i = 0; i < fields.length; i++) {
+    out.push([fields[i].name, fields[i].value]);
+  }
+  return out;
+}
+
+// putHidden writes the noted values of hiddenOf back into the form of elt.
+function putHidden(elt, noted) {
+  var form = elt.tagName === "FORM" ? elt : elt.form;
+  for (var i = 0; form && i < noted.length; i++) {
+    var field = form.querySelector('input[type="hidden"][name="' + CSS.escape(noted[i][0]) + '"]');
+    if (field) {
+      field.value = noted[i][1];
+    }
+  }
+}
+
+// firstWaiting is the control that takes the focus when the focused
+// control left with no place of its own: the name of the first slip that
+// waits, or else the queue heading.
+function firstWaiting() {
+  var target = null;
+  var rows = document.querySelectorAll(slipRows);
+  for (var i = 0; !target && i < rows.length; i++) {
+    target = controlIn(rows[i], "button.slip-name, .slip-title[tabindex]");
+  }
+  return target || document.getElementById("pending-title");
+}
 
 // pickedNames are the names of the checked slips, in the order of the
 // desk. The value of a box is the name, a space and the version.
@@ -336,7 +420,7 @@ function listInto(list, names) {
 function openDeny(elt, names, issue, text, note) {
   var dialog = document.getElementById("deny-dialog");
   var reason = document.getElementById("deny-reason");
-  if (!dialog || !reason || dialog.open) {
+  if (!dialog || !reason || dialogOpen()) {
     return false;
   }
   var one = names.length === 1;
@@ -345,6 +429,9 @@ function openDeny(elt, names, issue, text, note) {
   listInto(document.getElementById("deny-list"), names);
   reason.value = text;
   reason.removeAttribute("aria-invalid");
+  // The cleanup after an action takes aria-describedby from a marked
+  // field, and the dialog is never rendered again, so it goes back here.
+  reason.setAttribute("aria-describedby", "deny-help deny-error");
   var slot = document.getElementById("deny-error");
   if (note) {
     var span = document.createElement("span");
@@ -354,6 +441,9 @@ function openDeny(elt, names, issue, text, note) {
     slot.replaceChildren();
   }
   asking = { elt: elt, kind: "deny", names: names, issue: issue };
+  if (!elt.hasAttribute("data-bulk")) {
+    asking.hidden = hiddenOf(elt);
+  }
   dialog.returnValue = "";
   dialog.showModal();
   reason.focus();
@@ -365,7 +455,7 @@ function openDeny(elt, names, issue, text, note) {
 // them. Cancel takes the focus, because the safe button is the default.
 function openSummary(elt, names, issue) {
   var dialog = document.getElementById("summary-dialog");
-  if (!dialog || dialog.open) {
+  if (!dialog || dialogOpen()) {
     return false;
   }
   var boxes = document.querySelectorAll(deskPicks + ":checked");
@@ -395,7 +485,7 @@ function openSummary(elt, names, issue) {
 function openClose(elt, issue) {
   var dialog = document.getElementById("close-dialog");
   var name = elt.getAttribute("data-name");
-  if (!dialog || dialog.open || !name) {
+  if (!dialog || dialogOpen() || !name) {
     return false;
   }
   document.getElementById("close-title").textContent = "Close account " + name + "?";
@@ -445,6 +535,10 @@ function sameNames(a, b) {
 // live update cleared a box while it was open.
 var selectionChanged = "A request changed while this dialog was open, so it left the selection. Check the requests again.";
 
+// noneLeft is the note of a bulk dialog whose button a live update took
+// away, because no request that the viewer can decide still waits.
+var noneLeft = "None of the selected requests is still waiting, so nothing was sent.";
+
 // askAgain opens the dialog of ask again for the selection names, which a
 // live update made smaller, and reports whether it did. A denial keeps the
 // reason that the viewer wrote. A summary of fewer than two requests does
@@ -466,8 +560,13 @@ function askAgain(ask, names, text) {
 // open: a request that changed clears its box. The selection must then be
 // the one that the dialog showed, or the dialog opens again with the new
 // selection, so a decision never acts on requests that the viewer did not
-// see. A denial copies the reason into the hidden reason field of the
-// form that posts: the slip form, or the desk form of a bulk button.
+// see. A slip form gets back the hidden values that it had when the
+// dialog opened, so a request that changed is refused as changed. A
+// request that still runs for the same form would make htmx drop this
+// one, so the dialog says so instead: the deny dialog opens again with
+// the reason, and any other dialog writes the note into the region. A
+// denial copies the reason into the hidden reason field of the form that
+// posts: the slip form, or the desk form of a bulk button.
 function confirmAsk(ask, text) {
   var elt = ask.elt;
   if (!document.body.contains(elt)) {
@@ -477,13 +576,27 @@ function confirmAsk(ask, text) {
   if (!sameNames(ask.names, now) && askAgain(ask, now, text)) {
     return;
   }
+  if (syncBusy(elt)) {
+    if (ask.kind === "deny" && openDeny(elt, ask.names, ask.issue, text, busyNote)) {
+      asking.hidden = ask.hidden;
+    } else if (ask.kind !== "deny") {
+      say(busyNote);
+    }
+    return;
+  }
+  if (ask.hidden) {
+    putHidden(elt, ask.hidden);
+  }
+  if (elt.hasAttribute("data-bulk")) {
+    syncPicks();
+  }
   if (ask.kind === "deny") {
     var form = elt.tagName === "FORM" ? elt : elt.form;
     var field = form && form.elements ? form.elements.namedItem("reason") : null;
     if (field) {
       field.value = text;
     }
-    lastDeny = { elt: elt, names: ask.names, issue: ask.issue, text: text };
+    lastDeny = { elt: elt, names: ask.names, issue: ask.issue, text: text, hidden: ask.hidden };
   }
   ask.issue(true);
 }
@@ -492,7 +605,12 @@ function confirmAsk(ask, text) {
 // checks of the form and closes the dialog, and so does Escape. The final
 // button submits only when the checks pass, so an empty reason never
 // leaves the deny dialog. The dialog closes before the request starts, so
-// the focus is back on the button that opened it.
+// the focus is back on the button that opened it. A poll can take that
+// button away while the dialog is open: someone else decided the
+// request, or no slip is left to select. The focus then goes to the name
+// of the first slip that waits, or to the queue heading, and on confirm
+// the region says why nothing was sent. A Close form stays in its row
+// while the account is open, so the close dialog has no such case.
 document.addEventListener("submit", function (ev) {
   var form = ev.target;
   var dialog = form && form.closest ? form.closest("dialog") : null;
@@ -505,6 +623,16 @@ document.addEventListener("submit", function (ev) {
   var confirmed = ev.submitter && ev.submitter.value === "confirm";
   var reason = document.getElementById("deny-reason");
   dialog.close(confirmed ? "confirm" : "cancel");
+  if (ask.kind !== "close" && !document.body.contains(ask.elt)) {
+    var target = firstWaiting();
+    if (target) {
+      target.focus();
+    }
+    if (confirmed) {
+      say(ask.elt.hasAttribute("data-bulk") ? noneLeft : goneText(ask.names[0]));
+    }
+    return;
+  }
   if (confirmed) {
     confirmAsk(ask, ask.kind === "deny" && reason ? reason.value : "");
   }
@@ -531,6 +659,7 @@ document.addEventListener("htmx:afterRequest", function (ev) {
     return;
   }
   if (openDeny(ask.elt, ask.names, ask.issue, ask.text, refusal)) {
+    asking.hidden = ask.hidden;
     document.getElementById("deny-reason").setAttribute("aria-invalid", "true");
   }
 });
@@ -724,6 +853,18 @@ var focusPlace = null;
 function notePlace(xhr, source) {
   focusPlace = null;
   var active = document.activeElement;
+  var region = document.getElementById("notice");
+  // A control of the bulk bar has no slip. The bulk controls leave the bar
+  // when no slip has a box, and the focus then goes to a slip that waits.
+  if (active && active.closest && active.closest("#desk-bar")) {
+    focusPlace = {
+      xhr: xhr,
+      desk: true,
+      acted: !!(source && source.hasAttribute && source.hasAttribute("data-bulk")),
+      said: region ? region.lastElementChild : null
+    };
+    return;
+  }
   var row = active && active.closest ? active.closest(slipRows + ", " + fleetRows) : null;
   if (!row || !row.id) {
     return;
@@ -731,7 +872,6 @@ function notePlace(xhr, source) {
   var action = source && source.getAttribute ? source.getAttribute("data-action") : null;
   var acted = !!action && !!focusNext[action] && row.contains(source);
   var slip = row.matches(slipRows);
-  var region = document.getElementById("notice");
   focusPlace = {
     xhr: xhr,
     row: row.id,
@@ -767,8 +907,10 @@ function controlIn(row, want) {
 // longer waits. It then goes to the control of focusPlace in its own
 // slip or row. A slip that no longer waits gives its place to the next
 // slip that waits, then to the one before it. In a queue with no slip
-// that waits, the focus goes to the heading. A viewer who moved on keeps
-// their place. Every swap runs this rule, a poll too.
+// that waits, the focus goes to the heading. A bulk control that left
+// gives its place to the name of the first slip that waits, or to the
+// heading. A viewer who moved on keeps their place. Every swap runs this
+// rule, a poll too.
 document.addEventListener("htmx:afterSettle", function (ev) {
   watchBar();
   syncPicks();
@@ -780,6 +922,16 @@ document.addEventListener("htmx:afterSettle", function (ev) {
   var active = document.activeElement;
   var ended = active && active.closest && active.closest('li.slip:not([data-state="pending"])');
   if (active && active !== document.body && !ended) {
+    return;
+  }
+  if (was.desk) {
+    var first = firstWaiting();
+    if (first) {
+      first.focus();
+      if (was.acted) {
+        repeatRegion(was.said);
+      }
+    }
     return;
   }
   var target = controlIn(document.getElementById(was.row), was.want);

@@ -360,7 +360,8 @@ templ approvalDesk(pg page, oob bool) {
 // deskControls are the desk form and the bulk controls. The form is empty
 // but for the reason of a denial. Each checkbox of a slip, and a copy of
 // the values that the slip shows, joins it with form="desk-form", so no
-// form nests in another. The select-all box has no name, so the form
+// form nests in another. The copies start disabled, and app.js turns on
+// only the copies of a checked box, so a post carries only those. The select-all box has no name, so the form
 // never sends it. app.js keeps the count and the select-all box in step
 // with the checked slips. Each bulk button carries the most requests that
 // one post can decide and the refusal of the server above that, so app.js
@@ -468,9 +469,12 @@ templ slipPick(pg page, q core.Request) {
 
 // shownCopies are the shown values of q for the desk form. Each name ends
 // with the request name, so one post carries the values of many slips.
+// They are disabled, so the form does not send them. app.js turns them on
+// while the box of the slip is checked. A long queue then does not make a
+// post of two requests larger than the server reads.
 templ shownCopies(q core.Request) {
 	for _, f := range shownOf(q) {
-		<input type="hidden" name={ shownName(f.Field, q.Name) } value={ f.Value } form="desk-form"/>
+		<input type="hidden" name={ shownName(f.Field, q.Name) } value={ f.Value } form="desk-form" disabled/>
 	}
 }
 

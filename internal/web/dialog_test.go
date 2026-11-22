@@ -347,3 +347,118 @@ func TestCloseDialogLivesInAppJS(t *testing.T) {
 		}
 	}
 }
+
+// A poll can morph the queue while a dialog is open. The deny dialog of a
+// slip notes the hidden values of its form when it opens and puts them back
+// before the post, so the post carries the version that the viewer saw and
+// the server refuses a request that changed. A refused reason that opens
+// the dialog again keeps the same values.
+func TestDenyDialogPostsWhatTheViewerSaw(t *testing.T) {
+	js := staticText(t, "app.js")
+	holdsEach(t, "hiddenOf", funcBody(t, js, "function hiddenOf(elt) {"),
+		`input[type="hidden"]:not([name="reason"])`,
+		`out.push([fields[i].name, fields[i].value]);`)
+	holdsEach(t, "putHidden", funcBody(t, js, "function putHidden(elt, noted) {"),
+		`CSS.escape(noted[i][0])`,
+		`field.value = noted[i][1];`)
+	holdsEach(t, "openDeny", funcBody(t, js, "function openDeny(elt, names, issue, text, note) {"),
+		"if (!elt.hasAttribute(\"data-bulk\")) {\n    asking.hidden = hiddenOf(elt);\n  }")
+	confirm := funcBody(t, js, "function confirmAsk(ask, text) {")
+	holdsEach(t, "confirmAsk", confirm,
+		"putHidden(elt, ask.hidden);",
+		"hidden: ask.hidden };")
+	if strings.Index(confirm, "putHidden(elt, ask.hidden);") > strings.Index(confirm, "ask.issue(true);") {
+		t.Error("confirmAsk puts the noted values back after the post")
+	}
+	reopen := false
+	for _, body := range listeners(js, "htmx:afterRequest") {
+		if strings.Contains(body, "openDeny(ask.elt, ask.names, ask.issue, ask.text, refusal)") && strings.Contains(body, "asking.hidden = ask.hidden;") {
+			reopen = true
+		}
+	}
+	if !reopen {
+		t.Error("the deny dialog that opens again on a refused reason drops the noted values")
+	}
+}
+
+// The cleanup after an action takes aria-describedby from every marked
+// field, and the deny dialog is never rendered again. So openDeny links the
+// reason to its help and its refusal slot each time it opens.
+func TestDenyReasonKeepsItsDescription(t *testing.T) {
+	js := staticText(t, "app.js")
+	holdsEach(t, "openDeny", funcBody(t, js, "function openDeny(elt, names, issue, text, note) {"),
+		`reason.removeAttribute("aria-invalid");`,
+		`reason.setAttribute("aria-describedby", "deny-help deny-error");`)
+	ts, _ := newServer(t)
+	_, home := do(t, ts, "GET", "/", "anna@example.com", true, nil, false)
+	if !strings.Contains(dialogIn(home, "deny-dialog"), `aria-describedby="deny-help deny-error"`) {
+		t.Error("the server renders the reason with another description than openDeny sets")
+	}
+}
+
+// A dialog opens only when no dialog is open, so two dialogs never stack
+// and never share asking.
+func TestDialogsNeverStack(t *testing.T) {
+	js := staticText(t, "app.js")
+	holdsEach(t, "dialogOpen", funcBody(t, js, "function dialogOpen() {"), `document.querySelector("dialog[open]")`)
+	for _, head := range []string{"function openDeny(elt, names, issue, text, note) {", "function openSummary(elt, names, issue) {", "function openClose(elt, issue) {"} {
+		body := funcBody(t, js, head)
+		if !strings.Contains(body, "dialogOpen()") || strings.Contains(body, "dialog.open") {
+			t.Errorf("%s does not check every dialog before it opens:\n%s", head, body)
+		}
+	}
+}
+
+// htmx drops a request without a word while another request of the same
+// hx-sync element runs. A dialog then does not open, and a dialog that the
+// viewer confirms while such a request runs says so: the deny dialog opens
+// again with the reason, and the others write the note into the region.
+func TestDialogNeverSendsIntoADrop(t *testing.T) {
+	js := staticText(t, "app.js")
+	holdsEach(t, "syncBusy", funcBody(t, js, "function syncBusy(elt) {"),
+		`'[form="desk-form"][aria-busy="true"]'`,
+		`elt.querySelector('[aria-busy="true"]')`)
+	confirm := listeners(js, "htmx:confirm")
+	if len(confirm) != 1 || !strings.Contains(confirm[0], "if (elt.hasAttribute(\"data-dialog\") && syncBusy(elt)) {\n    ev.preventDefault();\n    return;\n  }") {
+		t.Error("the htmx:confirm listener opens a dialog while its request runs")
+	}
+	body := funcBody(t, js, "function confirmAsk(ask, text) {")
+	holdsEach(t, "confirmAsk", body,
+		"if (syncBusy(elt)) {",
+		`openDeny(elt, ask.names, ask.issue, text, busyNote)`,
+		"say(busyNote);")
+	if strings.Index(body, "if (syncBusy(elt)) {") > strings.Index(body, "lastDeny = {") {
+		t.Error("confirmAsk notes lastDeny before it checks for a running request")
+	}
+}
+
+// A poll can take away the button that opened a dialog. The focus then
+// goes to the name of the first slip that waits, or to the queue heading,
+// and a confirm says why nothing was sent. A bulk control that a decision
+// takes away gives the focus the same way.
+func TestFocusNeverFallsToThePageAfterADialog(t *testing.T) {
+	js := staticText(t, "app.js")
+	holdsEach(t, "firstWaiting", funcBody(t, js, "function firstWaiting() {"),
+		`controlIn(rows[i], "button.slip-name, .slip-title[tabindex]")`,
+		`document.getElementById("pending-title")`)
+	submit := listeners(js, "submit")
+	if len(submit) != 1 {
+		t.Fatalf("app.js has %d submit listeners, want 1", len(submit))
+	}
+	holdsEach(t, "the submit listener", submit[0],
+		`ask.kind !== "close" && !document.body.contains(ask.elt)`,
+		"var target = firstWaiting();",
+		`say(ask.elt.hasAttribute("data-bulk") ? noneLeft : goneText(ask.names[0]));`)
+	holdsEach(t, "notePlace", funcBody(t, js, "function notePlace(xhr, source) {"),
+		`active.closest("#desk-bar")`,
+		"desk: true,",
+		`source.hasAttribute("data-bulk")`)
+	settle := listeners(js, "htmx:afterSettle")
+	if len(settle) != 1 {
+		t.Fatalf("app.js has %d htmx:afterSettle listeners, want 1", len(settle))
+	}
+	holdsEach(t, "the focus rule", settle[0], "if (was.desk) {", "var first = firstWaiting();", "repeatRegion(was.said);")
+	if strings.Index(settle[0], "if (was.desk) {") < strings.Index(settle[0], "if (active && active !== document.body && !ended) {") {
+		t.Error("the focus rule moves the focus from a bulk control that is still in the page")
+	}
+}

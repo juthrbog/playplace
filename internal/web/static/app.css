@@ -1772,6 +1772,12 @@
       height: var(--touch);
       padding-left: var(--space-lg);
     }
+    /* The select-all box is a 44 px target too, with the box centred. */
+    label.desk-all {
+      min-width: var(--touch);
+      min-height: var(--touch);
+      justify-content: center;
+    }
     .slip {
       grid-template-columns: minmax(0, 1fr);
     }
