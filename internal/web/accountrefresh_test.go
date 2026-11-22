@@ -154,6 +154,54 @@ func TestPendingRequestPagePollsItself(t *testing.T) {
 	}
 }
 
+// A pending request has the ID "req:" and its name. After an approver
+// approves it, a page opened at that ID still finds the account that the
+// approval creates: the refresh moves the page to the creation request ID,
+// and, once AWS places the account, to the AWS account ID. The page never
+// says the account is gone.
+func TestPendingRequestPageFollowsTheApprovedAccount(t *testing.T) {
+	now := t0
+	prov := fake.New()
+	prov.Now = func() time.Time { return now }
+	cfg := core.DefaultConfig()
+	cfg.InventoryTTL = 0
+	svc := core.NewService(prov, nil, cfg, nil)
+	svc.Now = func() time.Time { return now }
+	ctx := context.Background()
+	r, err := svc.SubmitRequest(ctx, core.RequestInput{Name: "move-a", Owner: "bob@example.com", RequestedBy: "bob@example.com"}, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(New(svc, slog.New(slog.DiscardHandler), headerAuth{}, nil, nil).Handler())
+	t.Cleanup(ts.Close)
+
+	const page = "/accounts/req:move-a"
+	if res, body := fromPage(t, ts, "GET", page, page, "bob@example.com", false, false, nil, ""); res.StatusCode != http.StatusOK || !strings.Contains(body, `hx-get="`+page+`"`) {
+		t.Fatalf("refresh before approval = %d:\n%s", res.StatusCode, body)
+	}
+	a, err := svc.Approve(ctx, r.Ref(), "lead@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := "/accounts/" + a.ID
+	res, body := fromPage(t, ts, "GET", page, page, "bob@example.com", false, false, nil, "")
+	if res.StatusCode != http.StatusOK || res.Header.Get("HX-Replace-Url") != created || !strings.Contains(body, `hx-get="`+created+`"`) || strings.Contains(body, "Account unavailable") {
+		t.Errorf("refresh after approval = %d, HX-Replace-Url %q, want %s:\n%s", res.StatusCode, res.Header.Get("HX-Replace-Url"), created, body)
+	}
+
+	prov.Settle()
+	cr, err := prov.CreateStatus(ctx, a.ID)
+	if err != nil || cr.ProviderID == "" {
+		t.Fatalf("creation %+v: %v", cr, err)
+	}
+	prov.MoveAccount(cr.ProviderID, fake.OUID)
+	placed := "/accounts/" + cr.ProviderID
+	res, body = fromPage(t, ts, "GET", page, page, "bob@example.com", false, false, nil, "")
+	if res.StatusCode != http.StatusOK || res.Header.Get("HX-Replace-Url") != placed || strings.Contains(body, "Account unavailable") {
+		t.Errorf("refresh after placement = %d, HX-Replace-Url %q, want %s:\n%s", res.StatusCode, res.Header.Get("HX-Replace-Url"), placed, body)
+	}
+}
+
 // The lifetime is in whole days for a span of a day or more, because the
 // creation time and the due date seldom differ by whole days.
 func TestLifetimeIsInWholeDays(t *testing.T) {

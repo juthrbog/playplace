@@ -68,7 +68,7 @@ type Service struct {
 	inv       []*Account
 	recs      []Request // request records read with the inventory, same age
 	invAt     time.Time
-	placed    map[string]string // creation request id -> AWS account id, read with the inventory
+	placed    map[string]string // old id -> current account id (creation request id or pending id), read with the inventory
 	costs     map[string]costEntry
 	costPulls uint64 // numbers each cost pull, so only the newest pull writes
 
@@ -285,7 +285,7 @@ func (s *Service) Inventory(ctx context.Context, force bool) ([]*Account, error)
 		}
 		return a
 	}
-	placed := map[string]string{} // create request id -> AWS account id in the OU
+	placed := map[string]string{} // create request id -> AWS account id in the OU, then pending id -> current id
 	for _, r := range reqs {
 		switch r.State {
 		case CreateInProgress:
@@ -309,6 +309,17 @@ func (s *Service) Inventory(ctx context.Context, force bool) ([]*Account, error)
 				a.ProviderID = r.ProviderID
 				out = append(out, a)
 			}
+		}
+	}
+	// An approved request leaves its pending ID behind. Map it to where the
+	// account lives now, so a page opened at the pending ID follows it.
+	for _, r := range records {
+		if r.Approved && r.CreateRequestID != "" {
+			id := r.CreateRequestID
+			if p, ok := placed[id]; ok {
+				id = p
+			}
+			placed["req:"+r.Name] = id
 		}
 	}
 	// AWS stops listing old creation requests; the account still waits.
@@ -381,7 +392,9 @@ var ErrNotFound = errors.New("not found")
 // over every name: a name may look like another account's id, and the
 // newer row must not take that account's place. A creation request id is
 // the id of an account until AWS places it in the OU. After that, it still
-// finds the placed account while AWS lists the creation request.
+// finds the placed account while AWS lists the creation request. In the same
+// way, the pending id of an approved request ("req:" and the name) finds the
+// account that the approval creates, while the approved record is kept.
 func (s *Service) Resolve(ctx context.Context, ref string) (*Account, error) {
 	all, err := s.Inventory(ctx, false)
 	if err != nil {

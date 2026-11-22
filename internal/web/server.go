@@ -622,8 +622,9 @@ func (s *Server) writeAccount(w http.ResponseWriter, r *http.Request, pg page, a
 // account that is gone, or that the viewer may no longer see, gets the plain
 // notice, which does not poll. An account that did not load gets a section
 // that says so and keeps polling, so the next good poll clears it. A
-// reference that now names an account with another ID, such as a creation
-// request ID after AWS placed the account, moves the page to that ID.
+// reference that now names an account with another ID, such as the pending
+// ID of an approved request or a creation request ID after AWS placed the
+// account, moves the page to that ID.
 func (s *Server) refreshAccount(w http.ResponseWriter, r *http.Request, pg page) {
 	v, err := s.accountFor(r.Context(), pg)
 	if err != nil {
