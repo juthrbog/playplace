@@ -146,7 +146,7 @@ using that file.
 | Route | Content | Who |
 |---|---|---|
 | `/` | Home. Engineers see their accounts and requests first. Approvers see the approval desk first, then their own accounts and requests. Admins see what needs attention, the approval desk and the fleet. The fleet and Needs attention are admin views. Notices and Slack link to `/?req=<name>#req-<name>`, which opens the slip of the request, also after sign-in. The `#pending` anchor stays for the Queue link. | Everyone |
-| `/accounts` | The fleet table with search, filters, sorting and pages. Parameters: `q`, `status`, `budget`, `owner`, `attention`, `sort`, `dir`, `page`. | Everyone, scoped by role |
+| `/accounts` | The fleet table with search, filters, sorting and pages. Parameters: `q`, `status`, `budget`, `owner`, `attention`, `sort`, `dir`, `page`. PR 4 of phase 2 adds the page: the account table with Show closed, which polls. PR 5 adds search, filters, sorting and pages. | Everyone, scoped by role |
 | `/accounts/{id}` | The account page. | Owner, admin |
 | `/requests/new` | The request form. | Everyone |
 | `/requests/{name}` | One pending request, with its history. | Requester, owner, approvers |
@@ -188,18 +188,26 @@ screen until its phase ships. After that, the real page is the reference.
 
 ## Interaction model
 
-- **Live updates.** The home page polls every 15 seconds. Each poll sends
+- **Live updates.** Each page that shows live data polls every 15 seconds.
+  Today these are the home page and the accounts page. Each poll sends
   the hash of the fragment that the page shows. The server renders the
   fragment again and hashes it without the Updated time. When the hash is
   the same, the server answers 204 No Content, and htmx keeps the page as it
   is. When the hash is different, htmx merges the new fragment into the page
-  with a morph swap, so focus, scroll and open forms stay. The approval desk
-  refreshes too.
-- **Live time and host.** After each successful poll, `app.js` resets the
-  Updated time. The live dot blinks only when new data arrives. The response
+  with a morph swap, so focus, scroll and open forms stay. On the home page
+  the approval desk refreshes too. The server reads the page that asked
+  from the `HX-Current-URL` header, so each page gets only what it shows
+  and its own 204.
+- **Live time and host.** The live line in the page footer shows the
+  Updated time. After each successful poll, `app.js` resets it. The live
+  dot blinks only when new data arrives. The response
   sends `Cache-Control: private, no-cache`. Polling works behind any host or
   proxy, so the design does not depend on the production host. The overhaul
   does not use server-sent events.
+- **Pause.** The live line has a Pause button. A paused page does not poll,
+  and the pause lasts for the browser tab. A hidden tab does not poll
+  either, and it polls once when it shows again. Resume polls at once.
+  Actions still update a paused page.
 - **Keyboard.** `/` focuses search. `j` and `k` move the focused row, `x`
   selects it, `a` approves and `d` denies, and `Enter` opens it. `?` lists the
   keys. Shortcuts never fire inside a text field.

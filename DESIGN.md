@@ -328,6 +328,14 @@ components:
     padding: "10px 12px"
   note-desk:
     backgroundColor: "{colors.card}"
+  live-line:
+    textColor: "{colors.ink-2}"
+    typography: "{typography.secondary}"
+  live-dot:
+    backgroundColor: "{colors.shelf-ink}"
+    rounded: "50%"
+    width: "8px"
+    height: "8px"
   kbd:
     backgroundColor: "{colors.paper}"
     textColor: "{colors.ink-2}"
@@ -560,7 +568,8 @@ there is no Sync. Shell controls are 34 px tall, with 10 px top and bottom
 padding and a 24 px side gutter.
 
 The main area has 16 px top padding, 24 px side gutters, 32 px bottom
-padding, a 16 px gap between panels, and a maximum width of 1600 px. On the
+padding, a 16 px gap between panels, and a maximum width of 1600 px. The
+footer sits under the main area, with the same side gutters (see Footer). On the
 admin home, the "Needs attention" ledger (300 to 384 px) sits beside the
 approval desk, and the fleet table runs full width below them. The ledger
 is not built yet. Until then, the New request panel, the approval desk and
@@ -621,7 +630,7 @@ badges and flags are 3 px. Buttons, fields, nav links and keycaps are 4 px.
 The segmented control group is 5 px, so its 4 px items nest inside it.
 Inline notes are 6 px. Panels, the loan card and the dialog are 8 px. The
 count pill is 9 px, which makes it a full pill at 18 px. The avatar and the
-live dot are circles. The avatar and the live dot are not built yet.
+live dot are circles. The avatar is not built yet.
 
 Borders are 1 px. Stamps use a 1.5 px border in their own ink, and the large
 stamp uses 2 px. Dashed lines carry meaning: separators on card stock, a
@@ -641,12 +650,12 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 - **Shape:** gently squared (4px), 34 px tall, 13 px side padding, an icon and a word with a 7 px gap.
 - **Approve:** violet with paper text. The only violet button. Approve selected, the final button of the bulk approval summary and Extend use it too, with the stamp icon.
 - **Primary:** card stock with ink text. Inside a panel it gets a card-rule border. New request, Request, Save, Save budget, the way back on an error page and the AWS access portal link (not built yet) use it.
-- **Plain:** paper with ink text and a control-rule border. Deny on a row, Deny selected, Close, Cancel and pager buttons use it. The pager buttons are not built yet.
+- **Plain:** paper with ink text and a control-rule border. Deny on a row, Deny selected, Close, Cancel, Pause updates and pager buttons use it. The pager buttons are not built yet.
 - **Ghost:** transparent on the shell, with card text and a shelf-rule border. Only Sync with AWS uses it.
 - **Deny:** red ink with paper text, and deep red ink on hover. It appears only as the final button in a dialog that denies a request or closes an account: Deny in the deny dialog and Close account in the close dialog. Red marks the step that cannot be undone, not the button that opens the dialog.
 - **Hover / Focus:** a hover changes the fill (pressed violet, selected card, paper tint, deep shelf or deep red ink). The plain button also turns its border to ink. Focus is a 2 px violet ring with a 2 px offset. On the shell the ring is card stock.
 - **Disabled and busy:** a disabled button has a soft-rule fill, pencil-grey text and a dashed control-rule border. A busy button keeps its size, sets `aria-busy`, and changes its word to a verb in progress: Approving, Sending, Denying, Syncing, Withdrawing or Saving. The word and its verb share one grid cell, and the verb has no width, so the button keeps the width of its word. A busy button keeps its colors and is never disabled. The +7d, Close, Edit and Cancel buttons set only `aria-busy` and keep their word.
-- **Sizes:** 30 px with 11 px padding in toolbars and pagers (not built yet). 44 px on the phone. The phone Approve and Deny buttons are 52 px with a 16 px label.
+- **Sizes:** 30 px with 11 px padding in toolbars, in pagers (not built yet) and for Pause updates in the footer. 44 px on the phone. The phone Approve and Deny buttons are 52 px with a 16 px label.
 
 ### Chips
 - **Count pill:** card stock with ink text, 12 px bold, beside Queue and Notices in the shell. A visually hidden word says what the number counts.
@@ -677,8 +686,13 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 - **Until phase 5:** the shell that phase 1 builds leaves out the History and Notices links and the Notices count pill. Phase 5 adds them when it builds those pages.
 - **Mobile:** a 44 px menu button opens the navigation, New request and Sign out.
 
+### Footer
+- **Place:** a `<footer class="foot">` after `<main>` on every page with a signed-in viewer. A page with no viewer, such as a failed sign-in, has no footer.
+- **Style:** a flex row that wraps, with a 12 px gap and a maximum width of 1600 px. It has no top padding, 24 px side gutters and 24 px bottom padding. At 640 px and below the gutters and the bottom padding are 16 px. An empty footer takes no room.
+- **Content:** on a page that polls, the footer holds the live line (see Live update in Feedback). Today the home page and the accounts page poll. The row has room for later controls: the theme control, and a switch for the keyboard shortcuts.
+
 ### Theme control
-- **Place:** a footer on every page. On a page that polls, the footer also holds the live-update line.
+- **Place:** the footer on every page. On a page that polls, the footer also holds the live-update line.
 - **Style:** a segmented control with three items: Auto, Day and Night. Auto is the default and follows the operating system setting.
 - **Behavior:** radio inputs in a `<fieldset>`, inside one form that posts to `/theme`, with a Save button. `app.js` can submit the form on change. Day and Night set the `theme` cookie. Auto deletes the cookie. When the cookie is set, the server writes `data-theme` on the `<html>` element, so the first paint has the right palette with no script. With Auto, the page has no `data-theme`, and the operating system setting decides.
 - **Timing:** the control comes with the change after phase 4 that turns on the night desk.
@@ -822,7 +836,11 @@ slot, so the region shows the refusal.
 - **Inline note:** paper with a panel-rule border, 6px corners, a 16 px icon, a semibold first line and a 13.5 px body. A refusal uses a red-ink border and an alert icon and names the recovery. In a slot under a form, in the bulk bar or in a slip, a refusal has only the semibold first line. On an error page and in an unavailable accounts panel, the problem in semibold sits above a body with the recovery. An empty desk uses card stock.
 - **Error page:** a styled page with the title "Action refused" (400), "Not allowed" (403), "Page not found" or "Account not found" (404), or "Sign-in failed". The panel head holds the title, then the status code in pencil grey. Under it, a refusal note names the problem and the recovery, and one primary button leads back. A refused action on a page gets no error page, and its refusal shows on that page.
 - **Dialog:** a native `<dialog>` on paper with a 1 px ink border, 8px corners and a maximum width of 640 px. On a phone it keeps a 16 px gutter on each side. The head and the footer are separated by panel rules, and the footer is paper tint. The scrim sits behind it. Only three tasks use it: the deny reason, the bulk approval summary, and the consequences of Close. The deny dialog lists the requests that it denies and gives the focus to the required reason field. The summary lists each request with its owner, lifetime, budget and per-owner limit check. The close dialog names the account, its AWS account ID and its owner. In the summary and the close dialog, Cancel takes the focus first, because the safe button is the default. Escape and Cancel close a dialog and decide nothing.
-- **Live update (not built yet):** an 8 px shelf ink dot and "Updated 12 seconds ago" in the footer. `app.js` resets the Updated time after each successful poll, also when nothing changed. The dot hides for one 90 ms step only when new data arrives, with no fade. Under `prefers-reduced-motion` it does not blink. The home page already polls every 15 seconds, and the server answers 204 when nothing changed.
+- **Live update:** the live line in the footer of a page that polls: an 8 px shelf ink dot, the time of the last update in 13.5 px pencil grey, and a plain Pause button. The page polls every 15 seconds, and the server answers 204 when nothing changed. The line needs script, so it shows only under `html.js`. It is not a live region, so the page keeps its one region.
+  - **Time:** "Updated just now", "Updated 12 seconds ago" or "Updated 3 minutes ago". The time ticks each second in the first minute and each minute after it. `app.js` resets it after each poll that the server answered with 200 or 204, also when nothing changed. A failed poll does not reset it, so the time says how old the data is. While the accounts panel shows an unavailable list, the time does not reset either. When the page loads with an unavailable list, the line reads "Not updated yet" until a poll brings fresh data.
+  - **Dot:** the dot hides for one 90 ms step only when a 200 answer brings new data, with no fade. Under `prefers-reduced-motion` it does not blink. While updates are paused, the dot hides.
+  - **Pause:** the button says "Pause updates" or "Resume updates". While paused, the page drops each poll and the line reads "Paused. Updated 3 minutes ago". Resume polls at once. Each press writes one short message into the live region: "Live updates paused." or "Live updates on." The pause lasts for the browser tab, also across a reload, because `sessionStorage` holds it. Actions still answer and update the page while paused. An unavailable account list then says "Live updates are paused. Resume them to try again." in place of "The page tries again every 15 seconds."
+  - **Hidden tab:** a hidden tab does not poll. When the tab shows again, the page polls once at once, unless the viewer paused updates.
 - **Keycap (not built yet):** 12 px semibold pencil grey on paper, with a panel-rule border that is 2 px at the bottom.
 
 ### Icons
