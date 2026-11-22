@@ -334,12 +334,15 @@ function hiddenOf(elt) {
 }
 
 // putHidden writes the noted values of hiddenOf back into the form of elt.
+// It matches each field by its name, and builds no selector from a name.
 function putHidden(elt, noted) {
   var form = elt.tagName === "FORM" ? elt : elt.form;
-  for (var i = 0; form && i < noted.length; i++) {
-    var field = form.querySelector('input[type="hidden"][name="' + CSS.escape(noted[i][0]) + '"]');
-    if (field) {
-      field.value = noted[i][1];
+  var fields = form ? form.querySelectorAll('input[type="hidden"]:not([name="reason"])') : [];
+  for (var i = 0; i < fields.length; i++) {
+    for (var j = 0; j < noted.length; j++) {
+      if (noted[j][0] === fields[i].name) {
+        fields[i].value = noted[j][1];
+      }
     }
   }
 }

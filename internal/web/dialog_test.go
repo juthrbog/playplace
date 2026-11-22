@@ -359,8 +359,8 @@ func TestDenyDialogPostsWhatTheViewerSaw(t *testing.T) {
 		`input[type="hidden"]:not([name="reason"])`,
 		`out.push([fields[i].name, fields[i].value]);`)
 	holdsEach(t, "putHidden", funcBody(t, js, "function putHidden(elt, noted) {"),
-		`CSS.escape(noted[i][0])`,
-		`field.value = noted[i][1];`)
+		`noted[j][0] === fields[i].name`,
+		`fields[i].value = noted[j][1];`)
 	holdsEach(t, "openDeny", funcBody(t, js, "function openDeny(elt, names, issue, text, note) {"),
 		"if (!elt.hasAttribute(\"data-bulk\")) {\n    asking.hidden = hiddenOf(elt);\n  }")
 	confirm := funcBody(t, js, "function confirmAsk(ask, text) {")
