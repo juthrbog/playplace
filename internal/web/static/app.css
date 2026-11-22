@@ -248,17 +248,6 @@
   :where(.loan) button:hover {
     border-color: var(--ink);
   }
-  /* The AWS access portal link is a primary button on card stock. Its
-     fill is the card, so the pencil-grey border draws its edge, as on a
-     plain button there. It is never shelf green: green belongs to the
-     shell. */
-  :where(.loan) a.btn-primary {
-    border-color: var(--ink-2);
-  }
-  :where(.loan) a.btn-primary:hover {
-    background: var(--card-sel);
-    border-color: var(--ink);
-  }
   input:not([type=checkbox]):not([type=radio]):not([type=hidden]) {
     height: var(--control-h);
     padding: 0 10px;
@@ -763,6 +752,18 @@
     background: var(--card-sel);
     border-color: var(--card-rule);
     color: var(--ink);
+  }
+  /* The AWS access portal link is a primary button on card stock. Its
+     fill is the card, so the pencil-grey border draws its edge, as on a
+     plain button there. It is never shelf green: green belongs to the
+     shell. It sits in this layer, after .btn-primary, because a rule in
+     the base layer loses to any rule in this one. */
+  :where(.loan) a.btn-primary {
+    border-color: var(--ink-2);
+  }
+  :where(.loan) a.btn-primary:hover {
+    background: var(--card-sel);
+    border-color: var(--ink);
   }
   .btn-approve {
     background: var(--violet);

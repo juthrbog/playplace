@@ -77,14 +77,22 @@ func historyURL(u *url.URL, key, value string) string {
 	return copy.RequestURI()
 }
 
-// historyDetails writes the details of a history event. Core stores the raw
-// error of a failed budget call in the error detail, so the page shows the
-// text of storedFailure in its place.
-func historyDetails(e core.AuditEvent) string {
+// visibleDetails is the details of a history event that the page shows.
+// Core stores the raw error of a failed budget call in the error detail, so
+// the page shows the text of storedFailure in its place. The principal ID of
+// an access grant stays in the stored record for admin searches, but the
+// page never shows it.
+func visibleDetails(e core.AuditEvent) map[string]string {
 	details := maps.Clone(e.Details)
+	delete(details, "principal")
 	if text, ok := details["error"]; ok {
 		details["error"] = storedFailure(text)
 	}
-	data, _ := json.MarshalIndent(details, "", "  ")
+	return details
+}
+
+// historyDetails writes the visible details of a history event.
+func historyDetails(e core.AuditEvent) string {
+	data, _ := json.MarshalIndent(visibleDetails(e), "", "  ")
 	return string(data)
 }

@@ -8262,7 +8262,7 @@ func accountExtras(pg page, a *core.Account, spend spendView, history historyVie
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					if len(e.Details) > 0 {
+					if len(visibleDetails(e)) > 0 {
 						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 655, "<details><summary>Details</summary><pre>")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err

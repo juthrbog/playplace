@@ -58,6 +58,9 @@ func TestAccessStateWords(t *testing.T) {
 		{"access pending", pending(map[string]string{core.TagBudgetHealth: "ready"}), "ACTIVE", true, accessReady, "Getting ready: waiting for owner access to be granted."},
 		{"stalled", pending(map[string]string{core.TagBudgetHealth: "ready", core.TagExpires: t0.Add(-time.Hour).Format(time.RFC3339)}), "ACTIVE", true, accessReady, "Getting ready: setup has stopped. Ask an admin to check this account."},
 		{"legacy without a grant", nil, "ACTIVE", true, accessReady, "Getting ready: waiting for owner access to be granted."},
+		{"legacy, unknown owner", map[string]string{core.TagOwner: "unknown"}, "ACTIVE", true, accessReady, "Getting ready: waiting for the account to have a known owner."},
+		{"handed off, unknown owner, no grant", map[string]string{core.TagHandoff: "complete", core.TagOwner: "unknown"}, "ACTIVE", true, accessReady, "Getting ready: waiting for the account to have a known owner."},
+		{"handed off, no grant", map[string]string{core.TagHandoff: "complete"}, "ACTIVE", true, accessReady, "Getting ready: waiting for owner access to be granted."},
 		{"granted", map[string]string{core.TagAccess: testPrincipal}, "ACTIVE", true, accessGranted, "Access granted"},
 		{"granted and expiring", map[string]string{core.TagAccess: testPrincipal, core.TagWarnedAt: t0.Format(time.RFC3339)}, "ACTIVE", true, accessGranted, "Access granted"},
 		{"handed off, not managed", map[string]string{core.TagHandoff: "complete"}, "ACTIVE", false, accessUnmanaged, "playplace does not manage AWS access for this account."},
@@ -96,6 +99,14 @@ func TestAccessStateWords(t *testing.T) {
 // whether playplace manages console access.
 func newPortalServer(t *testing.T, portal string, access bool, extra map[string]string) (*httptest.Server, *fake.Provider) {
 	t.Helper()
+	ts, prov, _ := newPortalServerWithHistory(t, portal, access, extra)
+	return ts, prov
+}
+
+// newPortalServerWithHistory is newPortalServer that also returns the
+// history sink.
+func newPortalServerWithHistory(t *testing.T, portal string, access bool, extra map[string]string) (*httptest.Server, *fake.Provider, *audit.Memory) {
+	t.Helper()
 	prov := fake.New()
 	prov.Now = func() time.Time { return t0 }
 	prov.AccessOn = access
@@ -113,7 +124,7 @@ func newPortalServer(t *testing.T, portal string, access bool, extra map[string]
 	svc.SetAuditor(hist)
 	ts := httptest.NewServer(New(svc, slog.New(slog.DiscardHandler), headerAuth{}, nil, hist).Handler())
 	t.Cleanup(ts.Close)
-	return ts, prov
+	return ts, prov, hist
 }
 
 // The AWS access portal button shows only when the address is set, the
@@ -192,6 +203,33 @@ func TestPortalButtonRules(t *testing.T) {
 	}
 }
 
+// The history on the account page leaves out the principal ID of the
+// access events. A row whose only detail is the principal shows no Details.
+func TestAccountHistoryHidesThePrincipal(t *testing.T) {
+	ts, _, hist := newPortalServerWithHistory(t, testPortal, true, map[string]string{core.TagAccess: testPrincipal})
+	for _, e := range []core.AuditEvent{
+		{JourneyID: "account:111111111111", At: t0, Event: "access-granted", Account: "annas-box", AccountID: "111111111111", Actor: core.ActorSystem, Message: "granted", Details: map[string]string{"principal": testPrincipal}},
+		{JourneyID: "account:111111111111", At: t0.Add(time.Hour), Event: "access-revoked", Account: "annas-box", AccountID: "111111111111", Actor: core.ActorSystem, Message: "revoked", Details: map[string]string{"principal": testPrincipal, "note": "kept"}},
+	} {
+		if err := hist.Record(t.Context(), e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, body := do(t, ts, "GET", "/accounts/111111111111", "anna@example.com", false, nil, false)
+	if !strings.Contains(body, "access-granted") || !strings.Contains(body, "access-revoked") {
+		t.Fatalf("the page lacks the access events:\n%s", body)
+	}
+	if strings.Contains(body, testPrincipal) {
+		t.Errorf("the account page shows the principal ID")
+	}
+	if got := strings.Count(body, "<summary>Details</summary>"); got != 1 {
+		t.Errorf("Details shows %d times, want 1 (only the row with another detail)", got)
+	}
+	if !strings.Contains(body, "kept") {
+		t.Errorf("the other detail is gone")
+	}
+}
+
 // The portal button is the only link on the card that opens a new tab, and
 // it comes before +7d and Close.
 func TestPortalButtonLeadsTheActions(t *testing.T) {
@@ -233,7 +271,16 @@ func TestPortalButtonStyle(t *testing.T) {
 	holdsEach(t, "app.css", css,
 		":where(.loan) a.btn-primary {\n    border-color: var(--ink-2);\n  }",
 		":where(.loan) a.btn-primary:hover {\n    background: var(--card-sel);\n    border-color: var(--ink);\n  }")
-	rule := between(css, ":where(.loan) a.btn-primary {", "input:not(")
+	// A rule in an earlier layer loses to .btn-primary in the components
+	// layer whatever its specificity, so the rule must come after it there.
+	components := strings.Index(css, "@layer components {")
+	primary := strings.Index(css, "  .btn-primary:hover {")
+	portal := strings.Index(css, ":where(.loan) a.btn-primary {")
+	utilities := strings.Index(css, "@layer utilities {")
+	if components < 0 || primary < components || portal < primary || portal > utilities {
+		t.Errorf("the portal rule is not after .btn-primary in the components layer: components %d, .btn-primary:hover %d, portal %d, utilities %d", components, primary, portal, utilities)
+	}
+	rule := between(css, ":where(.loan) a.btn-primary {", ".btn-approve {")
 	if strings.Contains(rule, "shelf") {
 		t.Errorf("the portal button takes shelf colors:\n%s", rule)
 	}

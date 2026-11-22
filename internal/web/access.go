@@ -56,7 +56,7 @@ var readyWords = map[core.HandoffBlock]string{
 // Service.AccessEnabled. Only an active or expiring account has one. What
 // blocks the initial handoff comes first, then the grant. An account that
 // finished its handoff but has no grant while playplace manages access
-// waits for the grant, as readiness retries it.
+// waits for the grant, as readiness retries it, or for a known owner first.
 func accessState(a *core.Account, accessEnabled bool, now time.Time) accessView {
 	if a.Status != core.StatusActive && a.Status != core.StatusExpiring {
 		return accessView{}
@@ -69,6 +69,9 @@ func accessState(a *core.Account, accessEnabled bool, now time.Time) accessView 
 		return accessView{Kind: accessUnmanaged, Text: accessUnmanagedText, Icon: "minus"}
 	case a.AccessGrantedTo != "":
 		return accessView{Kind: accessGranted, Text: accessGrantedText, Icon: "check"}
+	case core.OwnerUnknown(a.Owner):
+		// The grant cannot find an owner who is not known.
+		return readyView(core.HandoffOwnerUnknown)
 	}
 	return readyView(core.HandoffAccessPending)
 }

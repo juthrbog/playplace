@@ -1815,7 +1815,7 @@ templ accountExtras(pg page, a *core.Account, spend spendView, history historyVi
 										}
 									</td>
 									<td class="wrap">{ e.Message }
-										if len(e.Details) > 0 {
+										if len(visibleDetails(e)) > 0 {
 											<details><summary>Details</summary><pre>{ historyDetails(e) }</pre></details>
 										}
 									</td>
