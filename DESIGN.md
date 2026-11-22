@@ -639,11 +639,11 @@ is a real `<button>`, `<a>`, `<input>`, `<select>` or `<dialog>`.
 
 ### Buttons
 - **Shape:** gently squared (4px), 34 px tall, 13 px side padding, an icon and a word with a 7 px gap.
-- **Approve:** violet with paper text. The only violet button. Extend uses it too, with the stamp icon.
+- **Approve:** violet with paper text. The only violet button. Approve selected, the final button of the bulk approval summary and Extend use it too, with the stamp icon.
 - **Primary:** card stock with ink text. Inside a panel it gets a card-rule border. New request, Request, Save, Save budget, the way back on an error page and the AWS access portal link (not built yet) use it.
-- **Plain:** paper with ink text and a control-rule border. Deny on a row, Return, Cancel and pager buttons use it. Return and the pager buttons are not built yet.
+- **Plain:** paper with ink text and a control-rule border. Deny on a row, Deny selected, Close, Cancel and pager buttons use it. The pager buttons are not built yet.
 - **Ghost:** transparent on the shell, with card text and a shelf-rule border. Only Sync with AWS uses it.
-- **Deny (not built yet):** red ink with paper text. It appears only as the final button in a dialog that denies a request or returns an account. Red marks the step that cannot be undone, not the button that opens the dialog.
+- **Deny:** red ink with paper text, and deep red ink on hover. It appears only as the final button in a dialog that denies a request or closes an account: Deny in the deny dialog and Close account in the close dialog. Red marks the step that cannot be undone, not the button that opens the dialog.
 - **Hover / Focus:** a hover changes the fill (pressed violet, selected card, paper tint, deep shelf or deep red ink). The plain button also turns its border to ink. Focus is a 2 px violet ring with a 2 px offset. On the shell the ring is card stock.
 - **Disabled and busy:** a disabled button has a soft-rule fill, pencil-grey text and a dashed control-rule border. A busy button keeps its size, sets `aria-busy`, and changes its word to a verb in progress: Approving, Sending, Denying, Syncing, Withdrawing or Saving. The word and its verb share one grid cell, and the verb has no width, so the button keeps the width of its word. A busy button keeps its colors and is never disabled. The +7d, Close, Edit and Cancel buttons set only `aria-busy` and keep their word.
 - **Sizes:** 30 px with 11 px padding in toolbars and pagers (not built yet). 44 px on the phone. The phone Approve and Deny buttons are 52 px with a 16 px label.
@@ -768,8 +768,10 @@ because the CSP does not allow inline `style` attributes.
 The desk is a card-stock panel. Each request is a slip, separated from the
 next by a dashed card rule. A slip shows a checkbox, the request name in
 14 px bold, its purpose and requester, and the actions. It also shows the
-lifetime and the budget as 16 px facts, and the request version. The
-checkbox comes with bulk decisions and is not built yet.
+lifetime and the budget as 16 px facts, and the request version. Only a
+slip that waits and that the viewer can approve has a checkbox. The box
+sits in the left gutter of the slip, and on a phone it is a 44 px target.
+Its value is the request name and the version that the slip shows.
 
 A slip under the pointer is card hover, and a selected slip is selected
 card. The slip that holds the focus gets a 2 px violet frame. Enter or a
@@ -793,8 +795,11 @@ a focused control.
 The bar holds the page's one `aria-live="polite"` region and the refusal
 slot of the queue. A result that has no slip shows in the refusal slot, as
 one line that names its request. A link to a request that no longer waits
-gets such a line too. With the bulk controls (not built yet) the bar is
-48 px tall. Until then, it takes no room while it shows nothing.
+gets such a line too. When the desk has a checkbox, the bar also holds
+the bulk controls: a select-all checkbox, the count of selected slips,
+Approve selected and Deny selected. The bar is then 48 px tall. The
+select-all box shows a mixed state when only some slips are selected.
+Without the bulk controls, the bar takes no room while it shows nothing.
 
 On the home page of a person who is not an approver, the region sits in
 Your requests, under its heading. Every other page holds it at the top of
@@ -808,7 +813,7 @@ slot, so the region shows the refusal.
 
 ### Tables
 - **Head:** paper tint, 12 px semibold pencil-grey labels, 34 px tall, with panel rules above and below. A sortable head is a button. The sorted column turns ink and shows an arrow for its direction, and the `<th>` sets `aria-sort`. Sortable heads are not built yet.
-- **Rows:** a soft-rule line under each row. Hover is paper tint. A selected row is card stock with its due cell in selected card. A focused row has a 2 px violet frame. A stale or refused row has a 1 px dashed red-ink frame and shows the new values in place. Row selection and both frames are not built yet on table rows. The desk slips have both frames, and slip selection comes with bulk decisions.
+- **Rows:** a soft-rule line under each row. Hover is paper tint. A selected row is card stock with its due cell in selected card. A focused row has a 2 px violet frame. A stale or refused row has a 1 px dashed red-ink frame and shows the new values in place. Row selection and both frames are not built yet on table rows. The desk slips have both frames, and a checked slip is selected.
 - **Date due column (not built yet):** always on card stock with a card-rule line under each cell, in every row state.
 - **Account links:** 14 px semibold ink, underlined in the panel rule color with a 3 px offset, violet on hover.
 - **Mono values:** account IDs and versions in Courier Prime at the size of the text around them.
@@ -816,7 +821,7 @@ slot, so the region shows the refusal.
 ### Feedback
 - **Inline note:** paper with a panel-rule border, 6px corners, a 16 px icon, a semibold first line and a 13.5 px body. A refusal uses a red-ink border and an alert icon and names the recovery. In a slot under a form, in the bulk bar or in a slip, a refusal has only the semibold first line. On an error page and in an unavailable accounts panel, the problem in semibold sits above a body with the recovery. An empty desk uses card stock.
 - **Error page:** a styled page with the title "Action refused" (400), "Not allowed" (403), "Page not found" or "Account not found" (404), or "Sign-in failed". The panel head holds the title, then the status code in pencil grey. Under it, a refusal note names the problem and the recovery, and one primary button leads back. A refused action on a page gets no error page, and its refusal shows on that page.
-- **Dialog (not built yet):** a native `<dialog>` on paper with a 1 px ink border, 8px corners and a maximum width of 640 px. The head and the footer are separated by panel rules, and the footer is paper tint. Only three tasks use it: the deny reason, the bulk approval summary, and the consequences of Return.
+- **Dialog:** a native `<dialog>` on paper with a 1 px ink border, 8px corners and a maximum width of 640 px. On a phone it keeps a 16 px gutter on each side. The head and the footer are separated by panel rules, and the footer is paper tint. The scrim sits behind it. Only three tasks use it: the deny reason, the bulk approval summary, and the consequences of Close. The deny dialog lists the requests that it denies and gives the focus to the required reason field. The summary lists each request with its owner, lifetime, budget and per-owner limit check. The close dialog names the account, its AWS account ID and its owner. In the summary and the close dialog, Cancel takes the focus first, because the safe button is the default. Escape and Cancel close a dialog and decide nothing.
 - **Live update (not built yet):** an 8 px shelf ink dot and "Updated 12 seconds ago" in the footer. `app.js` resets the Updated time after each successful poll, also when nothing changed. The dot hides for one 90 ms step only when new data arrives, with no fade. Under `prefers-reduced-motion` it does not blink. The home page already polls every 15 seconds, and the server answers 204 when nothing changed.
 - **Keycap (not built yet):** 12 px semibold pencil grey on paper, with a panel-rule border that is 2 px at the bottom.
 

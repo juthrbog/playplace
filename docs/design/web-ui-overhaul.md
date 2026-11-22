@@ -49,7 +49,7 @@ phone they approve from the Slack link and check one account.
 
 | Role | First job on the home page |
 |---|---|
-| Engineer | See their accounts, when each is due back, and its spend. Extend, return or request one. |
+| Engineer | See their accounts, when each is due back, and its spend. Extend, close or request one. |
 | Approver | Decide the waiting requests with the exact facts in view. |
 | Admin | See what needs attention in the fleet, then decide requests and fix accounts. |
 
@@ -166,7 +166,7 @@ screen until its phase ships. After that, the real page is the reference.
 - **Home, admin.** A "Needs attention" list beside the approval desk, then
   the fleet sorted by due date. The date-due column sits on card stock.
 - **Home, engineer.** The person's accounts as loan cards, each with its
-  due-date stamp, spend, a link to the AWS access portal, Extend and Return.
+  due-date stamp, spend, a link to the AWS access portal, Extend and Close.
   Then their pending requests and the per-owner limit.
 - **Approval queue.** Bulk selection and a focused row with every deciding
   fact. A deny dialog with a required reason, a bulk approval summary, and
@@ -210,8 +210,7 @@ screen until its phase ships. After that, the real page is the reference.
 - **Confirmation.** Approving two or more requests shows a summary first,
   because each new account counts toward the account limit of the
   organization until 90 days after it closes. Deny always asks for
-  a reason in a native `<dialog>`. Return (close) shows its consequences
-  first. A single Approve on a focused row does not ask again.
+  a reason in a native `<dialog>`. Close shows its consequences first. A single Approve on a focused row does not ask again.
 - **Feedback.** Each action answers next to its control and in one live
   region (`aria-live="polite"`). A refusal names the problem and the
   recovery. A stale request shows its new values in its row. 403 and 404 are
@@ -363,8 +362,9 @@ from the mockups.
   outline.
 - Controls are 34 px tall, 30 px in toolbars and 44 px on the phone. The
   mockups also used 32, 36 and 38 px.
-- Return is a plain button. Only the final button of its confirmation is
-  red. The account mockup drew Return as a red outline button.
+- Close is a plain button. Only the final button of its confirmation is
+  red. The account mockup named it Return and drew it as a red outline
+  button.
 - The AWS access portal link is a primary button on card stock. Two mockups
   drew it in shelf green, which breaks the rule that green belongs to the
   shell.

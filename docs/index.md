@@ -20,8 +20,8 @@ indoor playgrounds we grew up with; this is that idea moved to the cloud.
   from the same page.
 
 - **[I review requests](approving.md)**
-  The queue, the limits, and what Edit, Deny, and Withdraw do. Slack buttons
-  act on the same queue.
+  The queue, decisions on several requests, the limits, and what Edit,
+  Deny, and Withdraw do. Slack buttons act on the same queue.
 
 - **[I run playplace](deploy.md)**
   One process in the management account, an IAM policy, and optional
