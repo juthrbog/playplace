@@ -267,6 +267,9 @@ templ iconSprite() {
 type accountRow struct {
 	Account *core.Account
 	Spend   float64 // month to date
+	// SpendKnown is false when the last cost pull failed or never ran. The
+	// row then shows "unavailable" and no meter, never $0.00.
+	SpendKnown bool
 }
 
 
@@ -928,7 +931,7 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 	<section
 		id="accounts"
 		class="panel"
-		hx-get={ tableURL(pg.ShowAll) }
+		hx-get={ pollURL(pg) }
 		hx-trigger="every 15s, poll-now"
 		hx-swap="morph"
 		aria-labelledby="accounts-title"
@@ -944,10 +947,10 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 			<h2 id="accounts-title" tabindex="-1">
 				{ accountsTitle(pg) }
 				if errMsg == "" {
-					<span class="muted">({ fmt.Sprint(len(rows)) })</span>
+					<span class="muted">({ fmt.Sprint(accountCount(pg, rows)) })</span>
 				}
 			</h2>
-			<label class="check" title="include accounts AWS explicitly reports CLOSED"><input id="show-closed" type="checkbox" name="all" value="1" checked?={ pg.ShowAll } hx-get="/accounts" hx-target="#accounts" hx-swap="morph" hx-trigger="change"/>Show closed</label>
+			<label class="check" title="include accounts AWS explicitly reports CLOSED"><input id="show-closed" type="checkbox" name="all" value="1" checked?={ showClosed(pg) } hx-get="/accounts" hx-target="#accounts" hx-swap="morph" hx-trigger="change"/>Show closed</label>
 		</div>
 		// A failed load is one note: the problem, then the refusal text of
 		// the error and the recovery. An empty list is one plain line, as in
@@ -961,13 +964,11 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 		if errMsg != "" {
 			<div id="accounts-error" class="refusal" data-stale>@icon("alert")<div class="note-text"><p class="note-title">The account list is unavailable.</p><p class="note-body">{ errMsg + " " }<span class="retry-live">The page tries again every 15 seconds.</span><span class="retry-paused">Live updates are paused. Resume them to try again.</span></p></div></div>
 		} else if len(rows) == 0 {
-			<p class="empty">
-				if pg.ShowAll {
-					No accounts.
-				} else {
-					No open accounts.
-				}
-			</p>
+			if pg.onAccounts() && pg.Fleet.filtered() {
+				<p class="empty">{ emptyFleet(pg) + " " }<a href="/accounts">Clear filters</a></p>
+			} else {
+				<p class="empty">{ emptyFleet(pg) }</p>
+			}
 		} else {
 			<div class="scroll">
 				<table class="fleet">
@@ -1019,8 +1020,12 @@ templ accountTR(r accountRow) {
 			}
 		</td>
 		<td>
-			<div class="spend">{ fmt.Sprintf("$%.2f / %s", r.Spend, budgetAmount(r.Account.BudgetUSD)) }</div>
-			if r.Account.BudgetUSD > 0 {
+			if !r.SpendKnown {
+				<div class="spend"><span class="muted">unavailable</span>{ " / " + budgetAmount(r.Account.BudgetUSD) }</div>
+			} else {
+				<div class="spend">{ fmt.Sprintf("$%.2f / %s", r.Spend, budgetAmount(r.Account.BudgetUSD)) }</div>
+			}
+			if r.SpendKnown && r.Account.BudgetUSD > 0 {
 				@meterLine(spendMeter(r.Spend, r.Account.BudgetUSD, meterWidth), fmt.Sprintf("$%.2f of $%.2f", r.Spend, r.Account.BudgetUSD))
 			}
 			@budgetLabel(r.Account.BudgetHealth, r.Account.BudgetError)
