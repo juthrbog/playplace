@@ -695,6 +695,10 @@ when it waits and the viewer can approve it. The `req` value of the box is
 the request name and its version, as the slip shows them. Each slip also
 adds a copy of its shown fields to the desk form. The name of each copy
 ends with the request name, so one post carries the values of many slips.
+The copies start disabled, and a disabled field is not sent. `app.js`
+turns on only the copies of a checked box, so a post carries the copies
+of the checked slips only. A long queue then does not make a small post
+larger than the server reads.
 Approve selected and Deny selected post the desk form to the decide route.
 The select-all box has no name, so the form never sends it.
 
@@ -730,7 +734,11 @@ and sends nothing.
   copies the reason into the hidden `reason` field of the form that posts.
   When the server refuses the reason, its answer has the
   `X-Invalid-Field: reason` header. The dialog then opens again with the
-  text and the refusal.
+  text and the refusal. A poll can change the hidden version of a slip
+  form while the dialog is open. So the dialog of a slip notes the hidden
+  fields of the form when it opens and puts them back before the post.
+  The post then carries the version that the viewer saw, and the server
+  refuses it if the request changed.
 - Approve selected opens the summary when two or more slips are selected.
   Each line shows the owner, the lifetime, the budget and the check of the
   per-owner limit. The box carries these facts in data attributes, as the
@@ -746,6 +754,13 @@ than two requests left does not open again. Its post then decides only
 requests that the summary showed. Withdraw keeps the confirm of htmx,
 because only the three tasks above get a dialog.
 
+A dialog opens only when no other dialog is open. htmx drops a second
+request of the same form while the first one runs, without a word. So a
+dialog does not open while its form has a request that runs. If such a
+request starts while a dialog is open, the confirm does not post. The
+deny dialog opens again with the reason and a note, and the other
+dialogs write the note into the region.
+
 Deny used the htmx prompt before. The prompt sent the reason in the
 `HX-Prompt` header. That path is gone, and the server reads the reason
 only from the `reason` field.
@@ -754,8 +769,12 @@ A dialog closes before its request starts, and the browser gives the
 focus back to the button that opened it. So the focus rules above apply
 as they do to a button without a dialog. After a bulk decision, the focus
 stays on the bulk button while the desk still has a checkbox. When no
-checkbox is left, the bulk controls leave the bar, and the browser moves
-the focus to the page.
+checkbox is left, the bulk controls leave the bar, and the focus goes to
+the name of the first waiting slip, or to the queue heading when no slip
+waits. A poll can also take away the button that opened a dialog, for
+example when someone else decided the request. When the dialog closes,
+the focus goes the same way. On a confirm, the region says why nothing
+was sent.
 
 The server needs management-account credentials, because AWS only allows
 CreateAccount and CloseAccount from there. Run it in the management account

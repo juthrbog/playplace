@@ -59,7 +59,9 @@ selected. The box in that bar selects or clears every slip at once. A
 selected slip stays selected while the page updates. If someone changes the
 request, its box clears, so you never decide values that you did not see.
 If a box clears while a dialog is open, the dialog opens again with the
-new selection when you confirm.
+new selection when you confirm. A summary opens again only if two or more
+requests are still selected. If one is left, it is approved at once,
+because you saw it in the summary. If none are left, nothing is decided.
 
 - **Approve selected** approves the selected requests. If you selected two
   or more, a summary opens first. It lists each request with its owner,
