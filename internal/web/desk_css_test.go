@@ -99,6 +99,11 @@ func TestStampsFollowTheDesign(t *testing.T) {
 		"letter-spacing": "0.09em",
 		"text-transform": "uppercase",
 	})
+	// A due date in the last 3 days is red ink. The large stamp of a loan
+	// card is 22 px with a 2 px border.
+	wantDecls(t, "components", top, ".stamp-soon", map[string]string{"color": "var(--red-ink)"})
+	wantDecls(t, "components", top, ".stamp-large", map[string]string{"padding": "7px 10px 5px", "border-width": "2px", "font-size": "22px"})
+	wantDecls(t, "components", top, ".date-unset", map[string]string{"border": "1px dashed var(--card-rule)", "color": "var(--ink-2)", "font-size": "12px"})
 	wantDecls(t, "components", top, ".stamp-approved", map[string]string{"color": "var(--violet)"})
 	wantDecls(t, "components", top, ".stamp-denied", map[string]string{"color": "var(--ink)"})
 	for sel, turn := range map[string]string{".turn-1": "-1.8deg", ".turn-2": "1.3deg", ".turn-3": "-1deg"} {
@@ -161,7 +166,8 @@ func TestNoShadowOnAnySurface(t *testing.T) {
 }
 
 // The Five Sizes Rule. Text is 19, 17, 16, 14, 13.5 or 12 px. Stamps are
-// marks, so the date stamp is the one rule at 15 px.
+// marks, so the date stamp is the one rule at 15 px, and the large stamp of
+// a loan card the one rule at 22 px.
 func TestTextKeepsTheFiveSizes(t *testing.T) {
 	sizes := map[string]bool{"19px": true, "17px": true, "16px": true, "14px": true, "13.5px": true, "12px": true, "inherit": true}
 	found := 0
@@ -172,7 +178,7 @@ func TestTextKeepsTheFiveSizes(t *testing.T) {
 		}
 		found++
 		sel := strings.Join(r.sels, ", ")
-		if size == "15px" && sel == ".stamp" {
+		if (size == "15px" && sel == ".stamp") || (size == "22px" && sel == ".stamp-large") {
 			continue
 		}
 		if !sizes[size] {

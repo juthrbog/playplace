@@ -261,10 +261,14 @@ func TestBulkButtonsCarryTheServerCaps(t *testing.T) {
 		if capAttr[1] != strconv.Itoa(tc.cap) || !strings.Contains(body, "<span>"+html.UnescapeString(note[1])+"</span>") {
 			t.Errorf("the %s button carries %s and %q, but the server refuses with:\n%s", tc.action, capAttr[1], note[1], body)
 		}
-		for _, want := range []string{`form="desk-form"`, `hx-post="/requests/decide?action=` + tc.action + `"`, `type="button"`, `hx-target="#pending"`, `hx-include="#show-closed"`} {
+		for _, want := range []string{`form="desk-form"`, `hx-post="/requests/decide?action=` + tc.action + `"`, `type="button"`, `hx-target="#pending"`} {
 			if !strings.Contains(button, want) {
 				t.Errorf("the %s button lacks %s: %s", tc.action, want, button)
 			}
+		}
+		// The home page has no view of its own, so a decision sends none.
+		if strings.Contains(button, "hx-include") {
+			t.Errorf("the %s button includes a view: %s", tc.action, button)
 		}
 	}
 }

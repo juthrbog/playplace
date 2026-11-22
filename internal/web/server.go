@@ -207,17 +207,23 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 
 // page carries what every template needs about the request.
 type page struct {
-	Viewer  Viewer
-	SignIn  bool // whether sign-in is enforced (shows the sign-out control)
-	ShowAll bool // Show closed on the home page
+	Viewer Viewer
+	SignIn bool // whether sign-in is enforced (shows the sign-out control)
 	// Fleet is the search, filters, sort and page of the accounts page.
 	// pageFor reads it only for that page. rows sets its Page to the page it
-	// shows, and Total to the number of accounts that pass the filters.
-	Fleet   fleetView
-	Total   int
-	Pending []core.Request // requests the viewer may see: their own, or all for approvers
-	Limits  core.Config    // ceilings and defaults shown in the form
-	Path    string         // the request path, so the shell can mark the current page
+	// shows, and Total to the number of accounts that pass the filters. On
+	// the home page Total counts the open accounts that the page lists
+	// before the cut to homeFleetSize, and AllTotal counts what the
+	// accounts page lists by default, which adds the pending requests.
+	Fleet    fleetView
+	Total    int
+	AllTotal int
+	Pending  []core.Request // requests the viewer may see: their own, or all for approvers
+	Limits   core.Config    // ceilings and defaults shown in the form
+	Path     string         // the request path, so the shell can mark the current page
+	// Now is the service clock when the page was built. Time left on the
+	// page counts from it, not from the wall clock.
+	Now time.Time
 	// SignedOut marks a page for nobody, such as a failed sign-in. The shell
 	// then shows only the brand.
 	SignedOut bool
@@ -256,6 +262,13 @@ type page struct {
 	// pathAccounts or "/". The poll and the action answers show only
 	// what that page holds, and the poll hash covers exactly that.
 	Asker string
+	// Ledger is the Needs attention ledger of the admin home. rows fills
+	// it from every account the admin can see, closed ones too.
+	Ledger []ledgerRow
+	// Landed is the ID of the account that the viewer just extended. Its
+	// due stamp lands. The poll hash leaves it out, so the next poll still
+	// gets 204.
+	Landed string
 }
 
 // pathAccounts is the path of the accounts page.
@@ -297,12 +310,10 @@ func regionInCard(pg page) page {
 }
 
 func (s *Server) pageFor(r *http.Request) page {
-	// "all" arrives as a query parameter on GET and, thanks to hx-include on
-	// the switch, in the body of every action, so the view survives actions.
-	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), ShowAll: r.FormValue("all") == "1", Limits: s.svc.Config(), Path: r.URL.Path, Asker: askingPage(r), InSlack: s.slack != nil || s.noticesInSlack}
-	// The fleet view of the accounts page comes the same way: in the query
-	// of a GET and in the body of an action. The home page keeps its plain
-	// list.
+	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), Limits: s.svc.Config(), Path: r.URL.Path, Asker: askingPage(r), InSlack: s.slack != nil || s.noticesInSlack, Now: s.svc.Now()}
+	// The fleet view of the accounts page comes in the query of a GET and,
+	// thanks to hx-include, in the body of an action, so the view survives
+	// actions. The home page has no view of its own.
 	if pg.onAccounts() {
 		pg.Fleet = parseFleetView(r.FormValue, pg.Viewer)
 	}
@@ -322,16 +333,15 @@ func (s *Server) pageFor(r *http.Request) page {
 	slices.SortStableFunc(pg.Pending, func(a, b core.Request) int {
 		return cmp.Or(a.RequestedAt.Compare(b.RequestedAt), strings.Compare(a.Name, b.Name))
 	})
-	// The opened slip says how the owner stands against the per-owner
-	// limit. The list comes from the same cached inventory as the queue.
-	if pg.Viewer.Approver {
-		accounts, err := s.svc.List(r.Context(), core.ListFilter{})
-		if err != nil {
-			s.log.Warn("accounts for the per-owner limit", "path", r.URL.Path, "err", err)
-			pg.HoldsFailed = true
-		} else {
-			pg.Holds = ownerHolds(accounts)
-		}
+	// The opened slip of an approver says how the owner stands against the
+	// per-owner limit, and Your requests says how the viewer stands. The
+	// list comes from the same cached inventory as the queue.
+	accounts, err := s.svc.List(r.Context(), core.ListFilter{})
+	if err != nil {
+		s.log.Warn("accounts for the per-owner limit", "path", r.URL.Path, "err", err)
+		pg.HoldsFailed = true
+	} else {
+		pg.Holds = ownerHolds(accounts)
 	}
 	return pg
 }
@@ -366,11 +376,12 @@ func canSee(v Viewer, a *core.Account) bool {
 // may see, before any filter, so spend filters and the spend sort are right.
 // Spend is known only when the last pull succeeded, as in the CLI. An
 // account with no AWS account ID has no spend yet, which is known to be
-// zero. The home page lists every account, newest first. The accounts page
-// filters, sorts and cuts the list to the page of pg.Fleet, and sets
-// pg.Fleet.Page and pg.Total.
+// zero. The accounts page filters, sorts and cuts the list to the page of
+// pg.Fleet, and sets pg.Fleet.Page and pg.Total. The home page lists the
+// open accounts by due date (homeRows) and sets pg.Total. For an admin it
+// also fills pg.Ledger from every account, closed ones too.
 func (s *Server) rows(ctx context.Context, pg *page, force bool) ([]accountRow, error) {
-	includeClosed := pg.ShowAll
+	includeClosed := pg.Viewer.Admin
 	if pg.onAccounts() {
 		includeClosed = pg.Fleet.Status == fleetStatusAny || pg.Fleet.Status == string(core.StatusClosed)
 	}
@@ -385,7 +396,9 @@ func (s *Server) rows(ctx context.Context, pg *page, force bool) ([]accountRow, 
 			continue
 		}
 		mine = append(mine, a)
-		if a.ProviderID != "" {
+		// The home page shows no spend of a closed account, and a closed
+		// account is never over budget, so its costs stay cold there.
+		if a.ProviderID != "" && (pg.onAccounts() || a.Status != core.StatusClosed) {
 			ids = append(ids, a.ID)
 		}
 	}
@@ -395,7 +408,7 @@ func (s *Server) rows(ctx context.Context, pg *page, force bool) ([]accountRow, 
 	now := s.svc.Now()
 	rows := make([]accountRow, 0, len(mine))
 	for _, a := range mine {
-		r := accountRow{Account: a, SpendKnown: a.ProviderID == ""}
+		r := accountRow{Account: a, SpendKnown: a.ProviderID == "", Now: now}
 		if a.ProviderID != "" {
 			if pts, ok := s.svc.CostState(a.ProviderID, 31); ok {
 				r.Spend, r.SpendKnown = core.MonthToDate(pts, now), true
@@ -408,12 +421,12 @@ func (s *Server) rows(ctx context.Context, pg *page, force bool) ([]accountRow, 
 		shown, pg.Total, pg.Fleet.Page = pg.Fleet.apply(rows, pg.Viewer, now)
 		return shown, nil
 	}
-	// Core sorts accounts by creation time alone, over a listing in map
-	// order. The id breaks ties, so two reads of the same fleet hash the same.
-	slices.SortStableFunc(rows, func(a, b accountRow) int {
-		return cmp.Or(b.Account.CreatedAt.Compare(a.Account.CreatedAt), strings.Compare(a.Account.ID, b.Account.ID))
-	})
-	return rows, nil
+	if pg.Viewer.Admin {
+		pg.Ledger = buildLedger(rows, now)
+	}
+	var shown []accountRow
+	shown, pg.Total, pg.AllTotal = homeRows(rows, pg.Viewer, now)
+	return shown, nil
 }
 
 // pendingAndTable re-renders the table and the pending section for htmx
@@ -424,6 +437,12 @@ func (s *Server) rows(ctx context.Context, pg *page, force bool) ([]accountRow, 
 func (s *Server) pendingAndTable(w http.ResponseWriter, r *http.Request, fromCard bool, open, result string) {
 	pg := s.pageFor(r)
 	pg.Open = open
+	s.answer(w, r, pg, fromCard, result)
+}
+
+// answer is pendingAndTable for a page that the caller built, such as the
+// page of an extension, whose due stamp lands.
+func (s *Server) answer(w http.ResponseWriter, r *http.Request, pg page, fromCard bool, result string) {
 	rows, err := s.rows(r.Context(), &pg, false)
 	if err != nil {
 		s.fail(w, r, err)
@@ -452,7 +471,7 @@ func (s *Server) pollHash(ctx context.Context, pg page, rows []accountRow, errMs
 	// after a decision answers 200 and redraws the queue without them. The
 	// bar line of a missing request belongs to the page visit, so the hash
 	// leaves it out too.
-	pg.Open, pg.Missing = "", ""
+	pg.Open, pg.Missing, pg.Landed = "", "", ""
 	if errMsg != "" {
 		errMsg = "unavailable"
 	}
@@ -715,8 +734,8 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 }
 
 // table is the accounts page for a page visit. For htmx it answers the 15 s
-// poll and the Show closed box with the accounts section, and on the home
-// page the queue panel too. A poll that sends the hash of the current answer
+// poll and the fleet view with the accounts section, and on the home page
+// the queue panel and the ledger of an admin too. A poll that sends the hash of the current answer
 // gets 204 and no body. A failed list is a panel that says so, with the text
 // of refusal. Its hash leaves out that text, so the same outage answers 204,
 // and the next good poll clears it.
@@ -762,7 +781,6 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 		s.forbid(w, r, "only admins can sync with AWS")
 		return
 	}
-	// the sync form has no fields of its own, so the switch is the only value
 	sum, err := s.svc.Refresh(r.Context())
 	if err != nil {
 		s.failSync(w, r, err)
@@ -867,7 +885,9 @@ func (s *Server) extend(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.pendingAndTable(w, r, false, "", "Extended "+a.Name+" to "+extended.ExpiresAt.UTC().Format("Jan 2 15:04 MST")+".")
+	pg := s.pageFor(r)
+	pg.Landed = a.ID
+	s.answer(w, r, pg, false, "Extended "+a.Name+" to "+extended.ExpiresAt.UTC().Format("Jan 2 15:04 MST")+".")
 }
 
 func (s *Server) close(w http.ResponseWriter, r *http.Request) {
@@ -901,7 +921,7 @@ func (s *Server) forbid(w http.ResponseWriter, r *http.Request, why string) {
 		w.Header().Set("X-Form-Error", "1")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusForbidden)
-		slot := "form-error"
+		slot := refusalSlot(r)
 		if strings.HasPrefix(r.URL.Path, "/requests/") {
 			slot = "pending-error"
 		}
@@ -930,11 +950,33 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		// the form not to reset its fields.
 		w.Header().Set("HX-Reswap", "none")
 		w.Header().Set("X-Form-Error", "1")
-		markField(w, err, "form-error")
-		s.render(w, r, errorFragment("form-error", text))
+		slot := refusalSlot(r)
+		markField(w, err, slot)
+		s.render(w, r, errorFragment(slot, text))
 		return
 	}
 	s.errorPage(w, r, errorView{Code: http.StatusBadRequest, Title: "Action refused", Message: text, Recovery: "Go back to Home and try again.", Back: "/", BackLabel: "Go to Home"})
+}
+
+// refusalSlot is the id of the slot that shows the refusal of an htmx
+// request. Off the home page it is the slot under a form or under the page
+// heading. On the home page the New request panel comes last, so only New
+// request itself fills the slot under its form. An action on a request
+// fills the slot of the request panel, and every other refusal, such as
+// +7d, Close or Sync, fills the slot above the accounts.
+func refusalSlot(r *http.Request) string {
+	u, err := url.Parse(r.Header.Get("HX-Current-URL"))
+	if err != nil || u.Path != "/" {
+		return "form-error"
+	}
+	switch path := r.URL.Path; {
+	case path == "/requests":
+		return "form-error"
+	case strings.HasPrefix(path, "/requests/"):
+		return "pending-error"
+	default:
+		return "account-error"
+	}
 }
 
 // The headers of a refused field. app.js marks the input with aria-invalid

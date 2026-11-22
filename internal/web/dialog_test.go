@@ -472,7 +472,7 @@ func TestFocusNeverFallsToThePageAfterADialog(t *testing.T) {
 	holdsEach(t, "the submit listener", submit[0],
 		"if (!document.body.contains(ask.elt)) {",
 		`var row = ask.row ? document.getElementById(ask.row) : null;`,
-		`var here = controlIn(row, close ? "td a" : "button.slip-name, .slip-title[tabindex]");`,
+		`var here = controlIn(row, close ? "td a, .loan-name a" : "button.slip-name, .slip-title[tabindex]");`,
 		`var target = here || (close ? document.getElementById("accounts-title") : firstWaiting());`,
 		"say(close ? closeGone(ask.names[0])",
 		`: ask.elt.hasAttribute("data-bulk") ? noneLeft`,

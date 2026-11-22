@@ -8,7 +8,8 @@ that.
 
 ## Ask for an account
 
-Fill in the form at the top of the page.
+Fill in the *New request* form. It is the last panel on the home page. The
+**New request** button in the top bar takes you to it.
 
 | field | what to enter |
 |---|---|
@@ -18,13 +19,17 @@ Fill in the form at the top of the page.
 | purpose | one line on what you will try |
 
 Press **Request**. Your request appears under *Your requests* with a
-**Withdraw** button in case you change your mind. Approvers are told through
-whatever channel your organization connected, such as a Slack channel.
+**Withdraw** button in case you change your mind. If you are an approver,
+your request appears in the *Approval queue* instead, and you have no
+*Your requests* panel. Approvers are told through whatever channel your
+organization connected, such as a Slack channel.
 
 You can hold one account or pending request at a time by default. If you
 already have one, close it or wait for it to expire before asking for another.
-An account counts until AWS confirms its closure. While the table shows it as
-*closing* or *unavailable*, it still counts.
+If you are not an approver, a line under the *Your requests* heading says
+where you stand, for example "You have 1 of 1 open accounts and requests
+allowed." An account counts until AWS confirms its closure. While its card
+shows it as *closing* or *unavailable*, it still counts.
 
 ## After approval
 
@@ -39,13 +44,14 @@ notices, check the web UI or ask an operator. See
 
 The *approved* or *denied* notice gives the outcome, with the reason if it
 was denied. The request then leaves *Your requests*. Once approved,
-AWS creates the account. In the table it shows as *creating*, then *active*,
-with the account id. After an hour as *creating*, the row also shows a note
+AWS creates the account, and it gets a loan card on the home page. The card
+shows *creating*, then *active*, with the AWS account ID. After an hour as
+*creating*, the card also shows a note
 that the account waits outside the Playground OU for the next reconcile.
 Until then it has no budget or guardrails. If the note is still there after a
 day, tell an operator.
 
-If AWS cannot create the account, the row shows as *failed* for 7 days, and
+If AWS cannot create the account, the card shows *failed* for 7 days, and
 playplace sends a *creation failed* notice. No account exists. The notice
 gives the reason from AWS and the next step. Some reasons need a new request
 with another name. Others need an admin first, for example when the
@@ -55,16 +61,30 @@ The account is in your AWS access portal under the playground permission
 set. Sign in there to reach the console or to get CLI credentials.
 
 An *active* account can still be getting ready. When budget protection is
-on, the budget column shows `setup-pending` until a later refresh sees the
+on, the budget line of the card shows `setup-pending` until a later refresh sees the
 protection in AWS. This usually takes a few minutes. The *ready* notice says
 when you can sign in.
 
 ## While you have it
 
-- **Extend.** Press **+7d** on the row to add a week. An account cannot live
+The home page shows each account you have as a loan card, the soonest due
+first. A card shows the name, the AWS account ID, the status, the due date,
+the spend and the buttons you can use. The due date is a stamp such as
+"NOV 29 2026", in UTC. Point at the stamp to see the exact time. In the last
+3 days the stamp turns red. After the due date passes, it stays red and says
+"past due". If you have no account, the page says "You have no open
+accounts." with a link to the form. The link **All your accounts** under the
+cards opens the accounts page. There the Status filter also finds your closed
+accounts. See
+[Finding accounts](finding-accounts.md).
+
+- **Extend.** Press **+7d** on the card to add a week. The card then shows
+  the earlier date struck through above the new stamp, for example
+  "extended from NOV 20". An account cannot live
   longer than the lifetime limit counted from its creation; past that, ask
   an admin. Three days before expiry, playplace sends an *expiring* notice.
-- **Watch spend.** The table shows month-to-date spend against your budget.
+- **Watch spend.** The card shows month-to-date spend against your budget,
+  with a bar under it.
   Cost Explorer lags about a day. If the spend shows "unavailable",
   playplace could not get it yet. See
   [Finding accounts](finding-accounts.md#spend-shows-unavailable). If your organization set an alert address,

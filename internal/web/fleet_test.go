@@ -397,19 +397,17 @@ func TestAccountsPageFleetView(t *testing.T) {
 	}
 }
 
-// The home page keeps its order, newest first, whatever the address says.
-func TestHomeKeepsNewestFirst(t *testing.T) {
+// The home page lists the open accounts by due date, the soonest first,
+// whatever the address says. The accounts page does too by default.
+func TestHomeSortsByDueDate(t *testing.T) {
 	ts, prov := newServer(t)
 	prov.Seed(core.RemoteAccount{ProviderID: "333333333333", Name: "new-box", Email: "n@example.com", JoinedAt: t0.Add(time.Hour),
 		Tags: map[string]string{core.TagManaged: "true", core.TagOwner: "anna@example.com", core.TagExpires: t0.Add(900 * time.Hour).Format(time.RFC3339), core.TagBudget: "50"}})
-	_, body := do(t, ts, "GET", "/?sort=name", "ops@example.com", true, nil, false)
-	if i, j := strings.Index(body, "new-box"), strings.Index(body, "annas-box"); i < 0 || j < 0 || i > j {
-		t.Errorf("home does not list the newest account first:\n%s", body)
-	}
-	// The accounts page sorts by due date, soonest first.
-	_, body = do(t, ts, "GET", "/accounts", "ops@example.com", true, nil, false)
-	if i, j := strings.Index(body, "new-box"), strings.Index(body, "annas-box"); i < 0 || j < 0 || i < j {
-		t.Errorf("the accounts page does not sort by due date:\n%s", body)
+	for _, path := range []string{"/?sort=name&dir=desc", "/accounts"} {
+		_, body := do(t, ts, "GET", path, "ops@example.com", true, nil, false)
+		if i, j := strings.Index(body, ">new-box<"), strings.Index(body, ">annas-box<"); i < 0 || j < 0 || i < j {
+			t.Errorf("%s does not list the soonest due date first:\n%s", path, body)
+		}
 	}
 }
 

@@ -3,11 +3,24 @@
 The accounts page at `/accounts` lists accounts with a search, filters, a
 sort and pages. Admins see every account. Everyone else sees only the
 accounts they own. Admins open the page from the Accounts link in the top
-bar, or from the link "Search and filter all accounts" on the home page.
-Anyone else can type `/accounts` after the address of playplace.
+bar, or from the link such as "All 112 accounts" under the table on the home
+page. Anyone else opens it from the link **All your accounts** under their
+loan cards, or types `/accounts` after the address of playplace.
 
-The home page keeps its plain list, newest first, with the **Show closed**
-box.
+The home page is shorter:
+
+- Admins see the *Needs attention* list beside the approval queue. Below them, a table shows the first 50 open accounts, the soonest due first, with no search, filters or sort. The link under the table, such as "All 112 accounts", gives the count on the accounts page. That count includes the pending requests, which the home table leaves out.
+- Everyone else sees their open accounts as loan cards. See [Requesting an account](requesting.md#while-you-have-it).
+- The home page shows no closed accounts and has no **Show closed** box. Use the Status filter on the accounts page to find closed accounts.
+
+## Needs attention on the home page
+
+Only admins get this list. It has one row for each reason that a person
+must act, such as "2 budgets restricted" or "6 expiring soon". Under the
+count, the row names up to three accounts. Press a row to open the accounts
+page with the matching "Needs attention" filter. If the list is empty, it
+says "Nothing needs attention." If playplace cannot load the accounts,
+the list says so. It does not say that nothing needs attention.
 
 ## Search
 
@@ -23,8 +36,8 @@ in the search field at that moment.
 
 - **Status.** "Open" is the default. It shows every account except closed
   ones. Pick one status, such as *active* or *closing*, or pick "Any status"
-  to include closed accounts too. On this page the Status filter does the
-  job of **Show closed**.
+  to include closed accounts too. The Status filter replaces the old
+  **Show closed** box.
 - **Budget health.** Shows only accounts whose budget protection is in one
   state, such as *restricted* or *error*. "Not checked" shows accounts whose
   budget protection playplace did not check yet.
@@ -43,7 +56,7 @@ to the plain list.
 
 Press a column head to sort by that column. Press it again to sort in the
 other direction. The sorted head shows an arrow. By default the list sorts
-by the Expires column, soonest first. An account with no expiry, such as a
+by the Due column, soonest first. An account with no due date, such as a
 closed or failed one, sorts last. An account whose spend is unavailable
 sorts last when you sort by spend.
 
@@ -69,6 +82,16 @@ in again. The live updates every 15 seconds keep the view too.
 A very long address is the one exception. This can happen with a long search
 in a script such as Chinese, or with emoji. Then you come back to the
 accounts page after you sign in, but with the default view.
+
+## The Due column
+
+The Due column shows each due date as a stamp, such as "NOV 29 2026", in
+UTC. Point at the stamp to see the exact time. In the last 3 days the stamp
+is red. After the due date passes, it stays red and says "past due". After
+an extension, the earlier date shows struck through above the stamp. A
+pending request says "Stamped at approval". An account that AWS still
+creates without an approved request says "Set when it is ready". A damaged
+expiry says "unknown", and a closed or failed account shows a dash.
 
 ## Spend shows "unavailable"
 

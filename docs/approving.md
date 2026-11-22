@@ -4,8 +4,14 @@ Approvers are named when playplace is set up. Admins are approvers too.
 
 ## The queue
 
-Sign in to the web UI. The *Approval queue* lists every request that waits,
-oldest first. A slip shows the name, the purpose, who asked and for whom,
+Sign in to the web UI. The *Approval queue* is the first panel on your home
+page. Below it, your own accounts show as loan cards, and the *New request*
+form comes last. See [Requesting an account](requesting.md#while-you-have-it).
+Your own requests stay in the queue. Unless self-approval is allowed, they
+show the "Your request" chip in place of Approve and Deny, because another
+approver must decide them.
+
+The queue lists every request that waits, oldest first. A slip shows the name, the purpose, who asked and for whom,
 the exact lifetime and budget, and the request version. Click the name, or
 press Enter on it, to open the slip. The open slip shows every fact that
 decides it: when it arrived, the ceilings, the per-owner limit, the whole
@@ -134,6 +140,10 @@ reply. Open playplace to see the current request.
 ## Admin extras
 
 Admins see every account, not only their own, and can act on all of them.
+On the home page of an admin, the *Needs attention* list sits beside the
+queue. Below them, a table shows the first 50 open accounts, the soonest due
+first, with a link to all of them. Admins get no loan cards. See
+[Finding accounts](finding-accounts.md#needs-attention-on-the-home-page).
 They can request an account for someone else by filling in the owner field,
 and they can run **Sync with AWS**, which finishes creations that have
 landed, sends *expiring* notices, closes expired accounts, and retries

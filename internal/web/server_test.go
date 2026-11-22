@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -143,45 +142,42 @@ func TestEngineerSeesOnlyOwnAccounts(t *testing.T) {
 }
 
 // With no rows the accounts panel shows one plain line and no table, as the
-// pending card does. The section still polls its own view, and Show closed
-// stays in the head with its state, so the viewer can still ask for closed
-// accounts.
+// pending card does. On the home page that line points a person with no
+// open account to New request. The section still polls. The home page has
+// no Show closed, and all=1 changes nothing there.
 func TestEmptyAccountsPanelHasNoTable(t *testing.T) {
 	ts, _ := newServer(t)
-	checked := regexp.MustCompile(`<input id="show-closed"[^>]*\schecked[\s>/]`)
 	for _, tc := range []struct {
-		path, line, poll string
-		all              bool
+		path  string
+		htmx  bool
+		line  string
+		count string
 	}{
-		{"/", `<p class="empty">No open accounts.</p>`, `hx-get="/accounts"`, false},
-		{"/accounts", `<p class="empty">No open accounts.</p>`, `hx-get="/accounts"`, false},
-		{"/accounts?all=1", `<p class="empty">No accounts.</p>`, `hx-get="/accounts?all=1"`, true},
+		{"/", false, `<p class="empty">You have no open accounts. <a href="#request">New request</a></p>`, "(0)"},
+		{"/?all=1", false, `<p class="empty">You have no open accounts. <a href="#request">New request</a></p>`, "(0)"},
+		{"/accounts", true, `<p class="empty">You have no open accounts. <a href="#request">New request</a></p>`, "(0)"},
+		{"/accounts?all=1", true, `<p class="empty">You have no open accounts. <a href="#request">New request</a></p>`, "(0)"},
 	} {
-		_, body := do(t, ts, "GET", tc.path, "nobody@example.com", false, nil, tc.path != "/")
+		_, body := do(t, ts, "GET", tc.path, "nobody@example.com", false, nil, tc.htmx)
 		_, section, ok := strings.Cut(body, `<section id="accounts"`)
 		if !ok {
 			t.Fatalf("%s: no accounts section:\n%s", tc.path, body)
 		}
 		section, _, _ = strings.Cut(section, "</section>")
-		if !strings.Contains(section, tc.line) {
-			t.Errorf("%s: missing %s:\n%s", tc.path, tc.line, section)
+		if !strings.Contains(section, tc.line) || !strings.Contains(section, tc.count) {
+			t.Errorf("%s: missing %s or %s:\n%s", tc.path, tc.line, tc.count, section)
 		}
-		if strings.Contains(section, "<table") || strings.Contains(section, "<th") {
-			t.Errorf("%s: an empty panel has a table:\n%s", tc.path, section)
+		if strings.Contains(section, "<table") || strings.Contains(section, "<th") || strings.Contains(section, `class="loans"`) {
+			t.Errorf("%s: an empty panel has a table or cards:\n%s", tc.path, section)
 		}
-		// The Show closed box has its own hx-get, so the poll check reads
-		// the section tag alone.
 		tag, _, _ := strings.Cut(section, ">")
-		for _, want := range []string{tc.poll, `hx-trigger="every 15s, poll-now"`} {
+		for _, want := range []string{`hx-get="/accounts"`, `hx-trigger="every 15s, poll-now"`} {
 			if !strings.Contains(tag, want) {
 				t.Errorf("%s: the section tag lacks %s: <section id=\"accounts\"%s>", tc.path, want, tag)
 			}
 		}
-		if !strings.Contains(section, `id="show-closed"`) {
-			t.Errorf("%s: the head lacks Show closed:\n%s", tc.path, section)
-		}
-		if got := checked.MatchString(section); got != tc.all {
-			t.Errorf("%s: Show closed checked = %v, want %v:\n%s", tc.path, got, tc.all, section)
+		if strings.Contains(body, `id="show-closed"`) || strings.Contains(body, "all=1") {
+			t.Errorf("%s: the home page has Show closed:\n%s", tc.path, body)
 		}
 	}
 }
@@ -189,46 +185,64 @@ func TestEmptyAccountsPanelHasNoTable(t *testing.T) {
 // A failed load is not an empty fleet. The panel has its own note: the
 // problem as the title, then the refusal text of the error and the recovery.
 // It shows no count. The section still polls, so the next good poll fills it
-// and clears the note.
+// and clears the note. The ledger of an admin says that it cannot know what
+// needs attention, not that nothing does.
 func TestFailedAccountLoadIsNotAnEmptyFleet(t *testing.T) {
-	pg := page{Viewer: Viewer{Email: "nobody@example.com"}, SignIn: true, Limits: core.DefaultConfig()}
-	render := func(errMsg string) (string, string) {
-		t.Helper()
-		var out strings.Builder
-		if err := indexPage(pg, nil, errMsg, "").Render(context.Background(), &out); err != nil {
-			t.Fatal(err)
+	for _, tc := range []struct {
+		name  string
+		v     Viewer
+		empty string
+	}{
+		{"engineer", Viewer{Email: "nobody@example.com"}, "You have no open accounts."},
+		{"admin", Viewer{Email: "ops@example.com", Admin: true, Approver: true}, "No open accounts."},
+	} {
+		pg := page{Viewer: tc.v, SignIn: true, Limits: core.DefaultConfig()}
+		render := func(errMsg string) (string, string) {
+			t.Helper()
+			var out strings.Builder
+			if err := indexPage(pg, nil, errMsg, "").Render(context.Background(), &out); err != nil {
+				t.Fatal(err)
+			}
+			_, section, ok := strings.Cut(out.String(), `<section id="accounts"`)
+			if !ok {
+				t.Fatalf("no accounts section:\n%s", out.String())
+			}
+			section, _, _ = strings.Cut(section, "</section>")
+			return out.String(), section
 		}
-		_, section, ok := strings.Cut(out.String(), `<section id="accounts"`)
-		if !ok {
-			t.Fatalf("no accounts section:\n%s", out.String())
-		}
-		section, _, _ = strings.Cut(section, "</section>")
-		return out.String(), section
-	}
 
-	_, section := render(listFailure(&core.ProviderError{Op: "list playground accounts", Err: errors.New("AccessDenied")}))
-	want := `<div id="accounts-error" class="refusal" data-stale>` + alertIcon + `<div class="note-text"><p class="note-title">The account list is unavailable.</p>` +
-		`<p class="note-body">` + listFailed + ` ` + retryNote + `</p></div></div>`
-	if !strings.Contains(section, want) {
-		t.Errorf("the panel does not name the problem, the error and the recovery in its own note:\n%s", section)
-	}
-	if strings.Contains(section, `<p class="empty">`) {
-		t.Errorf("the failed panel repeats the problem outside its note:\n%s", section)
-	}
-	for _, bad := range []string{"(0)", "No open accounts.", "No accounts.", "<table"} {
-		if strings.Contains(section, bad) {
-			t.Errorf("a failed load shows %q, which reads as an empty fleet:\n%s", bad, section)
+		body, section := render(listFailure(&core.ProviderError{Op: "list playground accounts", Err: errors.New("AccessDenied")}))
+		want := `<div id="accounts-error" class="refusal" data-stale>` + alertIcon + `<div class="note-text"><p class="note-title">The account list is unavailable.</p>` +
+			`<p class="note-body">` + listFailed + ` ` + retryNote + `</p></div></div>`
+		if !strings.Contains(section, want) {
+			t.Errorf("%s: the panel does not name the problem, the error and the recovery in its own note:\n%s", tc.name, section)
 		}
-	}
-	tag, _, _ := strings.Cut(section, ">")
-	if !strings.Contains(tag, `hx-get="/accounts"`) || !strings.Contains(tag, `hx-trigger="every 15s, poll-now"`) {
-		t.Errorf("the section stops polling after a failed load: <section id=\"accounts\"%s>", tag)
-	}
+		if strings.Contains(section, `<p class="empty">`) {
+			t.Errorf("%s: the failed panel repeats the problem outside its note:\n%s", tc.name, section)
+		}
+		for _, bad := range []string{"(0)", "No open accounts.", "No accounts.", "<table", "You have no open accounts."} {
+			if strings.Contains(section, bad) {
+				t.Errorf("%s: a failed load shows %q, which reads as an empty fleet:\n%s", tc.name, bad, section)
+			}
+		}
+		tag, _, _ := strings.Cut(section, ">")
+		if !strings.Contains(tag, `hx-get="/accounts"`) || !strings.Contains(tag, `hx-trigger="every 15s, poll-now"`) {
+			t.Errorf("%s: the section stops polling after a failed load: <section id=\"accounts\"%s>", tc.name, tag)
+		}
+		if tc.v.Admin {
+			if !strings.Contains(body, `<p id="attention-failed" class="ledger-note">`) || strings.Contains(body, "Nothing needs attention.") {
+				t.Errorf("%s: the ledger reads a failed load as a calm fleet:\n%s", tc.name, body)
+			}
+		}
 
-	// A good load with no accounts keeps the count and the empty line.
-	_, section = render("")
-	if !strings.Contains(section, `<span class="muted">(0)</span>`) || !strings.Contains(section, "No open accounts.") || strings.Contains(section, "unavailable") {
-		t.Errorf("an empty fleet lost its count or its line:\n%s", section)
+		// A good load with no accounts keeps the count and the empty line.
+		body, section = render("")
+		if !strings.Contains(section, `<span class="muted">(0)</span>`) || !strings.Contains(section, tc.empty) || strings.Contains(section, "unavailable") {
+			t.Errorf("%s: an empty fleet lost its count or its line:\n%s", tc.name, section)
+		}
+		if tc.v.Admin && !strings.Contains(body, `<p class="empty">Nothing needs attention.</p>`) {
+			t.Errorf("%s: an empty ledger does not say that nothing needs attention:\n%s", tc.name, body)
+		}
 	}
 }
 
@@ -666,35 +680,29 @@ func TestAccountPagePullsSpendThatIsNotKnown(t *testing.T) {
 	}
 }
 
-func TestShowClosedSwitchInsteadOfHeaderLink(t *testing.T) {
+// The home page lists open accounts only, and has no Show closed. all=1 in
+// the address or in an action changes nothing there. The accounts page has
+// the Status filter for closed accounts.
+func TestHomeHasNoShowClosed(t *testing.T) {
 	ts, prov := newServer(t)
 	prov.Seed(core.RemoteAccount{ProviderID: "333333333333", Name: "gone-box", Status: "CLOSED", JoinedAt: t0,
 		Tags: map[string]string{core.TagManaged: "true", core.TagOwner: "anna@example.com", core.TagExpires: t0.Format(time.RFC3339), core.TagBudget: "50"}})
-	_, body := do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
-	if strings.Contains(body, `href="/?all=1"`) {
-		t.Fatal("header link should be gone")
+	for _, path := range []string{"/", "/?all=1"} {
+		_, body := do(t, ts, "GET", path, "ops@example.com", true, nil, false)
+		if strings.Contains(body, `id="show-closed"`) || strings.Contains(body, "gone-box") || strings.Contains(body, "all=1") {
+			t.Errorf("%s: the home page shows Show closed or a closed account:\n%s", path, body)
+		}
+		if strings.Contains(body, "hx-include") {
+			t.Errorf("%s: a home form includes a view:\n%s", path, body)
+		}
 	}
-	if !strings.Contains(body, `id="show-closed"`) || strings.Contains(body, `id="show-closed" type="checkbox" name="all" value="1" checked`) {
-		t.Fatalf("switch should be present and off by default:\n%s", body)
+	_, body := do(t, ts, "POST", "/accounts/111111111111/extend", "ops@example.com", true, url.Values{"all": {"1"}, "by": {"1"}}, true)
+	if strings.Contains(body, "gone-box") || !strings.Contains(body, "annas-box") {
+		t.Errorf("an action with all=1 lists closed accounts on home:\n%s", body)
 	}
-	if strings.Contains(body, "gone-box") {
-		t.Fatal("closed account hidden by default")
-	}
-	// Turning the switch on fetches the table with closed accounts and keeps the switch on.
-	_, body = do(t, ts, "GET", "/accounts?all=1", "ops@example.com", true, nil, true)
-	// The budget label says "not checked", so look at the box itself.
-	if !strings.Contains(body, "gone-box") || !regexp.MustCompile(`<input id="show-closed"[^>]*\schecked[\s>/]`).MatchString(body) || !strings.Contains(body, `hx-get="/accounts?all=1"`) {
-		t.Fatalf("all=1 should show closed accounts, check the switch, and poll with all=1:\n%s", body)
-	}
-	// An action posted with the switch state keeps it.
-	_, body = do(t, ts, "POST", "/accounts/111111111111/extend", "ops@example.com", true, url.Values{"all": {"1"}, "by": {"1"}}, true)
+	_, body = do(t, ts, "GET", "/accounts?status=any", "ops@example.com", true, nil, false)
 	if !strings.Contains(body, "gone-box") {
-		t.Fatal("an action should keep the show-closed view")
-	}
-	// Every action form includes the switch so the view survives.
-	_, body = do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
-	if strings.Count(body, `hx-include="#show-closed"`) < 4 {
-		t.Fatalf("action forms should include the switch:\n%s", body)
+		t.Errorf("the accounts page does not list the closed account:\n%s", body)
 	}
 }
 

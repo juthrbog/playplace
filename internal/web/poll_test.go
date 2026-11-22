@@ -96,7 +96,8 @@ func TestPollWithTheShownHashGets204(t *testing.T) {
 	ts, _ := newServer(t)
 	for _, tc := range []struct{ page, poll string }{
 		{"/", "/accounts"},
-		{"/?all=1", "/accounts?all=1"},
+		// The home page has no Show closed, so all=1 changes nothing.
+		{"/?all=1", "/accounts"},
 	} {
 		_, home := do(t, ts, "GET", tc.page, "ops@example.com", true, nil, false)
 		if !strings.Contains(home, `hx-get="`+tc.poll+`"`) {
@@ -256,7 +257,7 @@ func TestFailedPollShowsTheUnavailablePanel(t *testing.T) {
 
 	flaky.fail.Store(false)
 	res, body = poll(t, ts, "/accounts", "ops@example.com", true, false, failed)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, `<table class="fleet">`) || strings.Contains(body, "accounts-error") {
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, `<table class="fleet fleet-compact">`) || strings.Contains(body, "accounts-error") {
 		t.Errorf("the recovered poll = %d, want the table and no error note:\n%s", res.StatusCode, body)
 	}
 	if !strings.Contains(body, "bobs-box") || !strings.Contains(body, `<span id="queue-count" hx-swap-oob="true">`) {
@@ -302,15 +303,16 @@ func TestActionsStopTheRunningPoll(t *testing.T) {
 	}
 }
 
-// A pending request shows its expiry counted from the time of the read.
-// The row must not show that time exactly, or every read of the same queue
-// hashes differently and no poll gets 204. A real expiry keeps its title.
+// A pending request has an expiry counted from the time of the read. The
+// row must not show that time, or every read of the same queue hashes
+// differently and no poll gets 204, so its due cell says "Stamped at
+// approval". A real expiry is a stamp with the exact time in its title.
 func TestPendingRowDoesNotChangeWithTheClock(t *testing.T) {
 	row := func(status core.Status, expires time.Time) string {
 		t.Helper()
 		var out strings.Builder
 		a := &core.Account{ID: "req:bobs-box", Name: "bobs-box", Owner: "bob@example.com", Status: status, ExpiresAt: expires, BudgetUSD: 50}
-		if err := accountTR(accountRow{Account: a, SpendKnown: true}, "#show-closed").Render(context.Background(), &out); err != nil {
+		if err := accountTR(accountRow{Account: a, SpendKnown: true}, "", false).Render(context.Background(), &out); err != nil {
 			t.Fatal(err)
 		}
 		return out.String()
@@ -319,7 +321,10 @@ func TestPendingRowDoesNotChangeWithTheClock(t *testing.T) {
 	if a, b := row(core.StatusPending, t0), row(core.StatusPending, later); a != b {
 		t.Errorf("a pending row changes when only the read time moves:\n%s\n%s", a, b)
 	}
-	if !strings.Contains(row(core.StatusActive, t0), `title="`+t0.Format(time.RFC3339)+`"`) {
-		t.Error("an active row lost the exact expiry in its title")
+	if !strings.Contains(row(core.StatusPending, t0), `<td class="due"><span class="date-unset">Stamped at approval</span></td>`) {
+		t.Errorf("a pending row does not say when it gets its stamp:\n%s", row(core.StatusPending, t0))
+	}
+	if !strings.Contains(row(core.StatusActive, t0), `datetime="`+t0.Format(time.RFC3339)+`" title="`+stampTitle(t0)+`">`+stampDate(t0)+`</time>`) {
+		t.Errorf("an active row lost the exact expiry in its stamp:\n%s", row(core.StatusActive, t0))
 	}
 }

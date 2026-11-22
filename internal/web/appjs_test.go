@@ -42,7 +42,7 @@ func TestFocusNeverLandsOnADecisionAfterALiveUpdate(t *testing.T) {
 	js := staticText(t, "app.js")
 	holdsEach(t, "notePlace", funcBody(t, js, "function notePlace(xhr, source) {"),
 		`var acted = !!action && !!focusNext[action] && row.contains(source)`,
-		`acted ? focusNext[action] : (slip ? "button.slip-name, .slip-title[tabindex]" : "td a")`,
+		`acted ? focusNext[action] : (slip ? "button.slip-name, .slip-title[tabindex]" : "td a, .loan-name a")`,
 		`said: region ? region.lastElementChild : null`)
 	holdsEach(t, "controlIn", funcBody(t, js, "function controlIn(row, want) {"),
 		`row.hasAttribute("data-state") && row.getAttribute("data-state") !== "pending"`)

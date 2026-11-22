@@ -19,11 +19,12 @@ document.addEventListener("htmx:afterRequest", function (ev) {
   form.reset();
 });
 
-// After an action, the refusal slot under a form and the marked fields show
-// only what the last answer said. A refusal fills its own slot and can name
-// the field it is about. That field gets aria-invalid and points to the
-// slot, so a screen reader reads the refusal with the field. The poll and
-// other GETs leave both alone.
+// After an action, the refusal slots and the marked fields show only what
+// the last answer said. The slot under a form and the slot above the
+// accounts of the home page empty on success. A refusal fills its own slot
+// and can name the field it is about. That field gets aria-invalid and
+// points to the slot, so a screen reader reads the refusal with the field.
+// The poll and other GETs leave both alone.
 document.addEventListener("htmx:afterRequest", function (ev) {
   var d = ev.detail;
   if (!d.successful || !d.xhr || !d.requestConfig || d.requestConfig.verb === "get") {
@@ -35,9 +36,12 @@ document.addEventListener("htmx:afterRequest", function (ev) {
     marked[i].removeAttribute("aria-describedby");
   }
   if (!d.xhr.getResponseHeader("X-Form-Error")) {
-    var err = document.getElementById("form-error");
-    if (err) {
-      err.textContent = "";
+    var slots = ["form-error", "account-error"];
+    for (var s = 0; s < slots.length; s++) {
+      var err = document.getElementById(slots[s]);
+      if (err) {
+        err.textContent = "";
+      }
     }
     return;
   }
@@ -637,9 +641,9 @@ function confirmAsk(ask, text) {
 // request, the viewer can no longer decide it, no slip is left to select,
 // or the account began to close. The focus then goes to the slip or the
 // row of the button when it still shows a control: the name of a slip
-// that waits, or the account link of a fleet row. Else it goes to the
-// name of the first slip that waits, or to the heading of the section. On
-// confirm the region says why nothing was sent.
+// that waits, or the account link of a fleet row or a loan card. Else it
+// goes to the name of the first slip that waits, or to the heading of the
+// section. On confirm the region says why nothing was sent.
 document.addEventListener("submit", function (ev) {
   var form = ev.target;
   var dialog = form && form.closest ? form.closest("dialog") : null;
@@ -655,7 +659,7 @@ document.addEventListener("submit", function (ev) {
   if (!document.body.contains(ask.elt)) {
     var close = ask.kind === "close";
     var row = ask.row ? document.getElementById(ask.row) : null;
-    var here = controlIn(row, close ? "td a" : "button.slip-name, .slip-title[tabindex]");
+    var here = controlIn(row, close ? "td a, .loan-name a" : "button.slip-name, .slip-title[tabindex]");
     var target = here || (close ? document.getElementById("accounts-title") : firstWaiting());
     if (target) {
       target.focus();
@@ -783,7 +787,7 @@ function poller() {
 
 // The 15 s poll sends the hash of what the page shows, and the server
 // answers 204 when nothing changed. Only the section's own GET carries it,
-// not the Show closed box or a form.
+// not a control of the fleet view or a form.
 document.addEventListener("htmx:configRequest", function (ev) {
   var elt = ev.detail.elt;
   if (ev.detail.verb === "get" && elt && elt.hasAttribute && elt.hasAttribute("data-poll-hash")) {
@@ -833,7 +837,7 @@ document.addEventListener("focusin", function (ev) {
 
 // The morph keeps the accounts section in the page, so a poll answer that
 // arrives after an action would put the old state back. Every other
-// request, Show closed included, counts as an action, and the beforeSwap
+// request, a fleet view control included, counts as an action, and the beforeSwap
 // listener drops the answer of a poll that started before the latest one.
 // The poll is not aborted, because htmx logs an aborted request as two
 // errors. A poll that is due while another request runs waits for the next
@@ -940,12 +944,15 @@ var focusNext = {
   edit: "form[data-editing] input:not([type=hidden])",
   save: 'button[data-action="edit"]',
   cancel: 'button[data-action="edit"]',
-  close: "td a"
+  close: "td a, .loan-name a"
 };
 
-// The slips of the queue and the rows of the fleet.
+// The slips of the queue, and the rows of the fleet or the loan cards of
+// the home page. The account link of a row or a card is its name.
 var slipRows = "#pending li.slip";
-var fleetRows = "#accounts tbody > tr";
+var fleetRows = "#accounts tbody > tr, #accounts li.loan";
+// The rows of the Needs attention ledger. A poll can take a row away.
+var ledgerRows = "#attention li";
 
 // focusPlace is where the focus was when an answer started to swap. It
 // holds the slip or the row and its place in the list. It also notes
@@ -959,7 +966,8 @@ var focusPlace = null;
 // focusNext inside it. After any other swap, a poll above all, the focus
 // goes to a control that decides nothing. That is the name of a slip,
 // the heading of a row of Your requests, or the account link of a fleet
-// row. It never goes to Approve or Deny, because the viewer did not act.
+// row or a loan card. It never goes to Approve or Deny, because the viewer
+// did not act.
 function notePlace(xhr, source) {
   focusPlace = null;
   var active = document.activeElement;
@@ -971,6 +979,20 @@ function notePlace(xhr, source) {
       xhr: xhr,
       desk: true,
       acted: !!(source && source.hasAttribute && source.hasAttribute("data-bulk")),
+      said: region ? region.lastElementChild : null
+    };
+    return;
+  }
+  // A ledger row decides nothing, so the viewer never acted on it.
+  var line = active && active.closest ? active.closest(ledgerRows) : null;
+  if (line && line.id) {
+    focusPlace = {
+      xhr: xhr,
+      row: line.id,
+      rows: ledgerRows,
+      index: Array.prototype.indexOf.call(line.parentNode.children, line),
+      acted: false,
+      want: "a.ledger-row",
       said: region ? region.lastElementChild : null
     };
     return;
@@ -988,7 +1010,7 @@ function notePlace(xhr, source) {
     rows: slip ? slipRows : fleetRows,
     index: Array.prototype.indexOf.call(row.parentNode.children, row),
     acted: acted,
-    want: acted ? focusNext[action] : (slip ? "button.slip-name, .slip-title[tabindex]" : "td a"),
+    want: acted ? focusNext[action] : (slip ? "button.slip-name, .slip-title[tabindex]" : "td a, .loan-name a"),
     said: region ? region.lastElementChild : null
   };
 }
@@ -1017,10 +1039,11 @@ function controlIn(row, want) {
 // longer waits. It then goes to the control of focusPlace in its own
 // slip or row. A slip that no longer waits gives its place to the next
 // slip that waits, then to the one before it. In a queue with no slip
-// that waits, the focus goes to the heading. A bulk control that left
-// gives its place to the name of the first slip that waits, or to the
-// heading. A viewer who moved on keeps their place. Every swap runs this
-// rule, a poll too.
+// that waits, the focus goes to the heading. A ledger row that left
+// gives its place to the next row, then to the one before it, then to
+// the Needs attention heading. A bulk control that left gives its place
+// to the name of the first slip that waits, or to the heading. A viewer
+// who moved on keeps their place. Every swap runs this rule, a poll too.
 document.addEventListener("htmx:afterSettle", function (ev) {
   watchBar();
   syncPicks();
@@ -1055,6 +1078,8 @@ document.addEventListener("htmx:afterSettle", function (ev) {
   }
   if (!target && was.rows === slipRows) {
     target = document.getElementById("pending-title");
+  } else if (!target && was.rows === ledgerRows) {
+    target = document.getElementById("attention-title");
   }
   if (!target) {
     return;
@@ -1456,7 +1481,7 @@ document.addEventListener("htmx:afterRequest", function (ev) {
   }
 });
 
-// An action answer, such as Sync, +7d or Show closed, can bring a new
+// An action answer, such as Sync, +7d or a filter, can bring a new
 // accounts section. On the home page it comes out of band; on the accounts
 // page it is the main swap target. Fresh data resets the Updated time, also
 // on a paused page. An unavailable list keeps the last good time, as a

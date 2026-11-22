@@ -212,7 +212,7 @@ func TestFocusHasAPlaceAfterARowLeaves(t *testing.T) {
 		`edit: "form[data-editing] input:not([type=hidden])"`,
 		`save: 'button[data-action="edit"]'`,
 		`cancel: 'button[data-action="edit"]'`,
-		`close: "td a"`,
+		`close: "td a, .loan-name a"`,
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js lacks the focus target %s", want)

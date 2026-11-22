@@ -34,6 +34,7 @@ accounts are playgrounds, and tags on each account hold the rest:
 | `playplace:journey` | stable history correlation identity, not lifecycle authority |
 | `playplace:owner` | who is responsible |
 | `playplace:expires` | RFC3339 expiry |
+| `playplace:extended-from` | RFC3339 expiry just before the last extension, for display only. A missing or bad value reads as never extended. |
 | `playplace:budget` | desired approved monthly budget in USD |
 | `playplace:budget-policy` | configured restriction SCP; prevents silently removing enforcement |
 | `playplace:budget-health`, `playplace:budget-checked` | observed protection state and last state/error-change time |
@@ -607,7 +608,10 @@ page in the `HX-Current-URL` header on every request, and the server reads
 only its path. A page visit uses its own path. Any other path, or a missing
 header, counts as the home page. On the home page, the poll and the row
 actions (+7d, Close and Sync) answer with the accounts section and, out of
-band, the queue panel and, for an approver, the queue count. On the accounts page they answer
+band, the queue panel, the Needs attention ledger `#attention` for an
+admin, and, for an approver, the queue count. A decision in the queue panel
+answers with the panel. The accounts section, the ledger of an admin and
+the count of an approver ride out of band. On the accounts page they answer
 with the accounts section, because that page has no queue panel. The shell
 shows an approver the queue count on every page, so an approver also gets
 the count out of band there. The hash covers exactly what the page shows,
@@ -651,8 +655,39 @@ due date by default, soonest first. A pending row is due its lifetime from
 now. The id breaks every tie, so the order is total. A row with no due
 date, no spend or no AWS account ID sorts last in both directions for that
 key. A page holds 50 rows, and a page past the end shows the last page.
-The count in the heading is the number of rows that pass the filters. The
-home page keeps its plain list, newest first, with Show closed.
+The count in the heading is the number of rows that pass the filters.
+
+The home page has no view of its own and ignores `all=1`. It puts the first
+job of each role first:
+
+- An admin gets the Needs attention ledger beside the approval desk. Below them, the fleet table shows the first 50 open accounts in the compact density, with plain heads. The rows sort the same way as the default view of the accounts page, by due date. The link "All N accounts" leads to `/accounts`, and N counts the open accounts before the cut.
+- An approver who is not an admin gets the desk, then their own accounts as loan cards.
+- Anyone else gets their loan cards, then Your requests. Under its heading, a line says how the viewer stands against `--max-per-owner`. It counts the open accounts and the pending requests of the viewer, as the core limit does.
+- The New request panel comes last for every role.
+
+The home table and the loan cards leave out closed accounts and pending
+requests, because the desk and Your requests already show the requests.
+`homeRows` in `internal/web/home.go` picks these rows. A loan card keeps
+the id `acct-<id>` of the fleet row, so the morph pairs it.
+
+The ledger comes from `buildLedger` in `internal/web/home.go`. It runs
+`rowAttention` over every account that the admin can see, closed ones
+too, and groups the accounts by kind in the order of `core.AttentionKind`,
+with over budget last. Each row links to the accounts page filtered to its
+kind. The ledger is part of every home answer for an admin, so the poll
+hash covers it. When the account list fails, the ledger says that it cannot
+tell what needs attention.
+
+A due date shows as a date stamp, such as "NOV 29 2026" in UTC. The fleet
+table on both pages and the loan card use `dueFor` in
+`internal/web/stamp.go`, which classifies each row against the service
+clock: more than 3 days away, inside the last 3 days, past due, not set
+yet, unknown, or none for a closed or failed account. After an extension,
+the earlier date from `playplace:extended-from` shows struck through above
+the stamp. The answer to +7d marks its account as landed, so the stamp
+lands with the motion of the desk. The poll hash leaves that mark out, so
+the next poll still gets 204. A pending row has no clock in its markup for
+the same reason.
 
 Each control of the view replaces the address of the page, so a reload,
 Back and the `next` of a sign-in keep the view. The filter bar, the
@@ -667,7 +702,10 @@ the filter form for that reason.
 
 The row actions and Sync carry the view. On the accounts page, +7d, Close
 and Sync send `hx-include="#fleet-view, #fleet-page"`, so the answer shows
-the same view and page. On the home page they send `#show-closed`.
+the same view and page. On the home page they send nothing extra. A
+refused +7d or Close on the home page fills the `#account-error` slot above
+the accounts section, because the New request panel and its slot are below
+it.
 
 A row knows its spend only when `CostState` reports the last pull as good,
 as in the CLI. An account with no AWS account ID yet has spend that is

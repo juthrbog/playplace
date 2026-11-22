@@ -421,7 +421,7 @@ type fleetColumn struct {
 
 var fleetColumns = []fleetColumn{
 	{"name", "Name"}, {"owner", "Owner"}, {"status", "Status"},
-	{"account", "Account"}, {fleetSortDue, "Expires"}, {"spend", "Spend / Budget"},
+	{"account", "Account"}, {fleetSortDue, "Due"}, {"spend", "Spend / Budget"},
 }
 
 // sortState is the aria-sort of a head: ascending or descending for the
