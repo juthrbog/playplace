@@ -127,7 +127,7 @@ func TestHiddenTabPollsWhenItShows(t *testing.T) {
 		t.Fatal("app.js has no visibilitychange listener")
 	}
 	body, _, _ := strings.Cut(rest, "\n});")
-	holdsEach(t, "the visibilitychange listener", body, "!document.hidden", "liveTick()", "pollNow()")
+	holdsEach(t, "the visibilitychange listener", body, "!document.hidden", "readPaused();\n    liveTick();\n    pollNow();")
 }
 
 // A page that Back or Forward shows from the back/forward cache reads the
@@ -170,8 +170,14 @@ func TestLiveLineTicksAndBlinks(t *testing.T) {
 	if len(oob) != 1 {
 		t.Fatalf("app.js has %d htmx:oobAfterSwap listeners, want 1", len(oob))
 	}
-	holdsEach(t, "the action reset", oob[0],
-		"target.id !== poll.id", "if (!poll.querySelector(\"[data-stale]\")) {\n    updatedAt = Date.now();\n  }", "liveTick()")
+	holdsEach(t, "the out-of-band action reset", oob[0], "actionRefreshed(ev.detail && ev.detail.target, null)")
+	swap := listeners(js, "htmx:afterSwap")
+	if len(swap) != 1 {
+		t.Fatalf("app.js has %d htmx:afterSwap listeners, want 1", len(swap))
+	}
+	holdsEach(t, "the main-swap action reset", swap[0], "actionRefreshed(ev.detail && ev.detail.target, ev.detail && ev.detail.elt)")
+	holdsEach(t, "actionRefreshed", funcBody(t, js, "function actionRefreshed(target, source) {"),
+		"target.id !== poll.id", "source === poll", "if (!poll.querySelector(\"[data-stale]\")) {\n    updatedAt = Date.now();\n  }", "liveTick()")
 	holdsEach(t, "blinkDot", funcBody(t, js, "function blinkDot() {"),
 		`dot.classList.remove("blink")`, "void dot.offsetWidth", `dot.classList.add("blink")`)
 }

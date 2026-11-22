@@ -626,13 +626,16 @@ the footer holds the live line: a dot, the time of the last update, and a
 Pause button. `app.js` resets the time after each poll that the server
 answered with 200 or 204. It does not reset the time for a poll answer that
 it dropped because an action started after that poll. An action answer
-that brings a fresh accounts section also resets the time. The line is not a live region. The poll waits
+that brings a fresh accounts section also resets the time. On the home page
+that section comes out of band, and on the accounts page it is the main
+swap target, so `app.js` checks both. The line is not a live region. The poll waits
 while the viewer paused live updates and while the tab is hidden. The pause
 lasts for the browser tab, because `sessionStorage` holds it. Resume, and a
 tab that shows again, make the poller poll at once through the custom
 `poll-now` event. A page that Back or Forward shows from the browser's
 back/forward cache reads the stored pause again and polls at once, unless
-the tab is paused. Actions still answer and update the page while paused.
+the tab is paused. The browser sends such a page the shown-tab event before
+`pageshow`, so the shown-tab listener also reads the stored pause first. Actions still answer and update the page while paused.
 
 The queue lists each request as a slip, oldest first. The name opens the
 slip in place with every deciding fact. The server renders every slip

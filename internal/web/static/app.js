@@ -1395,20 +1395,29 @@ document.addEventListener("htmx:afterRequest", function (ev) {
   }
 });
 
-// An action answer, such as Sync or Show closed, can bring a new accounts
-// section out of band. Fresh data resets the Updated time, also on a
-// paused page. An unavailable list keeps the last good time, as a failed
-// poll does. The morph keeps the node, but the id check holds either way.
-document.addEventListener("htmx:oobAfterSwap", function (ev) {
+// An action answer, such as Sync, +7d or Show closed, can bring a new
+// accounts section. On the home page it comes out of band; on the accounts
+// page it is the main swap target. Fresh data resets the Updated time, also
+// on a paused page. An unavailable list keeps the last good time, as a
+// failed poll does. The morph keeps the node, but the id check holds either
+// way. The poll's own answer is left to the afterRequest listener above.
+function actionRefreshed(target, source) {
   var poll = poller();
-  var target = ev.detail && ev.detail.target;
-  if (!poll || !target || target.id !== poll.id) {
+  if (!poll || !target || target.id !== poll.id || source === poll) {
     return;
   }
   if (!poll.querySelector("[data-stale]")) {
     updatedAt = Date.now();
   }
   liveTick();
+}
+
+document.addEventListener("htmx:oobAfterSwap", function (ev) {
+  actionRefreshed(ev.detail && ev.detail.target, null);
+});
+
+document.addEventListener("htmx:afterSwap", function (ev) {
+  actionRefreshed(ev.detail && ev.detail.target, ev.detail && ev.detail.elt);
 });
 
 // Pause stops the poll, and Resume polls at once. Either press writes one
@@ -1426,9 +1435,13 @@ document.addEventListener("click", function (ev) {
 
 // A hidden tab does not poll. When it shows again, the line catches up,
 // because the browser slows timers in a hidden tab, and the page polls
-// once at once, unless the viewer paused live updates.
+// once at once, unless the viewer paused live updates. The pause is read
+// again first, because a page that Back restores from the back/forward
+// cache gets this event before pageshow, and another page of the tab may
+// have paused since.
 document.addEventListener("visibilitychange", function () {
   if (!document.hidden) {
+    readPaused();
     liveTick();
     pollNow();
   }
