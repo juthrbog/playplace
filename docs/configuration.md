@@ -64,13 +64,15 @@ owners sign in to reach their accounts. Identity Center shows it in its
 settings as the AWS access portal URL. When it is set, an owner gets an
 **Open AWS access portal** button on the loan card and the account page
 after the account is ready. An admin who is not the owner gets no button. The
-*ready* notice then says "Sign in at" and the address. Without it, the
-notice says "Sign in through the access portal" and the web UI shows no
-button.
+*ready* notice then says "Sign in at" and the address, also when playplace
+does not manage access. Without it, the web UI shows no button. If
+playplace granted access, the notice then says "Sign in through the access
+portal".
 
 The address must be a full URL that starts with `https://`, names a host,
-and holds no user name or password. If it does not, playplace refuses to
-start and names the flag in the error. If you set `--access-portal-url`
+and holds no spaces and no user name or password. If it does not, playplace
+refuses to start and names the flag in the error. The error does not repeat
+the address, so a password in it does not go to the log. If you set `--access-portal-url`
 without `--permission-set`, playplace starts but writes a warning to the
 log. playplace then does not grant owner access, so someone else must give
 owners access to their accounts. Owners still see the button.

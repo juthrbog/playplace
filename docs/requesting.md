@@ -75,7 +75,7 @@ The button shows only when all of these are true:
    organization.
 
 An *active* account can still be getting ready. Then the loan card on the
-home page shows "getting ready" next to the status. The account page says
+home page shows "getting ready" under the status. The account page says
 what the account waits for, for example "Getting ready: waiting for budget
 protection to be ready." When budget protection is on, the budget line of
 the card shows `setup-pending` until a later refresh sees the protection in
