@@ -34,10 +34,10 @@ func TestAccountPageWritesEveryTimeInUTC(t *testing.T) {
 	}
 	out := renderAccount(t, a, []core.AuditEvent{{At: at, Event: "requested", Actor: "anna@example.com", Message: "asked"}})
 	for _, want := range []string{
-		"<dt>created</dt><dd>2026-09-15 12:00 UTC</dd>",
-		"<dt>expires</dt><dd>2026-09-16 12:00 UTC",
-		"<dt>expiring notice sent</dt><dd>2026-09-15 12:00 UTC</dd>",
-		"<dt>close requested</dt><dd>2026-09-15 12:00 UTC</dd>",
+		"<dt>Created</dt><dd>2026-09-15 12:00 UTC</dd>",
+		"<dt>Due</dt><dd>2026-09-16 12:00 UTC",
+		"<dt>Expiring notice sent</dt><dd>2026-09-15 12:00 UTC</dd>",
+		"<dt>Close requested</dt><dd>2026-09-15 12:00 UTC</dd>",
 		"(in this state since 2026-09-15 12:00 UTC)",
 		`<td title="2026-09-15T12:00:00Z">2026-09-15 12:00:00 UTC</td>`,
 	} {

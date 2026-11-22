@@ -648,18 +648,6 @@
     min-width: 0;
     overflow-wrap: anywhere;
   }
-  /* The account head keeps the status label and its qualifier together.
-     They wrap as one unit with the 8 px gap of the facts list, so the
-     qualifier never lands alone under the name. */
-  .head-status {
-    display: inline-flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-sm);
-  }
-  .head-status > .qualifier {
-    margin-top: 0;
-  }
   .panel-body {
     padding: 0 var(--space-lg) var(--space-lg);
   }
@@ -2010,6 +1998,36 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-sm);
+  }
+
+  /* The account page: the loan card of the account on card stock, then
+     its facts, 16 px apart like the panels of main. The name is the page
+     heading at the h1 size, and it breaks anywhere, so a long name never
+     makes a phone page scroll sideways. */
+  .account {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+    min-width: 0;
+  }
+  .account-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .spend-left {
+    margin-top: var(--space-xs);
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+  /* Copy ID needs script, so it shows only under html.js. It is a plain
+     button at the toolbar size. */
+  .copy-id {
+    display: none;
+    height: var(--control-h-sm);
+    padding: 0 11px;
+  }
+  html.js .copy-id {
+    display: inline-flex;
   }
 
   /* The live line needs script, so it shows only under html.js. It is

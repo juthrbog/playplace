@@ -10,8 +10,9 @@ type keyLine struct {
 // holds the keys. The home page moves through the queue, the accounts and
 // the Needs attention ledger, and only an approver decides with keys or
 // opens a request with Enter: a row of Your requests has no action for
-// Enter. The accounts page has the search. ? works on every page with a
-// viewer while the keys are on.
+// Enter. The accounts page has the search. An account page has no list,
+// so only ? acts there. ? works on every page with a viewer while the keys
+// are on.
 func keyList(pg page) []keyLine {
 	var out []keyLine
 	home := pg.Polls && pg.Path == "/"

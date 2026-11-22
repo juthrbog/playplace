@@ -35,11 +35,14 @@ func TestUnplacedCreationPageShowsAPlacementNote(t *testing.T) {
 	ts := httptest.NewServer(New(svc, slog.New(slog.DiscardHandler), headerAuth{}, nil, nil).Handler())
 	t.Cleanup(ts.Close)
 
+	// The account page shows it under the status of its loan card.
 	res, body := do(t, ts, "GET", "/accounts/"+a.RequestID, "admin@example.com", true, nil, false)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, "<dt>placement</dt>") || !strings.Contains(body, "Waiting for AWS to place the account since 2026-09-15 12:00 UTC.") {
+	_, card, _ := strings.Cut(body, `<div class="loan-status">`)
+	card, _, _ = strings.Cut(card, `<div class="loan-due">`)
+	if res.StatusCode != http.StatusOK || !regexp.MustCompile(`<div class="qualifier">(?:<svg.*?</svg>)?<span>Waiting for AWS to place the account since 2026-09-15 12:00 UTC.</span></div>`).MatchString(card) {
 		t.Fatalf("status %d, body: %s", res.StatusCode, body)
 	}
-	if strings.Contains(body, "<dt>failure</dt>") || !strings.Contains(body, `<dd class="qualifier">`) {
+	if strings.Contains(card, `class="error"`) {
 		t.Fatalf("the placement note is shown as a failure: %s", body)
 	}
 	// The list row shows the same qualifier under the creating label.
@@ -65,7 +68,7 @@ func TestAccountFactsNameWhatIsMissing(t *testing.T) {
 			t.Fatal(err)
 		}
 		out := buf.String()
-		for _, fact := range []string{"account id", "root email"} {
+		for _, fact := range []string{"Account ID", "Root email"} {
 			want := `<dt>` + fact + `</dt><dd><span class="muted">` + tc.word + `</span></dd>`
 			if !strings.Contains(out, want) {
 				t.Errorf("%s: missing %s", tc.status, want)

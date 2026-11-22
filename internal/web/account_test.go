@@ -61,8 +61,8 @@ func TestAccountPagePollsItsOwnAddress(t *testing.T) {
 		t.Errorf("headers = %v, want no cache and Vary on HX-Request and HX-Current-URL", res.Header)
 	}
 	for _, want := range []string{
-		`<div id="account-error" class="refusal"></div><section id="account" class="panel" aria-labelledby="account-title" hx-get="/accounts/111111111111" hx-trigger="every 15s, poll-now" hx-swap="morph" data-poll data-poll-hash="`,
-		`<h1 id="account-title" tabindex="-1">annas-box</h1>`,
+		`<div id="account-error" class="refusal"></div><section id="account" class="account" aria-labelledby="account-title" hx-get="/accounts/111111111111" hx-trigger="every 15s, poll-now" hx-swap="morph" data-poll data-poll-hash="`,
+		`<div class="loan loan-page"><div class="loan-head"><h1 id="account-title" class="account-name" tabindex="-1">annas-box</h1>`,
 		liveLine,
 	} {
 		if !strings.Contains(body, want) {
@@ -128,7 +128,7 @@ func TestAccountRefreshNeverPullsCosts(t *testing.T) {
 	before := cc.calls.Load()
 	for range 3 {
 		_, body := fromPage(t, ts, "GET", page, page, "ops@example.com", true, true, nil, "")
-		if !strings.Contains(body, `<dt>spend this month</dt><dd><span class="muted">unavailable</span> of $50.00 a month</dd>`) {
+		if !strings.Contains(body, `<p class="spend"><span class="muted">unavailable</span> of $50.00 a month</p>`) || strings.Contains(body, "meter-block") {
 			t.Fatalf("the refresh does not say that spend is unavailable:\n%s", body)
 		}
 	}
@@ -197,8 +197,8 @@ func TestAccountPageActionsAnswerTheAccount(t *testing.T) {
 		message      string
 		status, more string
 	}{
-		{"anna@example.com", false, page + "/extend", url.Values{"by": {"1"}}, "Extended annas-box to Sep 19 12:00 UTC.", "active", "<dt>lifetime</dt><dd>4 days <span class=\"muted\">(the limit is 90 days)</span></dd>"},
-		{"ops@example.com", true, page + "/close", url.Values{}, "Requested closure of annas-box.", "closed", "<dt>close requested</dt>"},
+		{"anna@example.com", false, page + "/extend", url.Values{"by": {"1"}}, "Extended annas-box to Sep 19 12:00 UTC.", "active", "<dt>Lifetime</dt><dd>4 days <span class=\"muted\">(the limit is 90 days)</span></dd>"},
+		{"ops@example.com", true, page + "/close", url.Values{}, "Requested closure of annas-box.", "closed", "<dt>Close requested</dt>"},
 	} {
 		res, body := fromPage(t, ts, "POST", c.path, page, c.who, c.admin, c.admin, c.form, "")
 		if res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
@@ -281,8 +281,8 @@ func TestAccountPageRefusalSlots(t *testing.T) {
 	}
 }
 
-// The facts say the spend this month against the budget and what is left,
-// and the lifetime with its ceiling.
+// The card says the spend this month against the budget, what is left and
+// that cost data lags, and the facts say the lifetime with its ceiling.
 func TestAccountSpendAndLifetimeWords(t *testing.T) {
 	for _, c := range []struct {
 		spend, budget float64
@@ -313,8 +313,10 @@ func TestAccountSpendAndLifetimeWords(t *testing.T) {
 	ts, _ := newServer(t)
 	_, body := do(t, ts, "GET", "/accounts/111111111111", "anna@example.com", false, nil, false)
 	for _, want := range []string{
-		`<dt>spend this month</dt><dd>$22.50 of $50.00 a month <span class="muted">($27.50 left this month)</span></dd>`,
-		`<dt>lifetime</dt><dd>3 days <span class="muted">(the limit is 90 days)</span></dd>`,
+		`<p class="spend">$22.50 of $50.00 a month</p><div class="meter-block meter-ok" title="$22.50 of $50.00"><svg class="meter-full" width="100%" height="6"`,
+		`<rect class="meter-fill" width="45%" height="6" rx="3"></rect>`,
+		`<p class="spend-left">$27.50 left this month</p><p class="help">Cost data lags about a day.</p>`,
+		`<dt>Lifetime</dt><dd>3 days <span class="muted">(the limit is 90 days)</span></dd>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the page lacks %q:\n%s", want, body)

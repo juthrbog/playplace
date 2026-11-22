@@ -117,7 +117,7 @@ func TestPagesNeverShowRawProblemText(t *testing.T) {
 		{"/", "AWS reports this account as suspended, not closed."},
 		{"/accounts", "AWS has not confirmed the closure since"},
 		{"/accounts", "AWS reports this account as suspended"},
-		{"/accounts/111111111111", "<dt>failure</dt>"},
+		{"/accounts/111111111111", `<div class="loan-status"><span class="status status-closing status-overdue">`},
 		{"/accounts/111111111111", "AWS has not confirmed the closure since 2026-09-14 11:00 UTC. Charges may continue."},
 		{"/accounts/333333333333", "AWS reports this account as suspended, not closed. Ask an admin to check it in AWS."},
 	}
@@ -155,7 +155,7 @@ func TestAccountPageSaysSpendIsUnavailable(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status %d", res.StatusCode)
 	}
-	for _, want := range []string{`<dt>spend this month</dt><dd><span class="muted">unavailable</span> of $50.00 a month</dd>`, `<p class="empty">` + spendUnavailable + `</p>`} {
+	for _, want := range []string{`<p class="spend"><span class="muted">unavailable</span> of $50.00 a month</p>`, `<p class="empty">` + spendUnavailable + `</p>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q:\n%s", want, body)
 		}
@@ -168,7 +168,7 @@ func TestAccountPageSaysSpendIsUnavailable(t *testing.T) {
 	// When AWS answers again, the page shows the spend.
 	fc.fail.Store(false)
 	_, body = do(t, ts, "GET", "/accounts/111111111111", "ops@example.com", true, nil, false)
-	if !strings.Contains(body, `<dt>spend this month</dt><dd>$22.50 of $50.00 a month <span class="muted">($27.50 left this month)</span></dd>`) || strings.Contains(body, spendUnavailable) {
+	if !strings.Contains(body, `<p class="spend">$22.50 of $50.00 a month</p>`) || !strings.Contains(body, `<p class="spend-left">$27.50 left this month</p>`) || strings.Contains(body, spendUnavailable) {
 		t.Errorf("the spend is not back:\n%s", body)
 	}
 }
