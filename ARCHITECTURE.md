@@ -304,6 +304,29 @@ When it cannot write one, it reports the error and tries again on the next
 refresh. Notices and history remain best-effort, so alert on failed scheduled
 reconciliation as well.
 
+`LastError` holds the text of a problem for the CLI, the TUI, the JSON field
+`last_error` and the log. `Account.Problem()` gives the same problem as typed
+facts, so that the web UI can use its own words. The code that writes
+`LastError` writes the problem from the same values at the same time. No new
+tag stores it. There are four kinds:
+
+    placement-wait       AWS created the account, and it waits outside the
+                         Playground OU. Since is when AWS created it.
+    creation-failed      AWS could not create the account. Reason is the AWS
+                         failure reason, and it can be empty.
+    state-unexpected     AWS reports a state that is not ACTIVE and not a
+                         closure, for example SUSPENDED. State holds it.
+    closure-unconfirmed  AWS did not confirm a requested closure in
+                         `--close-alert-after`. Since is when the closure was
+                         requested, and State is the AWS state.
+
+A later write replaces an earlier one, as with `LastError`. So an
+unconfirmed closure replaces an unexpected state. `core.FailureAdvice` turns
+a failure reason into a next step, and the failed notice and the web UI use
+it. `ClosureOverdue()` does not use the kind. It stays true for a closing
+account with a `LastError`, because the Needs attention list, the overdue
+label of the web UI and the TUI depend on that rule.
+
 Before granting playground access, deploy the purchase/trail guardrail SCP and
 review existing accounts using [the deployment safeguards guide](deploy/README.md#billing-and-closure-safeguards).
 The SCP blocks new commitments and Marketplace purchases and member-created
@@ -415,7 +438,11 @@ default root email pattern, `aws+pp-{name}@example.com`.
 
 The lifetime ceiling holds after approval too. An extension may not push an
 account's expiry past `--max-ttl` counted from when it was created, so
-repeated extensions cannot walk around the limit. Admins may go past it: in
+repeated extensions cannot walk around the limit. `Service.LatestExpiry`
+gives that latest expiry: the creation time plus `--max-ttl`. It reports no
+date when there is no ceiling or the creation time is unknown. The lifetime
+check uses it, so an interface that shows the date and the check agree. With
+no creation time, the check counts from now, as before. Admins may go past it: in
 the web UI every admin extend is an override, on the CLI and in the TUI it
 is `--override-limits` or the override field in the form. Each extension is
 written to history with whether the ceiling was overridden.
@@ -510,6 +537,29 @@ best-effort and are never consulted as state. Repeated polling, restarts, and la
 budget/access recovery do not reset the milestone. Keep the single-writer rule;
 this is not a transactional or exactly-once delivery guarantee.
 
+`Account.HandoffBlocker` names what keeps an account from its initial
+handoff, as a `core.HandoffBlock` kind. It runs the same checks as readiness,
+in the same order, and returns the first that applies:
+
+    stalled           readiness does not continue the account: it needs tag
+                      repair, is not managed, is not ACTIVE at AWS, has a
+                      status that cannot be extended, is closing, or has
+                      expired
+    budget-unchecked  budget protection is not checked yet
+    budget-settling   budget protection is in a state that a later pass
+                      completes, for example setup-pending
+    budget-problem    budget protection does not let the account be used,
+                      for example restricted or error
+    owner-unknown     the account has no real owner
+    access-pending    playplace manages access and did not grant the owner
+                      access yet
+
+The empty kind means that nothing blocks the handoff. A legacy account, which
+has no handoff tag, gets `access-pending` only while playplace manages access,
+the account can be extended, and no access is granted. It gets no other kind.
+`approve` and `create` map each kind to their own sentence. They name owner
+access only when playplace manages access.
+
 ## Owner access
 
 With `--permission-set NAME_OR_ARN` (or `PLAYPLACE_PERMISSION_SET`), owners
@@ -519,6 +569,8 @@ so the account appears in their access portal. The grant is recorded in the
 `playplace:access` tag and removed when the account closes. Accounts adopted
 from the OU get the same treatment when their owner tag resolves to a user.
 Without the flag, owners are free text and nothing is granted.
+`Service.AccessEnabled` reports whether the flag is set, so that the CLI and
+the web UI can tell the two cases apart.
 
 Identity Center must be enabled in the management account, and the
 permission set must already exist; create one such as `PlaygroundOwner` with
@@ -710,7 +762,10 @@ it.
 A row knows its spend only when `CostState` reports the last pull as good,
 as in the CLI. An account with no AWS account ID yet has spend that is
 known to be zero. Unknown spend shows "unavailable" with no meter, on both
-pages, and never counts as over budget.
+pages, and never counts as over budget. The account page pulls spend at once
+when it is not known. If that pull fails, the page shows "unavailable" for
+spend and "Spend is unavailable right now." in the daily panel. It never
+shows $0.00.
 
 Every page with a signed-in viewer ends in a footer. On a page that polls,
 the footer holds the live line: a dot, the time of the last update, and a
@@ -762,6 +817,25 @@ core keep their words, written as sentences. Core also stores the raw error
 of a failed budget call, in the budget error tag and in the history details.
 A page shows the same failure text in its place. A notice has a safe text of
 its own, as [Lifecycle notices](#lifecycle-notices) describes.
+
+A page also never shows the text of `LastError` or an AWS state string, such
+as `provider state "ACTIVE"`. The rows and the account page show the
+`Account.Problem()` of the account in plain words, with times in the UTC
+format of the pages. For example: "AWS has not confirmed the closure since
+2026-11-19 20:01 UTC. Charges may continue." A failed creation adds the
+`core.FailureAdvice` sentence. When AWS gave a reason with no known advice,
+it adds "An admin can see the reason in the log." When AWS gave no reason,
+it adds "AWS gave no reason. An admin can check the request in AWS." A
+`LastError` with no kind shows "Something went wrong with this account. An
+admin can see the details in the log." The refusals of Close and Sync use the
+same words. Core returns an account problem as a `core.AccountProblemError`.
+Its text is the raw text of the CLI, cron and the log, and it carries the
+account name and the `Problem`. The web UI shows the name and the words of
+the problem, for example "odd-box: AWS reports this account as suspended,
+not closed. Ask an admin to check it in AWS." The
+server log holds the raw text, the kind and the AWS state at the warn level.
+It writes them once for each new text, because the pages poll. The words live
+in `internal/web/problem.go`.
 
 Approve and Deny in the web UI go through one decide function. `POST
 /requests/decide?action=approve` or `?action=deny` takes a list of requests.

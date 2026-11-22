@@ -87,6 +87,7 @@ type Account struct {
 	ApprovedBy       string     `json:"approved_by,omitempty"`
 	Purpose          string     `json:"purpose,omitempty"`
 	handoff          string     // durable initial-handoff progress, not lifecycle status
+	problem          Problem    // the typed facts of LastError, set where LastError is written
 
 	// TagErrors identifies unusable guardrail facts, independently of lifecycle.
 	TagErrors map[string]string `json:"tag_errors,omitempty"`
@@ -276,6 +277,7 @@ func FromRemote(r RemoteAccount, defaults Config, now time.Time) *Account {
 	case r.Status != "ACTIVE":
 		a.Status = StatusUnavailable
 		a.LastError = fmt.Sprintf("provider state %q is not confirmed closure; investigate with AWS", r.Status)
+		a.problem = Problem{Kind: ProblemStateUnexpected, State: r.Status}
 	case a.CloseRequestedAt != nil:
 		a.Status = StatusClosing
 	case a.WarnedAt != nil:
@@ -285,6 +287,7 @@ func FromRemote(r RemoteAccount, defaults Config, now time.Time) *Account {
 	}
 	if a.Status != StatusClosed && a.CloseRequestedAt != nil && defaults.CloseAlertAfter > 0 && now.Sub(*a.CloseRequestedAt) >= defaults.CloseAlertAfter {
 		a.LastError = fmt.Sprintf("closure unconfirmed since %s (provider state %q); charges may continue", a.CloseRequestedAt.UTC().Format(time.RFC3339), r.Status)
+		a.problem = Problem{Kind: ProblemClosureUnconfirmed, Since: *a.CloseRequestedAt, State: r.Status}
 	}
 	return a
 }
@@ -304,8 +307,48 @@ func FromCreateRequest(r CreateRequest) *Account {
 	if r.State == CreateFailed {
 		a.Status = StatusFailed
 		a.LastError = r.FailureReason
+		a.problem = Problem{Kind: ProblemCreationFailed, Reason: r.FailureReason}
 	}
 	return a
+}
+
+// ProblemKind names what went wrong with an account, so that an interface
+// can choose its own words. LastError keeps the text of the CLI, the TUI and
+// the JSON.
+type ProblemKind string
+
+// The kinds of Problem, one for each place that writes LastError.
+const (
+	ProblemPlacementWait      ProblemKind = "placement-wait"      // AWS created the account; it waits outside the Playground OU
+	ProblemCreationFailed     ProblemKind = "creation-failed"     // AWS could not create the account
+	ProblemStateUnexpected    ProblemKind = "state-unexpected"    // AWS reports a state that is not ACTIVE and not closure
+	ProblemClosureUnconfirmed ProblemKind = "closure-unconfirmed" // AWS has not confirmed a requested closure in CloseAlertAfter
+)
+
+// Problem holds the facts behind LastError. Only the fields of its kind are
+// set:
+//   - placement-wait: Since is when AWS created the account.
+//   - creation-failed: Reason is the AWS failure reason, for example
+//     EMAIL_ALREADY_EXISTS, and can be empty. FailureAdvice turns it into a
+//     next step.
+//   - state-unexpected: State is the AWS state, for example SUSPENDED.
+//   - closure-unconfirmed: Since is when the closure was requested, and
+//     State is the AWS state at the time of the listing.
+type Problem struct {
+	Kind   ProblemKind
+	Since  time.Time
+	State  string
+	Reason string
+}
+
+// Problem returns the typed facts of LastError, and false when there are
+// none. That is when LastError is empty, with one exception: a failed
+// creation is a problem even when AWS gave no reason. The code that writes LastError writes the
+// problem from the same values at the same time, so the two always agree, and
+// nothing new is stored in tags. A later write replaces an earlier one, as
+// with LastError: an unconfirmed closure replaces an unexpected state.
+func (a *Account) Problem() (Problem, bool) {
+	return a.problem, a.problem.Kind != ""
 }
 
 var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$`)

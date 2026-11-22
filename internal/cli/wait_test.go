@@ -115,19 +115,52 @@ func TestWaitForAccountWaitsForActivation(t *testing.T) {
 }
 
 func TestHandoffBlockerFollowsReadinessOrder(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	// pending is a placed account that waits for its initial handoff, as
+	// the provider lists it.
+	pending := func(health, owner string, tags map[string]string, state string) *core.Account {
+		all := map[string]string{
+			core.TagManaged:      "true",
+			core.TagOwner:        owner,
+			core.TagExpires:      now.Add(7 * 24 * time.Hour).Format(time.RFC3339),
+			core.TagBudget:       "50",
+			core.TagHandoff:      "pending",
+			core.TagBudgetHealth: health,
+		}
+		for k, v := range tags {
+			all[k] = v
+		}
+		return core.FromRemote(core.RemoteAccount{ProviderID: "111111111111", Name: "dev", Status: state, JoinedAt: now.Add(-time.Hour), Tags: all}, core.DefaultConfig(), now)
+	}
 	for _, tc := range []struct {
-		health, owner, want string
+		name   string
+		acc    *core.Account
+		access bool
+		want   string // a prefix ending before the first period, or "" for none
 	}{
-		{"", "owner", "budget protection is not checked yet"},
-		{"setup-pending", "unknown", "budget protection is setup-pending"},
-		{"restricted", "owner", "budget protection is restricted"},
-		{"ready", " Unknown ", "the owner is not identified"},
-		{"alerts-disabled", "?", "the owner is not identified"},
-		{"alerts-only", "owner", "owner access is not granted"},
+		{"unchecked", pending("", "owner", nil, "ACTIVE"), true, "budget protection is not checked yet"},
+		{"settling", pending("setup-pending", "unknown", nil, "ACTIVE"), true, "budget protection is setup-pending"},
+		{"restricted", pending("restricted", "owner", nil, "ACTIVE"), true, "budget protection is restricted"},
+		{"owner unknown", pending("ready", " Unknown ", nil, "ACTIVE"), true, "the owner is not identified"},
+		{"owner question mark", pending("alerts-disabled", "?", nil, "ACTIVE"), false, "the owner is not identified"},
+		{"access pending", pending("alerts-only", "owner", nil, "ACTIVE"), true, "owner access is not granted"},
+		{"access granted", pending("alerts-only", "owner", map[string]string{core.TagAccess: "principal-1"}, "ACTIVE"), true, ""},
+		// Without managed access nothing grants it, so the CLI does not say
+		// that access is missing.
+		{"access not managed", pending("alerts-only", "owner", nil, "ACTIVE"), false, ""},
+		{"closing", pending("ready", "owner", map[string]string{core.TagCloseRequested: now.Format(time.RFC3339)}, "ACTIVE"), true, "readiness is stopped"},
+		{"suspended", pending("ready", "owner", nil, "SUSPENDED"), true, "readiness is stopped"},
+		{"expired", pending("ready", "owner", map[string]string{core.TagExpires: now.Add(-time.Minute).Format(time.RFC3339)}, "ACTIVE"), true, "readiness is stopped"},
 	} {
-		got := handoffBlocker(&core.Account{BudgetHealth: tc.health, Owner: tc.owner})
+		got := handoffBlocker(tc.acc, tc.access, now)
+		if tc.want == "" {
+			if got != "" {
+				t.Errorf("%s: handoffBlocker = %q, want none", tc.name, got)
+			}
+			continue
+		}
 		if !strings.HasPrefix(got, tc.want+".") {
-			t.Errorf("handoffBlocker(%q, %q) = %q, want prefix %q", tc.health, tc.owner, got, tc.want)
+			t.Errorf("%s: handoffBlocker = %q, want prefix %q", tc.name, got, tc.want)
 		}
 	}
 }

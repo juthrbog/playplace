@@ -3,6 +3,7 @@ package core_test
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -184,6 +185,12 @@ func TestUnavailableStatesAreNotClosed(t *testing.T) {
 			sum, err := h.svc.Refresh(ctx)
 			if err == nil || len(sum.Closed) != 0 || len(h.note.msgs) != 0 {
 				t.Fatalf("unavailable must not be closed: %+v %v", sum, err)
+			}
+			// The error keeps the text of the CLI and carries the typed problem.
+			var problem core.AccountProblemError
+			if !errors.As(err, &problem) || problem.Name != "unavailable" || problem.Problem.Kind != core.ProblemStateUnexpected ||
+				!strings.Contains(err.Error(), "closure of unavailable: provider state "+strconv.Quote(r.Status)+" is not confirmed closure") {
+				t.Fatalf("the error lacks the account problem: %+v %v", problem, err)
 			}
 			open, err := h.svc.List(ctx, core.ListFilter{})
 			if err != nil || len(open) != 1 || open[0].Status != core.StatusUnavailable || open[0].LastError == "" {

@@ -736,7 +736,7 @@ func (s *Service) unplacedAccount(r RemoteAccount, cr *CreateRequest, now time.T
 	if r.Status == "PENDING_ACTIVATION" && a.CloseRequestedAt == nil && now.Sub(r.JoinedAt) <= placementGrace {
 		// AWS activates a new account within minutes, and Refresh does not
 		// report this state before the grace ends.
-		a.Status, a.LastError = StatusCreating, ""
+		a.Status, a.LastError, a.problem = StatusCreating, "", Problem{}
 		return a
 	}
 	if a.Status != StatusActive && a.Status != StatusExpiring {
@@ -749,6 +749,7 @@ func (s *Service) unplacedAccount(r RemoteAccount, cr *CreateRequest, now time.T
 		// that placement failed.
 		a.LastError = fmt.Sprintf("AWS created this account on %s. It waits outside the Playground OU for the next reconcile. Until then it has no budget, OU guardrail, or expiry. If this message stays, check the reconcile errors.",
 			r.JoinedAt.UTC().Format("2006-01-02 15:04 MST"))
+		a.problem = Problem{Kind: ProblemPlacementWait, Since: r.JoinedAt}
 	}
 	return a
 }
@@ -881,6 +882,22 @@ func (s *Service) Extend(ctx context.Context, id string, until time.Time, by str
 	return a, nil
 }
 
+// LatestExpiry is the latest expiry that MaxTTL allows for a: its creation
+// time plus MaxTTL. Adopted accounts count from when they joined the
+// organization. It returns false when there is no ceiling (MaxTTL is 0 or
+// less) or the creation time is unknown, because then no fixed date exists.
+// An admin can still override the ceiling.
+func (s *Service) LatestExpiry(a *Account) (time.Time, bool) {
+	if s.cfg.MaxTTL <= 0 || a.CreatedAt.IsZero() {
+		return time.Time{}, false
+	}
+	return a.CreatedAt.Add(s.cfg.MaxTTL), true
+}
+
+// AccessEnabled reports whether playplace manages the console access of
+// owners, that is, whether a permission set is configured.
+func (s *Service) AccessEnabled() bool { return s.provider.AccessEnabled() }
+
 // checkLifetime refuses an expiry that would give the account a lifetime
 // longer than MaxTTL, counted from when it was created. Adopted accounts
 // count from when they joined the organization.
@@ -889,10 +906,13 @@ func (s *Service) checkLifetime(a *Account, until time.Time, override bool) erro
 		return nil
 	}
 	start := a.CreatedAt
-	if start.IsZero() {
+	limit, ok := s.LatestExpiry(a)
+	if !ok {
+		// With no creation time the limit counts from now, as it always
+		// has, so an account that can be extended today is not refused.
 		start = s.Now()
+		limit = start.Add(s.cfg.MaxTTL)
 	}
-	limit := start.Add(s.cfg.MaxTTL)
 	if until.After(limit) {
 		return LifetimeLimitError{Name: a.Name, Lifetime: until.Sub(start), Max: s.cfg.MaxTTL, Latest: limit}
 	}
@@ -986,7 +1006,7 @@ func (s *Service) tryClose(ctx context.Context, a *Account) (*Account, error) {
 		return a, errors.Join(s.confirmClosed(ctx, a), s.retireBudget(ctx, a))
 	}
 	if a.Status == StatusUnavailable {
-		return a, fmt.Errorf("verify closure of %s: %s", a.Name, a.LastError)
+		return a, problemError(a, "verify closure of "+a.Name+": "+a.LastError)
 	}
 	// Even an eventually consistent ACTIVE response is not permission to
 	// extend or grant access again: the durable close intent still applies.
@@ -1020,17 +1040,36 @@ func (s *Service) checkClosureDelay(ctx context.Context, a *Account) error {
 	}
 	msg := fmt.Sprintf("closure of %s (%s) unconfirmed since %s (provider state %q); charges may continue; investigate AWS closure restrictions and run reconcile again",
 		a.Name, a.ProviderID, a.CloseRequestedAt.UTC().Format(time.RFC3339), a.ProviderState)
+	overdue := AccountProblemError{Name: a.Name, Problem: Problem{Kind: ProblemClosureUnconfirmed, Since: *a.CloseRequestedAt, State: a.ProviderState}, msg: msg}
 	s.log.Error("closure overdue", "account", a.Name, "account_id", a.ProviderID, "since", *a.CloseRequestedAt, "provider_state", a.ProviderState)
 	if a.CloseAlertedAt == nil {
 		now := s.Now().UTC()
 		if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagCloseAlertedAt: now.Format(time.RFC3339)}); err != nil {
-			return errors.Join(errors.New(msg), providerError("record closure alert", err))
+			return errors.Join(overdue, providerError("record closure alert", err))
 		}
 		a.CloseAlertedAt = &now
 		s.audit(ctx, "closure-overdue", a, ActorSystem, "", msg, nil)
 		s.notify(ctx, a, "Playground account closure overdue", msg)
 	}
-	return errors.New(msg)
+	return overdue
+}
+
+// AccountProblemError is an error about the problem of one account. Its text
+// holds the raw LastError, with AWS states and RFC 3339 times, and is the
+// text of the CLI, cron and the log. Problem holds the same facts typed, so
+// the web UI can choose plain words.
+type AccountProblemError struct {
+	Name    string
+	Problem Problem
+	msg     string
+}
+
+func (e AccountProblemError) Error() string { return e.msg }
+
+// problemError is an AccountProblemError for a, with msg as its text.
+func problemError(a *Account, msg string) error {
+	p, _ := a.Problem()
+	return AccountProblemError{Name: a.Name, Problem: p, msg: msg}
 }
 
 // Summary reports what a Refresh changed.
@@ -1158,7 +1197,7 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 			} else {
 				err = s.revokeAccess(ctx, a)
 				if a.Status == StatusUnavailable {
-					err = errors.Join(err, fmt.Errorf("closure of %s: %s", a.Name, a.LastError))
+					err = errors.Join(err, problemError(a, "closure of "+a.Name+": "+a.LastError))
 				}
 			}
 			if err != nil {
@@ -1176,7 +1215,7 @@ func (s *Service) Refresh(ctx context.Context) (Summary, error) {
 			continue
 		}
 		if r.Status != "ACTIVE" {
-			errs = append(errs, fmt.Errorf("account %s: %s", a.Name, a.LastError))
+			errs = append(errs, problemError(a, "account "+a.Name+": "+a.LastError))
 			continue
 		}
 

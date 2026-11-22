@@ -56,7 +56,7 @@ func (s *Service) announceCreationFailure(ctx context.Context, a *Account, cr Cr
 	s.audit(ctx, "failed", a, ActorSystem, "", fmt.Sprintf("AWS could not create %s: %s", a.Name, cr.FailureReason),
 		map[string]string{"reason": cr.FailureReason, "request_id": cr.RequestID})
 	body := fmt.Sprintf("AWS could not create %s for %s: %s.", a.Name, a.Owner, cr.FailureReason)
-	if advice := failureAdvice(cr.FailureReason); advice != "" {
+	if advice := FailureAdvice(cr.FailureReason); advice != "" {
 		body += " " + advice
 	}
 	s.notifyAll(ctx, "Playground account creation failed", body, a.Owner, a.ID)
@@ -91,11 +91,11 @@ func (s *Service) reportReplacedFailure(ctx context.Context, name string) error 
 	return nil
 }
 
-// failureAdvice names the next step after AWS refused a creation with the
+// FailureAdvice names the next step after AWS refused a creation with the
 // given FailureReason, and who takes it, or "" when AWS documents no meaning
 // for the reason. The reasons are the CreateAccountFailureReason values of
 // the Organizations API; core keeps them as strings.
-func failureAdvice(reason string) string {
+func FailureAdvice(reason string) string {
 	switch reason {
 	case "EMAIL_ALREADY_EXISTS", "GOVCLOUD_ACCOUNT_ALREADY_EXISTS":
 		// AWS never frees a root email, and --email-pattern derives the

@@ -23,6 +23,95 @@ func (a *Account) HandoffPending() bool {
 	return a.handoff == handoffPlacing || a.handoff == handoffPending
 }
 
+// HandoffBlock names what keeps an account from its initial handoff, so that
+// an interface can choose its own words. The empty kind means that nothing
+// blocks it.
+type HandoffBlock string
+
+// The kinds of HandoffBlock, in the order that reconcileReadiness checks
+// them. HandoffBlocker returns the first that applies.
+const (
+	// HandoffStalled: readiness does not progress the account at all. It
+	// needs tag repair, is not managed, is not ACTIVE at AWS, cannot be
+	// extended, is closing, or has expired.
+	HandoffStalled HandoffBlock = "stalled"
+	// HandoffBudgetUnchecked: budget protection is not checked yet.
+	HandoffBudgetUnchecked HandoffBlock = "budget-unchecked"
+	// HandoffBudgetSettling: budget protection is in a state that a later
+	// pass completes, for example setup-pending.
+	HandoffBudgetSettling HandoffBlock = "budget-settling"
+	// HandoffBudgetProblem: budget protection is in a state that does not
+	// let the account be used, for example restricted or error.
+	HandoffBudgetProblem HandoffBlock = "budget-problem"
+	// HandoffOwnerUnknown: the account has no real owner.
+	HandoffOwnerUnknown HandoffBlock = "owner-unknown"
+	// HandoffAccessPending: playplace manages access and has not granted
+	// the owner console access yet.
+	HandoffAccessPending HandoffBlock = "access-pending"
+)
+
+// HandoffBlocker names what keeps the account from its initial handoff at
+// now, with the same checks and in the same order as reconcileReadiness.
+// accessEnabled is Service.AccessEnabled. It does not promise the ready
+// notice: a missing owner can block it for a long time.
+//
+// An account that finished its handoff gets the empty kind. A legacy account,
+// which has no handoff tag, gets HandoffAccessPending only while playplace
+// manages access, the account can be extended, and no access is granted;
+// readiness still grants access to such an account, but it sends no ready
+// notice.
+func (a *Account) HandoffBlocker(accessEnabled bool, now time.Time) HandoffBlock {
+	if !a.HandoffPending() {
+		if a.handoff == "" && accessEnabled && a.AccessGrantedTo == "" && a.CanExtend() {
+			return HandoffAccessPending
+		}
+		return ""
+	}
+	if a.RepairError() != nil || !a.Managed || a.ProviderState != "ACTIVE" || !a.Status.CanExtend() || a.CloseRequestedAt != nil || !a.ExpiresAt.After(now) {
+		return HandoffStalled
+	}
+	switch {
+	case handoffBudgetReady(a.BudgetHealth):
+	case a.BudgetHealth == "":
+		return HandoffBudgetUnchecked
+	case budgetSettling(a.BudgetHealth):
+		return HandoffBudgetSettling
+	default:
+		return HandoffBudgetProblem
+	}
+	if accessEnabled && a.AccessGrantedTo != "" {
+		return "" // a grant needs no owner lookup any more
+	}
+	if ownerUnknown(a.Owner) {
+		// With access on, the grant cannot find the owner; with access
+		// off, the handoff waits for a real owner.
+		return HandoffOwnerUnknown
+	}
+	if accessEnabled {
+		return HandoffAccessPending
+	}
+	return ""
+}
+
+// handoffBudgetReady reports whether budget protection lets the initial
+// handoff finish.
+func handoffBudgetReady(health string) bool {
+	switch health {
+	case "ready", "alerts-only", "alerts-disabled":
+		return true
+	}
+	return false
+}
+
+// ownerUnknown reports whether owner names no real person.
+func ownerUnknown(owner string) bool {
+	switch strings.ToLower(strings.TrimSpace(owner)) {
+	case "", "unknown", "?":
+		return true
+	}
+	return false
+}
+
 // reconcileReadiness progresses an account already in the Playground OU. Both
 // creation polling and Refresh enter here under opMu. Protection/access repair
 // continues for legacy and handed-off accounts; only explicitly enrolled accounts
@@ -75,20 +164,15 @@ func (s *Service) reconcileReadiness(ctx context.Context, a *Account) error {
 	}
 	// Configured protection may be actively restricting the account. Keep
 	// reconciling it, but do not celebrate the initial handoff until usable.
-	switch a.BudgetHealth {
-	case "ready", "alerts-only", "alerts-disabled":
-	default:
+	if !handoffBudgetReady(a.BudgetHealth) {
 		return nil
 	}
 	if s.provider.AccessEnabled() {
 		if a.AccessGrantedTo == "" {
 			return nil
 		}
-	} else {
-		switch strings.ToLower(strings.TrimSpace(a.Owner)) {
-		case "", "unknown", "?":
-			return nil
-		}
+	} else if ownerUnknown(a.Owner) {
+		return nil
 	}
 	// A failed durable write must not notify. Delivery itself stays best-effort:
 	// a crash or notifier failure after this write can lose, not repeat, a notice.

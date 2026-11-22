@@ -36,7 +36,7 @@ func TestUnplacedCreationPageShowsAPlacementNote(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	res, body := do(t, ts, "GET", "/accounts/"+a.RequestID, "admin@example.com", true, nil, false)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, "<dt>placement</dt>") || !strings.Contains(body, "waits outside the Playground OU") {
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "<dt>placement</dt>") || !strings.Contains(body, "Waiting for AWS to place the account since 2026-09-15 12:00 UTC.") {
 		t.Fatalf("status %d, body: %s", res.StatusCode, body)
 	}
 	if strings.Contains(body, "<dt>failure</dt>") || !strings.Contains(body, `<dd class="qualifier">`) {
@@ -44,7 +44,7 @@ func TestUnplacedCreationPageShowsAPlacementNote(t *testing.T) {
 	}
 	// The list row shows the same qualifier under the creating label.
 	res, body = do(t, ts, "GET", "/", "admin@example.com", true, nil, false)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, "status-creating") || !regexp.MustCompile(`class="qualifier">(?:<svg.*?</svg>)?<span>AWS created this account`).MatchString(body) {
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "status-creating") || !regexp.MustCompile(`class="qualifier">(?:<svg.*?</svg>)?<span>Waiting for AWS to place the account since`).MatchString(body) {
 		t.Fatalf("list row: status %d, body: %s", res.StatusCode, body)
 	}
 }
@@ -61,7 +61,7 @@ func TestAccountFactsNameWhatIsMissing(t *testing.T) {
 	} {
 		var buf bytes.Buffer
 		a := &core.Account{ID: "x", Name: "x", Status: tc.status, CreatedAt: t0}
-		if err := accountPage(page{}, a, nil, 0, historyView{}).Render(context.Background(), &buf); err != nil {
+		if err := accountPage(page{}, a, spendView{Known: true}, historyView{}).Render(context.Background(), &buf); err != nil {
 			t.Fatal(err)
 		}
 		out := buf.String()

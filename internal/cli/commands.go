@@ -462,7 +462,9 @@ func waitForAccount(ctx context.Context, a *app, acc *core.Account, maxWait time
 	}
 	fmt.Printf("%s is active: account %s, owner %s, expires %s\n", acc.Name, acc.ProviderID, acc.Owner, acc.ExpiresAt.Format("2006-01-02"))
 	if acc.HandoffPending() {
-		fmt.Printf("%s is not ready yet: %s\n", acc.Name, handoffBlocker(acc))
+		if blocker := handoffBlocker(acc, a.svc.AccessEnabled(), a.svc.Now()); blocker != "" {
+			fmt.Printf("%s is not ready yet: %s\n", acc.Name, blocker)
+		}
 	}
 	return nil
 }
@@ -489,21 +491,23 @@ func createdFailure(err error) error {
 }
 
 // handoffBlocker names what keeps a placed account from its initial handoff,
-// in the order that readiness checks it. It does not promise the ready
-// notice: a missing owner can block it for a long time.
-func handoffBlocker(acc *core.Account) string {
-	switch acc.BudgetHealth {
-	case "ready", "alerts-only", "alerts-disabled":
-	case "":
+// in the order that readiness checks it, or "" when nothing blocks it. It
+// does not promise the ready notice: a missing owner can block it for a long
+// time.
+func handoffBlocker(acc *core.Account, accessEnabled bool, now time.Time) string {
+	switch acc.HandoffBlocker(accessEnabled, now) {
+	case core.HandoffStalled:
+		return "readiness is stopped. The account needs tag repair, is closing or expired, or AWS does not report it as ACTIVE, so a refresh does not continue it."
+	case core.HandoffBudgetUnchecked:
 		return "budget protection is not checked yet. A later refresh continues it."
-	default:
+	case core.HandoffBudgetSettling, core.HandoffBudgetProblem:
 		return "budget protection is " + acc.BudgetHealth + ". A later refresh continues it."
-	}
-	switch strings.ToLower(strings.TrimSpace(acc.Owner)) {
-	case "", "unknown", "?":
+	case core.HandoffOwnerUnknown:
 		return "the owner is not identified. A later refresh continues when the account has a real owner."
+	case core.HandoffAccessPending:
+		return "owner access is not granted. A later refresh retries it."
 	}
-	return "owner access is not granted. A later refresh retries it."
+	return ""
 }
 
 func createCmd(opts *options) *cobra.Command {
