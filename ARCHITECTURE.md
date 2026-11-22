@@ -661,7 +661,9 @@ page in the `HX-Current-URL` header on every request, and the server reads
 only its path. A page visit uses its own path. `askingPage` in
 `internal/web/server.go` knows three pages: the home page, the accounts
 page `/accounts`, and an account page. An account page is `/accounts/` and
-one account reference that matches `^[A-Za-z0-9][A-Za-z0-9-]{0,63}$`. Any
+one account reference that matches `^[A-Za-z0-9][A-Za-z0-9:-]{0,67}$`. The
+colon and the extra length are for a pending request, whose account ID is
+`req:` and the request name. Any
 other path, or a missing header, counts as the home page. On the home page, the poll and the row
 actions (+7d, Close and Sync) answer with the accounts section and, out of
 band, the queue panel, the Needs attention ledger `#attention` for an
@@ -674,15 +676,30 @@ the count out of band there. The hash covers exactly what the page shows,
 so each page gets its own 204.
 
 An account page polls its own address, `GET /accounts/{id}`, every 15
-seconds. Its poller is the account section `#account`: the loan card of the
-account and its facts. The refresh, +7d and Close from the page all answer
-with `accountAnswer`, which is only that section. It carries no queue, no
+seconds. A page visit with any reference other than the account ID, such as
+a name or a creation request ID, redirects to `/accounts/` and the ID. So
+the poll and the actions never follow a name to a newer account. Its poller
+is the account section `#account`: the loan card of the account and its
+facts. The refresh, +7d and Close from the page all answer with
+`accountAnswer`, which is only that section. It carries no queue, no
 ledger and no fleet. An action answer adds the message for the live region.
 The server reads the account again through `accountFor`, which resolves the
 reference of the asking page and checks `canSee`. If the account is gone,
 or the viewer can no longer see it, the section becomes the plain notice of
-`accountGone`, which shows nothing of the account and does not poll. The
-poll hash of the page, from `accountHash`, is the hash of the section
+`accountGone`, which shows nothing of the account and does not poll. On a
+refresh this happens through `refreshAccount`, before `owned`, so a gone or
+hidden account never gets a refusal that comes back every 15 seconds. A +7d
+or Close on such an account goes through `owned` and gets a refusal. If the
+account does not load, for example because the account list from AWS
+failed, the refresh answers with `accountStale`. That section keeps polling,
+holds the text of `listFailure` in a note marked `data-stale`, and has a
+poll hash that leaves out the text. So the same outage gets 204, the
+Updated time does not reset, and the next good poll brings the card back.
+If the reference now resolves to an account with another ID, the refresh
+sends `HX-Replace-Url` with `/accounts/` and that ID. `core.Service.Resolve`
+finds a placed account by its creation request ID while AWS still lists the
+creation request, so a page opened while the account was creating follows
+it. The poll hash of the page, from `accountHash`, is the hash of the section
 rendered with no hash and with no landed stamp, so the poll after a +7d
 still gets 204. The refresh reads spend from the cost cache through
 `CostState` and never pulls. A page visit pulls spend that is not known

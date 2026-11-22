@@ -105,10 +105,13 @@ accounts. See
 
 ## The account page
 
-Each account has its own page at `/accounts/` and the name or the ID of the
-account. Open it from the name on a loan card, or from the name of a row in
-an accounts table. Only the owner of the account and admins can open it.
-Anyone else gets "Not allowed".
+Each account has its own page at `/accounts/` and the ID of the account.
+Open it from the name on a loan card, or from the name of a row in an
+accounts table. You can also type the name of the account after
+`/accounts/`. The page then moves to the address with the ID. A new account
+has the ID of its creation request until AWS gives it an AWS account ID.
+When that happens, the page moves to the new ID by itself. Only the owner
+of the account and admins can open it. Anyone else gets "Not allowed".
 
 The top of the page is the loan card of the account. The name of the
 account is the heading of the page. The card shows the AWS account ID, the
@@ -134,7 +137,8 @@ when it was created, when it is due, its lifetime, the monthly budget, the
 state of budget protection and the root email. An older account can say
 "not recorded" for the purpose, the requester or the approver, because
 playplace did not keep them then. The lifetime counts from the creation to
-the due date, such as "10 days". When your organization sets a lifetime
+the due date in whole days, such as "10 days". A lifetime shorter than one
+day is in hours. When your organization sets a lifetime
 limit, it follows, such as "(the limit is 90 days)". A small line under the
 facts gives the creation request ID, for support.
 
@@ -153,7 +157,11 @@ and the daily spend do not update. Reload the page to see new history. When
 you open the page and playplace does not know the spend, it gets the spend
 from AWS at once. The updates every 15 seconds use the spend that playplace
 already has. If the account is gone, or you can no longer see it, the page
-shows "Account unavailable" in place of the card and the details.
+shows "Account unavailable" in place of the card and the details, and stops
+the updates. If playplace cannot read the account, for example because the
+call to AWS failed, the page shows "The account is unavailable right now"
+in place of the card and the details. It tries again every 15 seconds, and
+the card comes back when the call works again.
 
 Only the `?` key works on the account page. See [Keys](#keys).
 
