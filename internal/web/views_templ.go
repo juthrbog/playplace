@@ -4179,7 +4179,7 @@ func accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) te
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 320, "><div class=\"panel-head\"><h2 id=\"accounts-title\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 320, "><div class=\"panel-head\"><h2 id=\"accounts-title\" tabindex=\"-1\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

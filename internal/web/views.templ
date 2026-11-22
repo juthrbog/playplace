@@ -880,7 +880,7 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 		}
 	>
 		<div class="panel-head">
-			<h2 id="accounts-title">
+			<h2 id="accounts-title" tabindex="-1">
 				if pg.SignIn && !pg.Viewer.Admin {
 					Your accounts
 				} else {

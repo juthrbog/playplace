@@ -318,8 +318,10 @@ var busyNote = "Another decision is still being sent. Wait for it, then try agai
 // hiddenOf returns the name and the value of each hidden field of the
 // form of elt, except the reason. The deny dialog of a slip notes them
 // when it opens. A poll can change them while the dialog is open, so
-// confirmAsk puts them back before the post. The post then carries the
-// version that the viewer saw, and the server refuses it as changed.
+// confirmAsk puts them in the form only while htmx reads the post. The
+// post then carries the version that the viewer saw, and the server
+// refuses it as changed. The form then holds the live values again, so a
+// later dialog notes what the slip shows.
 function hiddenOf(elt) {
   var form = elt.tagName === "FORM" ? elt : elt.form;
   if (!form) {
@@ -345,6 +347,13 @@ function putHidden(elt, noted) {
       }
     }
   }
+}
+
+// rowOf is the id of the slip or the fleet row that holds elt, or "" for
+// a bulk button. A dialog notes it, because a poll can take elt away.
+function rowOf(elt) {
+  var row = elt.closest ? elt.closest(slipRows + ", " + fleetRows) : null;
+  return row ? row.id : "";
 }
 
 // firstWaiting is the control that takes the focus when the focused
@@ -443,7 +452,7 @@ function openDeny(elt, names, issue, text, note) {
   } else {
     slot.replaceChildren();
   }
-  asking = { elt: elt, kind: "deny", names: names, issue: issue };
+  asking = { elt: elt, kind: "deny", names: names, issue: issue, row: rowOf(elt) };
   if (!elt.hasAttribute("data-bulk")) {
     asking.hidden = hiddenOf(elt);
   }
@@ -493,7 +502,7 @@ function openClose(elt, issue) {
   }
   document.getElementById("close-title").textContent = "Close account " + name + "?";
   document.getElementById("close-who").textContent = "AWS account " + elt.getAttribute("data-account") + ", owned by " + elt.getAttribute("data-owner") + ".";
-  asking = { elt: elt, kind: "close", names: [name], issue: issue };
+  asking = { elt: elt, kind: "close", names: [name], issue: issue, row: rowOf(elt) };
   dialog.returnValue = "";
   dialog.showModal();
   var cancel = dialog.querySelector('button[value="cancel"]');
@@ -538,6 +547,18 @@ function sameNames(a, b) {
 // live update cleared a box while it was open.
 var selectionChanged = "A request changed while this dialog was open, so it left the selection. Check the requests again.";
 
+// closeGone is the note of a close dialog whose Close form a live update
+// took away, because the account no longer is active or expiring.
+function closeGone(name) {
+  return "Account " + name + " can no longer be closed, so nothing was sent.";
+}
+
+// cannotDecide is the note of a deny dialog whose slip still waits but
+// lost its Deny button, for example because the viewer now owns it.
+function cannotDecide(name) {
+  return name + " still waits, but you can no longer decide it, so nothing was sent.";
+}
+
 // noneLeft is the note of a bulk dialog whose button a live update took
 // away, because no request that the viewer can decide still waits.
 var noneLeft = "None of the selected requests is still waiting, so nothing was sent.";
@@ -563,8 +584,8 @@ function askAgain(ask, names, text) {
 // open: a request that changed clears its box. The selection must then be
 // the one that the dialog showed, or the dialog opens again with the new
 // selection, so a decision never acts on requests that the viewer did not
-// see. A slip form gets back the hidden values that it had when the
-// dialog opened, so a request that changed is refused as changed. A
+// see. A slip form posts the hidden values that it had when the dialog
+// opened, so a request that changed is refused as changed. A
 // request that still runs for the same form would make htmx drop this
 // one, so the dialog says so instead: the deny dialog opens again with
 // the reason, and any other dialog writes the note into the region. A
@@ -572,9 +593,6 @@ function askAgain(ask, names, text) {
 // posts: the slip form, or the desk form of a bulk button.
 function confirmAsk(ask, text) {
   var elt = ask.elt;
-  if (!document.body.contains(elt)) {
-    return;
-  }
   var now = elt.hasAttribute("data-bulk") ? pickedNames() : ask.names;
   if (!sameNames(ask.names, now) && askAgain(ask, now, text)) {
     return;
@@ -587,7 +605,8 @@ function confirmAsk(ask, text) {
     }
     return;
   }
-  if (ask.hidden) {
+  var live = ask.hidden ? hiddenOf(elt) : null;
+  if (live) {
     putHidden(elt, ask.hidden);
   }
   if (elt.hasAttribute("data-bulk")) {
@@ -601,7 +620,12 @@ function confirmAsk(ask, text) {
     }
     lastDeny = { elt: elt, names: ask.names, issue: ask.issue, text: text, hidden: ask.hidden };
   }
+  // htmx reads the form while issue runs, and syncBusy made sure that no
+  // request holds this one in a queue.
   ask.issue(true);
+  if (live) {
+    putHidden(elt, live);
+  }
 }
 
 // The forms of the dialogs use method="dialog". A Cancel button skips the
@@ -610,10 +634,12 @@ function confirmAsk(ask, text) {
 // leaves the deny dialog. The dialog closes before the request starts, so
 // the focus is back on the button that opened it. A poll can take that
 // button away while the dialog is open: someone else decided the
-// request, or no slip is left to select. The focus then goes to the name
-// of the first slip that waits, or to the queue heading, and on confirm
-// the region says why nothing was sent. A Close form stays in its row
-// while the account is open, so the close dialog has no such case.
+// request, the viewer can no longer decide it, no slip is left to select,
+// or the account began to close. The focus then goes to the slip or the
+// row of the button when it still shows a control: the name of a slip
+// that waits, or the account link of a fleet row. Else it goes to the
+// name of the first slip that waits, or to the heading of the section. On
+// confirm the region says why nothing was sent.
 document.addEventListener("submit", function (ev) {
   var form = ev.target;
   var dialog = form && form.closest ? form.closest("dialog") : null;
@@ -626,13 +652,18 @@ document.addEventListener("submit", function (ev) {
   var confirmed = ev.submitter && ev.submitter.value === "confirm";
   var reason = document.getElementById("deny-reason");
   dialog.close(confirmed ? "confirm" : "cancel");
-  if (ask.kind !== "close" && !document.body.contains(ask.elt)) {
-    var target = firstWaiting();
+  if (!document.body.contains(ask.elt)) {
+    var close = ask.kind === "close";
+    var row = ask.row ? document.getElementById(ask.row) : null;
+    var here = controlIn(row, close ? "td a" : "button.slip-name, .slip-title[tabindex]");
+    var target = here || (close ? document.getElementById("accounts-title") : firstWaiting());
     if (target) {
       target.focus();
     }
     if (confirmed) {
-      say(ask.elt.hasAttribute("data-bulk") ? noneLeft : goneText(ask.names[0]));
+      say(close ? closeGone(ask.names[0])
+        : ask.elt.hasAttribute("data-bulk") ? noneLeft
+          : here ? cannotDecide(ask.names[0]) : goneText(ask.names[0]));
     }
     return;
   }
@@ -644,8 +675,9 @@ document.addEventListener("submit", function (ev) {
 // The server refuses a reason that does not pass its rule, names the
 // reason field and writes its refusal into the refusal slot of the queue.
 // The deny dialog then opens again with the text and that refusal, so the
-// viewer fixes the reason where they wrote it. htmx swaps the answer
-// before this event, so the slot holds the refusal already.
+// viewer fixes the reason where they wrote it, and the queue slot clears.
+// htmx swaps the answer before this event, so the slot holds the refusal
+// already.
 document.addEventListener("htmx:afterRequest", function (ev) {
   var d = ev.detail;
   var ask = lastDeny;
@@ -664,6 +696,11 @@ document.addEventListener("htmx:afterRequest", function (ev) {
   if (openDeny(ask.elt, ask.names, ask.issue, ask.text, refusal)) {
     asking.hidden = ask.hidden;
     document.getElementById("deny-reason").setAttribute("aria-invalid", "true");
+    // The dialog shows the refusal now, so the queue does not show it
+    // twice. A dialog that does not open leaves it in the queue.
+    if (slot) {
+      slot.replaceChildren();
+    }
   }
 });
 

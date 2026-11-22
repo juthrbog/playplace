@@ -349,10 +349,12 @@ func TestCloseDialogLivesInAppJS(t *testing.T) {
 }
 
 // A poll can morph the queue while a dialog is open. The deny dialog of a
-// slip notes the hidden values of its form when it opens and puts them back
-// before the post, so the post carries the version that the viewer saw and
-// the server refuses a request that changed. A refused reason that opens
-// the dialog again keeps the same values.
+// slip notes the hidden values of its form when it opens and puts them in
+// the form only while htmx reads the post, so the post carries the version
+// that the viewer saw and the server refuses a request that changed. The
+// form then gets the live values back, so a refusal that does not morph
+// the slip leaves no old version for the next dialog. A refused reason
+// that opens the dialog again keeps the same values.
 func TestDenyDialogPostsWhatTheViewerSaw(t *testing.T) {
 	js := staticText(t, "app.js")
 	holdsEach(t, "hiddenOf", funcBody(t, js, "function hiddenOf(elt) {"),
@@ -365,10 +367,16 @@ func TestDenyDialogPostsWhatTheViewerSaw(t *testing.T) {
 		"if (!elt.hasAttribute(\"data-bulk\")) {\n    asking.hidden = hiddenOf(elt);\n  }")
 	confirm := funcBody(t, js, "function confirmAsk(ask, text) {")
 	holdsEach(t, "confirmAsk", confirm,
+		"var live = ask.hidden ? hiddenOf(elt) : null;",
 		"putHidden(elt, ask.hidden);",
+		"putHidden(elt, live);",
 		"hidden: ask.hidden };")
-	if strings.Index(confirm, "putHidden(elt, ask.hidden);") > strings.Index(confirm, "ask.issue(true);") {
-		t.Error("confirmAsk puts the noted values back after the post")
+	issue := strings.Index(confirm, "ask.issue(true);")
+	if strings.Index(confirm, "var live") > strings.Index(confirm, "putHidden(elt, ask.hidden);") || strings.Index(confirm, "putHidden(elt, ask.hidden);") > issue {
+		t.Error("confirmAsk does not note the live values and then put the noted values in before the post")
+	}
+	if strings.Index(confirm, "putHidden(elt, live);") < issue {
+		t.Error("confirmAsk does not put the live values back after htmx reads the post")
 	}
 	reopen := false
 	for _, body := range listeners(js, "htmx:afterRequest") {
@@ -378,6 +386,20 @@ func TestDenyDialogPostsWhatTheViewerSaw(t *testing.T) {
 	}
 	if !reopen {
 		t.Error("the deny dialog that opens again on a refused reason drops the noted values")
+	}
+	// The reopened dialog shows the refusal, so the queue slot behind it
+	// clears. It clears only after the dialog opens, so a dialog that does
+	// not open leaves the refusal in the queue.
+	cleared := false
+	for _, body := range listeners(js, "htmx:afterRequest") {
+		open := strings.Index(body, "openDeny(ask.elt, ask.names, ask.issue, ask.text, refusal)")
+		clear := strings.Index(body, "slot.replaceChildren();")
+		if open >= 0 && clear > open {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Error("a refused reason shows in the reopened dialog and again in the queue slot")
 	}
 }
 
@@ -433,9 +455,11 @@ func TestDialogNeverSendsIntoADrop(t *testing.T) {
 }
 
 // A poll can take away the button that opened a dialog. The focus then
-// goes to the name of the first slip that waits, or to the queue heading,
-// and a confirm says why nothing was sent. A bulk control that a decision
-// takes away gives the focus the same way.
+// goes to its own slip or row when that still shows a control, else to the
+// name of the first slip that waits or the heading of the section, and a
+// confirm says why nothing was sent. A slip that still waits is not called
+// gone, and the close dialog has the same guard. A bulk control that a
+// decision takes away gives the focus the same way.
 func TestFocusNeverFallsToThePageAfterADialog(t *testing.T) {
 	js := staticText(t, "app.js")
 	holdsEach(t, "firstWaiting", funcBody(t, js, "function firstWaiting() {"),
@@ -446,9 +470,27 @@ func TestFocusNeverFallsToThePageAfterADialog(t *testing.T) {
 		t.Fatalf("app.js has %d submit listeners, want 1", len(submit))
 	}
 	holdsEach(t, "the submit listener", submit[0],
-		`ask.kind !== "close" && !document.body.contains(ask.elt)`,
-		"var target = firstWaiting();",
-		`say(ask.elt.hasAttribute("data-bulk") ? noneLeft : goneText(ask.names[0]));`)
+		"if (!document.body.contains(ask.elt)) {",
+		`var row = ask.row ? document.getElementById(ask.row) : null;`,
+		`var here = controlIn(row, close ? "td a" : "button.slip-name, .slip-title[tabindex]");`,
+		`var target = here || (close ? document.getElementById("accounts-title") : firstWaiting());`,
+		"say(close ? closeGone(ask.names[0])",
+		`: ask.elt.hasAttribute("data-bulk") ? noneLeft`,
+		": here ? cannotDecide(ask.names[0]) : goneText(ask.names[0]));")
+	if strings.Contains(submit[0], `ask.kind !== "close"`) {
+		t.Error("the submit listener still skips the close dialog when its Close form left")
+	}
+	holdsEach(t, "rowOf", funcBody(t, js, "function rowOf(elt) {"), `elt.closest(slipRows + ", " + fleetRows)`)
+	for _, head := range []string{"function openDeny(elt, names, issue, text, note) {", "function openClose(elt, issue) {"} {
+		holdsEach(t, head, funcBody(t, js, head), "row: rowOf(elt) }")
+	}
+	holdsEach(t, "closeGone", funcBody(t, js, "function closeGone(name) {"), "can no longer be closed, so nothing was sent.")
+	holdsEach(t, "cannotDecide", funcBody(t, js, "function cannotDecide(name) {"), "still waits, but you can no longer decide it")
+	ts, _ := newServer(t)
+	_, home := do(t, ts, "GET", "/", "anna@example.com", true, nil, false)
+	if !strings.Contains(home, `<h2 id="accounts-title" tabindex="-1">`) {
+		t.Error("the fleet heading cannot take the focus from a close dialog whose row left")
+	}
 	holdsEach(t, "notePlace", funcBody(t, js, "function notePlace(xhr, source) {"),
 		`active.closest("#desk-bar")`,
 		"desk: true,",
