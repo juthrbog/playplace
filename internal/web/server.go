@@ -41,6 +41,10 @@ type Server struct {
 	mux     *http.ServeMux
 
 	noticesInSlack bool // lifecycle notices go to a Slack channel
+
+	// problems logs the raw problem text of accounts that pages show in
+	// plain words.
+	problems problemLog
 }
 
 // SetNoticesInSlack tells the pages that lifecycle notices go to a
@@ -310,6 +314,28 @@ func regionInCard(pg page) page {
 }
 
 func (s *Server) pageFor(r *http.Request) page {
+	pg := s.shellPage(r)
+	if pg.PendingFailed {
+		return pg
+	}
+	// The opened slip of an approver says how the owner stands against the
+	// per-owner limit, and Your requests says how the viewer stands. The
+	// list comes from the same cached inventory as the queue.
+	accounts, err := s.svc.List(r.Context(), core.ListFilter{})
+	if err != nil {
+		s.log.Warn("accounts for the per-owner limit", "path", r.URL.Path, "err", err)
+		pg.HoldsFailed = true
+	} else {
+		pg.Holds = ownerHolds(accounts)
+	}
+	return pg
+}
+
+// shellPage is the page of a request with what the shell needs: the
+// viewer, the fleet view and the queue, whose count shows beside Queue on
+// every page. It leaves out the holds of owners, which only the queue and
+// Your requests use. The account page uses shellPage alone.
+func (s *Server) shellPage(r *http.Request) page {
 	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), Limits: s.svc.Config(), Path: r.URL.Path, Asker: askingPage(r), InSlack: s.slack != nil || s.noticesInSlack, Now: s.svc.Now()}
 	// The fleet view of the accounts page comes in the query of a GET and,
 	// thanks to hx-include, in the body of an action, so the view survives
@@ -333,16 +359,6 @@ func (s *Server) pageFor(r *http.Request) page {
 	slices.SortStableFunc(pg.Pending, func(a, b core.Request) int {
 		return cmp.Or(a.RequestedAt.Compare(b.RequestedAt), strings.Compare(a.Name, b.Name))
 	})
-	// The opened slip of an approver says how the owner stands against the
-	// per-owner limit, and Your requests says how the viewer stands. The
-	// list comes from the same cached inventory as the queue.
-	accounts, err := s.svc.List(r.Context(), core.ListFilter{})
-	if err != nil {
-		s.log.Warn("accounts for the per-owner limit", "path", r.URL.Path, "err", err)
-		pg.HoldsFailed = true
-	} else {
-		pg.Holds = ownerHolds(accounts)
-	}
 	return pg
 }
 
@@ -408,6 +424,7 @@ func (s *Server) rows(ctx context.Context, pg *page, force bool) ([]accountRow, 
 	now := s.svc.Now()
 	rows := make([]accountRow, 0, len(mine))
 	for _, a := range mine {
+		s.problems.note(s.log, a)
 		r := accountRow{Account: a, SpendKnown: a.ProviderID == "", Now: now}
 		if a.ProviderID != "" {
 			if pts, ok := s.svc.CostState(a.ProviderID, 31); ok {
@@ -845,23 +862,28 @@ func (s *Server) show(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var costs []core.CostPoint
+	s.problems.note(s.log, a)
+	sp := spendView{Known: a.ProviderID == ""}
 	if a.ProviderID != "" {
 		// Opening the page is a request of a person, so spend that is not
 		// known is pulled at once, also within the wait after a failed poll
 		// pull. Only people force a pull, and the poll never does.
 		_, known := s.svc.CostState(a.ProviderID, 30)
-		var err error
-		costs, err = s.svc.Costs(r.Context(), a.ID, 30, !known)
+		costs, err := s.svc.Costs(r.Context(), a.ID, 30, !known)
 		if err != nil {
+			// The page says that spend is unavailable, never $0.00. The
+			// raw error stays in the log.
 			s.log.Warn("costs", "account", a.Name, "err", err)
+		} else {
+			sp = spendView{Known: true, Days: costs}
+			for _, c := range costs {
+				sp.Total += c.AmountUSD
+			}
 		}
 	}
-	var total float64
-	for _, c := range costs {
-		total += c.AmountUSD
-	}
-	s.render(w, r, accountPage(s.pageFor(r), a, costs, total, s.accountHistory(r, a)))
+	// The account page uses no queue slips and no holds, so it reads only
+	// what the shell needs.
+	s.render(w, r, accountPage(s.shellPage(r), a, sp, s.accountHistory(r, a)))
 }
 
 func (s *Server) extend(w http.ResponseWriter, r *http.Request) {

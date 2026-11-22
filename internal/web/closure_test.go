@@ -25,8 +25,10 @@ func TestAsyncClosureAndOverdueWarningStayVisible(t *testing.T) {
 	_, body = do(t, ts, "GET", "/accounts", "ops@example.com", true, nil, true)
 	// An overdue closure keeps the word closing, and its box turns red. The
 	// word "overdue" follows as a qualifier, so color never names the state
-	// alone.
-	for _, want := range []string{"annas-box", "status status-closing status-overdue", `<span class="qualifier">overdue</span>`, "closure unconfirmed", "charges may continue"} {
+	// alone. The problem is in plain words, with the time in the UTC layout
+	// of the pages and no AWS state.
+	for _, want := range []string{"annas-box", "status status-closing status-overdue", `<span class="qualifier">overdue</span>`,
+		"AWS has not confirmed the closure since 2026-09-14 11:00 UTC. Charges may continue."} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q: %s", want, body)
 		}
@@ -45,5 +47,8 @@ func TestAsyncClosureAndOverdueWarningStayVisible(t *testing.T) {
 	_, body = do(t, ts, "GET", "/accounts", "ops@example.com", true, nil, true)
 	if !strings.Contains(body, "annas-box") || !strings.Contains(body, "status status-unavailable") {
 		t.Fatalf("suspended account must remain visible as unavailable: %s", body)
+	}
+	if strings.Contains(body, "provider state") || strings.Contains(body, "SUSPENDED") {
+		t.Errorf("a row shows the raw AWS state: %s", body)
 	}
 }

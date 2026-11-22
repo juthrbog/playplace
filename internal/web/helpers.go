@@ -265,3 +265,17 @@ func fleetInclude(pg page) string {
 	}
 	return ""
 }
+
+// spendView is the 30-day spend of the account page. Known is false when
+// the pull from AWS failed: the page then says that spend is unavailable,
+// never $0.00. An account that AWS has not created has no spend to pull, so
+// its spend is known and zero.
+type spendView struct {
+	Known bool
+	Days  []core.CostPoint // oldest first
+	Total float64
+}
+
+// spendUnavailable is the text of the daily spend panel when the pull from
+// AWS failed.
+const spendUnavailable = "Spend is unavailable right now."

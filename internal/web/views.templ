@@ -1365,14 +1365,17 @@ templ accountTR(r accountRow, include string, landed bool) {
 }
 
 // statusLines are the status label of an account and the lines under it: a
-// placement wait as a qualifier with a clock, an error in red with an
-// alert, and damaged tags.
+// placement wait as a qualifier with a clock, a problem in red with an
+// alert, and damaged tags. A problem shows in plain words; its raw text is
+// in the log only.
 templ statusLines(a *core.Account) {
 	@statusLabel(a)
-	if a.LastError != "" && a.Status == core.StatusCreating {
-		<div class="qualifier">@icon("clock")<span>{ a.LastError }</span></div>
-	} else if a.LastError != "" {
-		<div class="error">@icon("alert")<span>{ a.LastError }</span></div>
+	if p, ok := accountProblem(a); ok {
+		if p.Wait {
+			<div class="qualifier">@icon("clock")<span>{ p.Text }</span></div>
+		} else {
+			<div class="error">@icon("alert")<span>{ p.Text }</span></div>
+		}
 	}
 	if a.RepairError() != nil {
 		<div class="error">@icon("alert")<span>{ a.RepairError().Error() }</span></div>
@@ -1515,7 +1518,7 @@ templ meterFull(m meter, title string) {
 	</div>
 }
 
-templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float64, history historyView) {
+templ accountPage(pg page, a *core.Account, spend spendView, history historyView) {
 	@layout(pg, a.Name) {
 		<section class="panel" aria-labelledby="account-title">
 			<div class="panel-head">
@@ -1559,7 +1562,12 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 					if a.BudgetError != "" {
 						<dt>budget error</dt><dd class="error">@icon("alert")<span>{ storedFailure(a.BudgetError) }</span></dd>
 					}
-					<dt>spend, 30 days</dt><dd>{ fmt.Sprintf("$%.2f", total) }</dd>
+					<dt>spend, 30 days</dt>
+					if spend.Known {
+						<dd>{ fmt.Sprintf("$%.2f", spend.Total) }</dd>
+					} else {
+						<dd><span class="muted">unavailable</span></dd>
+					}
 					// Every time on this page is in UTC, the same as the history
 					// table. A stored time keeps the zone it was read in.
 					<dt>created</dt><dd>{ a.CreatedAt.UTC().Format("2006-01-02 15:04 MST") }</dd>
@@ -1576,11 +1584,13 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 					if a.CloseRequestedAt != nil {
 						<dt>close requested</dt><dd>{ a.CloseRequestedAt.UTC().Format("2006-01-02 15:04 MST") }</dd>
 					}
-					if a.LastError != "" && a.Status == core.StatusCreating {
-						// A creation that waits in the root for placement: a qualifier, not a failure.
-						<dt>placement</dt><dd class="qualifier">@icon("clock")<span>{ a.LastError }</span></dd>
-					} else if a.LastError != "" {
-						<dt>failure</dt><dd class="error">@icon("alert")<span>{ a.LastError }</span></dd>
+					if p, ok := accountProblem(a); ok {
+						if p.Wait {
+							// A creation that waits in the root for placement: a qualifier, not a failure.
+							<dt>placement</dt><dd class="qualifier">@icon("clock")<span>{ p.Text }</span></dd>
+						} else {
+							<dt>failure</dt><dd class="error">@icon("alert")<span>{ p.Text }</span></dd>
+						}
 					}
 					if a.RepairError() != nil {
 						<dt>repair required</dt><dd class="error">@icon("alert")<span>{ a.RepairError().Error() }</span></dd>
@@ -1664,15 +1674,17 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 		}
 		<section class="panel panel-fit" aria-labelledby="spend-title">
 			<div class="panel-head"><h2 id="spend-title">Daily spend</h2></div>
-			if len(costs) == 0 {
+			if !spend.Known {
+				<p class="empty">{ spendUnavailable }</p>
+			} else if len(spend.Days) == 0 {
 				<p class="empty">No cost data yet.</p>
 			} else {
 				<div class="scroll">
 					<table class="daily">
 						<thead><tr><th scope="col">Date</th><th scope="col" class="num">USD</th></tr></thead>
 						<tbody>
-							for i := len(costs) - 1; i >= 0; i-- {
-								<tr><td>{ costs[i].Date.Format("2006-01-02") }</td><td class="num">{ fmt.Sprintf("%.2f", costs[i].AmountUSD) }</td></tr>
+							for i := len(spend.Days) - 1; i >= 0; i-- {
+								<tr><td>{ spend.Days[i].Date.Format("2006-01-02") }</td><td class="num">{ fmt.Sprintf("%.2f", spend.Days[i].AmountUSD) }</td></tr>
 							}
 						</tbody>
 					</table>
