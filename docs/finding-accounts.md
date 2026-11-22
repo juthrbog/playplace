@@ -1,0 +1,77 @@
+# Finding accounts
+
+The accounts page at `/accounts` lists accounts with a search, filters, a
+sort and pages. Admins see every account. Everyone else sees only the
+accounts they own. Admins open the page from the Accounts link in the top
+bar, or from the link "Search and filter all accounts" on the home page.
+Anyone else can type `/accounts` after the address of playplace.
+
+The home page keeps its plain list, newest first, with the **Show closed**
+box.
+
+## Search
+
+Type in the search field at the top of the list. playplace looks for the
+text in the account name, the owner email and the AWS account ID. Upper and
+lower case do not matter. The list updates when you stop typing for a
+moment, or at once when you press Enter. playplace uses at most the first
+100 characters.
+
+## Filters
+
+- **Status.** "Open" is the default. It shows every account except closed
+  ones. Pick one status, such as *active* or *closing*, or pick "Any status"
+  to include closed accounts too. On this page the Status filter does the
+  job of **Show closed**.
+- **Budget health.** Shows only accounts whose budget protection is in one
+  state, such as *restricted* or *error*. "Not checked" shows accounts whose
+  budget protection playplace did not check yet.
+- **All, Mine and Needs attention.** Only admins get these three buttons.
+  "Mine" shows the accounts that you own. "Needs attention" shows the
+  accounts where a person must act: a closure that AWS did not confirm in
+  time, a failed creation, a budget restriction or error, damaged tags,
+  budget protection that takes too long, an *unavailable* account, an
+  account close to its expiry, or spend over the budget.
+
+The search and the filters work together. When nothing matches, the list
+says "No accounts match these filters." Press **Clear filters** to go back
+to the plain list.
+
+## Sorting
+
+Press a column head to sort by that column. Press it again to sort in the
+other direction. The sorted head shows an arrow. By default the list sorts
+by the Expires column, soonest first. An account with no expiry, such as a
+closed or failed one, sorts last. An account whose spend is unavailable
+sorts last when you sort by spend.
+
+## Pages
+
+A page holds 50 accounts. When there are more, the bottom of the list shows
+a line such as "Showing 51–100 of 112", with **Previous** and **Next**. The
+number next to the heading counts every account that passes the filters,
+not only the accounts on this page.
+
+A new search, filter or sort starts again at page 1. **+7d**, **Close** and
+**Sync with AWS** (for admins) keep the page that you are on. If the list
+gets shorter, for example after a Close, and your page is past the end, you
+see the last page.
+
+## Share or keep a view
+
+The address in the browser follows the search, the filters, the sort and the
+page. So you can reload the page, press Back, or copy the address to share
+the view. If your session ends, you come back to the same view after you sign
+in again. The live updates every 15 seconds keep the view too.
+
+## Spend shows "unavailable"
+
+The Spend column shows "unavailable" when playplace could not get the spend
+of the account from AWS Cost Explorer, or did not get it yet. The row then
+has no spend bar. This is not $0.00. The budget still shows after it. An
+account without an AWS account ID yet, such as one that AWS still creates,
+shows $0.00, because it cannot have spend.
+
+The home page shows "unavailable" in the same way. playplace tries again
+later by itself. The account page tries at once, and so does **Sync with
+AWS**, which only admins have.

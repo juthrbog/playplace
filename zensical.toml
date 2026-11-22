@@ -10,6 +10,7 @@ nav = [
   { "Welcome" = "index.md" },
   { "Requesting an account" = "requesting.md" },
   { "Approving requests" = "approving.md" },
+  { "Finding accounts" = "finding-accounts.md" },
   { "Command line" = "cli.md" },
   { "Configuration" = "configuration.md" },
   { "Budget protection" = "budgets.md" },

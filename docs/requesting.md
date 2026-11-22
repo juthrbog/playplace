@@ -65,7 +65,9 @@ when you can sign in.
   longer than the lifetime limit counted from its creation; past that, ask
   an admin. Three days before expiry, playplace sends an *expiring* notice.
 - **Watch spend.** The table shows month-to-date spend against your budget.
-  Cost Explorer lags about a day. If your organization set an alert address,
+  Cost Explorer lags about a day. If the spend shows "unavailable",
+  playplace could not get it yet. See
+  [Finding accounts](finding-accounts.md#spend-shows-unavailable). If your organization set an alert address,
   AWS Budgets emails it at 80 percent of your budget and when the forecast
   passes it.
 - **Close early.** Press **Close** when you are done. A dialog opens first.

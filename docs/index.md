@@ -64,6 +64,8 @@ Admins can go past the lifetime and budget ceilings when a case calls for it.
 
 - [Requesting an account](requesting.md) if you are an engineer.
 - [Approving requests](approving.md) if you review them.
+- [Finding accounts](finding-accounts.md) to search, filter and sort the
+  account list.
 - [Command line](cli.md) and [Configuration](configuration.md) if you run
   playplace for your organization.
 - [Deploying](deploy.md) to set it up in your AWS organization.

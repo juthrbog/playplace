@@ -73,7 +73,8 @@ Spend is known only while the last pull of the account succeeded
 minutes. A forced pull tries at once: Sync in the web UI, an account page
 whose spend is not known, and `r` and `S` in the TUI. Pulls of one account
 can overlap, and the cost state keeps the answer of the newest one. `show`,
-`costs` and the TUI show unknown spend as `unavailable`, never as $0.
+`costs`, the TUI and the web UI show unknown spend as `unavailable`, never
+as $0.
 
 ### Placement and the organization
 
@@ -612,14 +613,66 @@ shows an approver the queue count on every page, so an approver also gets
 the count out of band there. The hash covers exactly what the page shows,
 so each page gets its own 204.
 
-A page visit to `/accounts` gets a full page. It lists the same rows as the
-home page: admins see every account, and everyone else sees only the
+A page visit to `/accounts` gets a full page. It starts from the same rows
+as the home page: admins see every account, and everyone else sees only the
 accounts they own. The heading and the page title say "Accounts" for an
 admin and "Your accounts" for everyone else. Without sign-in every visitor
 is an admin, so the page says "Accounts". Only admins get the Accounts link
 in the shell. An htmx request to the same address gets the fragment, so the
 answer sends `Vary: HX-Request, HX-Current-URL`, and a cache keeps the page
 and each fragment apart. It also sends `Cache-Control: private, no-cache`.
+
+The accounts page shows a view of the fleet: a search, filters, a sort and
+a page. `fleetView` in `internal/web/fleet.go` holds it, with the fields
+`q`, `status`, `budget`, `owner`, `attention`, `sort`, `dir` and `page`.
+`pageFor` reads the view only when the asking page is `/accounts`. It reads
+the query of a GET and the form body of an action through `FormValue`. The
+server never refuses a view. A value that it does not know falls back to
+the default. The search is trimmed and cut to 100 characters, and it
+matches the name, the owner or the AWS account ID without case. `status`
+is `open` by default, which is every account but closed ones, or one
+status, or `any`. The old `all=1` of Show closed means `any` when `status`
+is absent. Only admins get `owner` and `attention`. For anyone else the
+server drops them, and the filter checks the role again. `attention` is
+`any`, one kind of `core.AttentionKind`, or the web kind `over-budget`,
+which needs known spend above the budget of an account that is not closed.
+
+The view has one canonical address, from `fleetURL`. It writes the keys in
+a fixed order and leaves out each default, so a plain view is `/accounts`.
+The poller asks for this address, and so do the segments, the sortable
+heads and the pager. So the same view always asks for the same address and
+hashes the same.
+
+The server builds the rows in this order. It lists the accounts, keeps the
+ones that `canSee` allows, and warms the costs of every visible row. Then
+it filters, sorts and cuts the page. The costs come before the filters, so
+the spend sort and the over-budget filter see every row. The sort is by
+due date by default, soonest first. A pending row is due its lifetime from
+now. The id breaks every tie, so the order is total. A row with no due
+date, no spend or no AWS account ID sorts last in both directions for that
+key. A page holds 50 rows, and a page past the end shows the last page.
+The count in the heading is the number of rows that pass the filters. The
+home page keeps its plain list, newest first, with Show closed.
+
+Each control of the view replaces the address of the page, so a reload,
+Back and the `next` of a sign-in keep the view. The filter bar, the
+segments, the heads and the pager set `hx-replace-url`. The id of each of
+these controls starts with `fleet-`. When the `HX-Trigger` header names
+such an id, the answer also sends `HX-Replace-Url` with the canonical
+address of the view that it shows. That address has no empty field, and a
+page past the end becomes the last page. The poll has no such id, so it
+never replaces the address. A filter change leaves the page out, so it
+starts at page 1. The page number is the hidden `#fleet-page` field outside
+the filter form for that reason.
+
+The row actions and Sync carry the view. On the accounts page, +7d, Close
+and Sync send `hx-include="#fleet-view, #fleet-page"`, so the answer shows
+the same view and page. On the home page they send `#show-closed`.
+
+A row knows its spend only when `CostState` reports the last pull as good,
+as in the CLI. An account with no AWS account ID yet has spend that is
+known to be zero. Unknown spend shows "unavailable" with no meter, on both
+pages, and never counts as over budget.
 
 Every page with a signed-in viewer ends in a footer. On a page that polls,
 the footer holds the live line: a dot, the time of the last update, and a
