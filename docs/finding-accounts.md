@@ -15,7 +15,9 @@ Type in the search field at the top of the list. playplace looks for the
 text in the account name, the owner email and the AWS account ID. Upper and
 lower case do not matter. The list updates when you stop typing for a
 moment, or at once when you press Enter. playplace uses at most the first
-100 characters.
+100 characters. If you press a column head, **Previous**, **Next** or one of
+the admin buttons before the list updates, playplace uses the text that is
+in the search field at that moment.
 
 ## Filters
 
@@ -63,6 +65,10 @@ The address in the browser follows the search, the filters, the sort and the
 page. So you can reload the page, press Back, or copy the address to share
 the view. If your session ends, you come back to the same view after you sign
 in again. The live updates every 15 seconds keep the view too.
+
+A very long address is the one exception. This can happen with a long search
+in a script such as Chinese, or with emoji. Then you come back to the
+accounts page after you sign in, but with the default view.
 
 ## Spend shows "unavailable"
 
