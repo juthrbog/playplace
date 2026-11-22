@@ -368,6 +368,11 @@
   .foot:empty {
     display: none;
   }
+  /* Without script the live line is hidden, so a footer that holds only
+     the live line is empty too. */
+  html:not(.js) .foot:not(:has(> :not(.live))) {
+    display: none;
+  }
 
   /* The browser scrolls a focused control into view by its border box.
      The root keeps 8 px clear above and below that box, so the focus
@@ -1655,7 +1660,7 @@
   /* When new data arrives, the dot hides for one 90 ms step and never
      fades. Under prefers-reduced-motion it does not blink. */
   .live-dot.blink {
-    animation: live-blink 90ms steps(1, jump-none);
+    animation: live-blink 90ms steps(1);
   }
   @keyframes live-blink {
     from,

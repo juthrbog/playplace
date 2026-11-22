@@ -1260,15 +1260,21 @@ var liveTimer = null;
 // when the storage throws, as in some private windows.
 var pauseKey = "playplace.paused";
 var pausedNow = false;
-try {
-  pausedNow = window.sessionStorage.getItem(pauseKey) === "1";
-} catch (err) {
-  pausedNow = false;
+
+// readPaused reads the pause of the tab from the storage and puts the
+// class on <html>. The stylesheet hides the dot under the class and shows
+// the recovery of an unavailable list that fits a paused page. When the
+// storage throws, the state in memory stays.
+function readPaused() {
+  try {
+    pausedNow = window.sessionStorage.getItem(pauseKey) === "1";
+  } catch (err) {
+    // Keep the state in memory.
+  }
+  document.documentElement.classList.toggle("poll-paused", pausedNow);
 }
-// The class is on <html> before the first paint. The stylesheet hides the
-// dot under it and shows the recovery of an unavailable list that fits a
-// paused page.
-document.documentElement.classList.toggle("poll-paused", pausedNow);
+// The class is on <html> before the first paint.
+readPaused();
 
 // setPaused pauses or resumes live updates for this tab. Every read and
 // write of the storage sits in try/catch.
@@ -1365,9 +1371,10 @@ function tell(text) {
 
 // A poll that the server answered, 200 or 204, resets the Updated time,
 // unless the poller shows no fresh data: an unavailable list carries
-// data-stale. The dot blinks only when new data arrived: a 200 that the
-// page swapped. The beforeSwap listener drops the answer of a poll that
-// started before the latest action.
+// data-stale. The beforeSwap listener drops the answer of a poll that
+// started before the latest action. That answer does not reset the time,
+// because the page still shows the data from before that poll. The dot
+// blinks only when new data arrived: a 200 that the page swapped.
 document.addEventListener("htmx:afterRequest", function (ev) {
   var d = ev.detail;
   var poll = poller();
@@ -1378,11 +1385,30 @@ document.addEventListener("htmx:afterRequest", function (ev) {
     liveTick();
     return;
   }
+  if (d.xhr.pollSeq !== actionSeq) {
+    return;
+  }
   updatedAt = Date.now();
   liveTick();
-  if (d.xhr.status === 200 && d.xhr.pollSeq === actionSeq) {
+  if (d.xhr.status === 200) {
     blinkDot();
   }
+});
+
+// An action answer, such as Sync or Show closed, can bring a new accounts
+// section out of band. Fresh data resets the Updated time, also on a
+// paused page. An unavailable list keeps the last good time, as a failed
+// poll does. The morph keeps the node, but the id check holds either way.
+document.addEventListener("htmx:oobAfterSwap", function (ev) {
+  var poll = poller();
+  var target = ev.detail && ev.detail.target;
+  if (!poll || !target || target.id !== poll.id) {
+    return;
+  }
+  if (!poll.querySelector("[data-stale]")) {
+    updatedAt = Date.now();
+  }
+  liveTick();
 });
 
 // Pause stops the poll, and Resume polls at once. Either press writes one
@@ -1406,4 +1432,16 @@ document.addEventListener("visibilitychange", function () {
     liveTick();
     pollNow();
   }
+});
+
+// Back or Forward can show a page from the back/forward cache with its
+// old state. Another page of the tab may have paused or resumed since, so
+// the page reads the stored pause again, then catches up like a shown tab.
+window.addEventListener("pageshow", function (ev) {
+  if (!ev.persisted) {
+    return;
+  }
+  readPaused();
+  liveTick();
+  pollNow();
 });

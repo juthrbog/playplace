@@ -99,7 +99,9 @@ func TestPauseLastsForTheTab(t *testing.T) {
 	js := staticText(t, "app.js")
 	holdsEach(t, "app.js", js,
 		`var pauseKey = "playplace.paused";`,
-		"try {\n  pausedNow = window.sessionStorage.getItem(pauseKey) === \"1\";\n} catch (err) {",
+		"\nreadPaused();\n")
+	holdsEach(t, "readPaused", funcBody(t, js, "function readPaused() {"),
+		"try {", `pausedNow = window.sessionStorage.getItem(pauseKey) === "1";`, "} catch (err) {",
 		`document.documentElement.classList.toggle("poll-paused", pausedNow);`)
 	set := funcBody(t, js, "function setPaused(on) {")
 	holdsEach(t, "setPaused", set, "pausedNow = on;", "try {", `window.sessionStorage.setItem(pauseKey, "1")`, "window.sessionStorage.removeItem(pauseKey)", "} catch (err) {")
@@ -128,10 +130,23 @@ func TestHiddenTabPollsWhenItShows(t *testing.T) {
 	holdsEach(t, "the visibilitychange listener", body, "!document.hidden", "liveTick()", "pollNow()")
 }
 
+// A page that Back or Forward shows from the back/forward cache reads the
+// stored pause again, because another page of the tab may have changed it.
+func TestCachedPageReadsThePauseAgain(t *testing.T) {
+	js := staticText(t, "app.js")
+	_, rest, ok := strings.Cut(js, "\n"+`window.addEventListener("pageshow", function (ev) {`)
+	if !ok {
+		t.Fatal("app.js has no pageshow listener")
+	}
+	body, _, _ := strings.Cut(rest, "\n});")
+	holdsEach(t, "the pageshow listener", body, "!ev.persisted", "readPaused()", "liveTick()", "pollNow()")
+}
+
 // The live line says how old the data is. The time ticks each second in
 // the first minute, then each minute. It resets after a poll that the
-// server answered, 200 or 204, while the poller shows fresh data. The dot
-// blinks only on a 200 that the page swapped.
+// server answered, 200 or 204, while the poller shows fresh data, unless
+// the page dropped that answer. The dot blinks only on a 200 that the page
+// swapped. Fresh data from an action answer resets the time too.
 func TestLiveLineTicksAndBlinks(t *testing.T) {
 	js := staticText(t, "app.js")
 	holdsEach(t, "agoText", funcBody(t, js, "function agoText(ms) {"),
@@ -149,7 +164,14 @@ func TestLiveLineTicksAndBlinks(t *testing.T) {
 	holdsEach(t, "the live reset", reset,
 		"d.elt !== poll", "d.xhr.status !== 200 && d.xhr.status !== 204",
 		`poll.querySelector("[data-stale]")`,
-		"d.xhr.status === 200 && d.xhr.pollSeq === actionSeq", "blinkDot()")
+		"if (d.xhr.pollSeq !== actionSeq) {\n    return;\n  }\n  updatedAt = Date.now();",
+		"d.xhr.status === 200", "blinkDot()")
+	oob := listeners(js, "htmx:oobAfterSwap")
+	if len(oob) != 1 {
+		t.Fatalf("app.js has %d htmx:oobAfterSwap listeners, want 1", len(oob))
+	}
+	holdsEach(t, "the action reset", oob[0],
+		"target.id !== poll.id", "if (!poll.querySelector(\"[data-stale]\")) {\n    updatedAt = Date.now();\n  }", "liveTick()")
 	holdsEach(t, "blinkDot", funcBody(t, js, "function blinkDot() {"),
 		`dot.classList.remove("blink")`, "void dot.offsetWidth", `dot.classList.add("blink")`)
 }
@@ -161,13 +183,14 @@ func TestLiveLineTicksAndBlinks(t *testing.T) {
 func TestLiveLineFollowsTheDesign(t *testing.T) {
 	layout, layoutMedia := layerRules(t, "layout")
 	wantDecls(t, "layout", layout, ".foot", map[string]string{"display": "flex", "max-width": "1600px", "padding": "0 var(--space-xl) var(--space-xl)"})
+	wantDecls(t, "layout", layout, "html:not(.js) .foot:not(:has(> :not(.live)))", map[string]string{"display": "none"})
 	wantDecls(t, "layout (max-width: 640px)", layoutMedia["(max-width: 640px)"], ".foot", map[string]string{"padding": "0 var(--space-lg) var(--space-lg)"})
 	top, media := layerRules(t, "components")
 	wantDecls(t, "components", top, ".live", map[string]string{"display": "none", "color": "var(--ink-2)"})
 	wantDecls(t, "components", top, "html.js .live", map[string]string{"display": "flex"})
 	wantDecls(t, "components", top, ".live-dot", map[string]string{"width": "8px", "height": "8px", "border-radius": "50%", "background": "var(--shelf-ink)"})
 	wantDecls(t, "components", top, ".live-pause", map[string]string{"height": "var(--control-h-sm)", "padding": "0 11px"})
-	wantDecls(t, "components", top, ".live-dot.blink", map[string]string{"animation": "live-blink 90ms steps(1, jump-none)"})
+	wantDecls(t, "components", top, ".live-dot.blink", map[string]string{"animation": "live-blink 90ms steps(1)"})
 	wantDecls(t, "components", top, "from, to", map[string]string{"visibility": "hidden"})
 	wantDecls(t, "components (prefers-reduced-motion: reduce)", media["(prefers-reduced-motion: reduce)"], ".live-dot.blink", map[string]string{"animation": "none"})
 	wantDecls(t, "components", top, ".retry-paused", map[string]string{"display": "none"})
