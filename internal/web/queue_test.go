@@ -67,9 +67,9 @@ func TestQueueIsADeskOfSlips(t *testing.T) {
 	head := `<section id="pending" class="panel desk" aria-labelledby="pending-title"><div class="panel-head"><h2 id="pending-title" tabindex="-1">Approval queue</h2><p class="panel-line">2 requests waiting for a decision, oldest first. playplace drops requests after 7 days.</p></div><div id="desk-bar" class="desk-bar">` +
 		`<form id="desk-form" class="desk-form"><input type="hidden" name="reason" value=""></form><div class="desk-controls">` +
 		`<label class="check desk-all"><input type="checkbox" id="desk-all"><span class="vh">Select every request you can decide</span></label> <span id="desk-count" class="desk-count">0 selected</span> ` +
-		`<button type="button" id="desk-approve" class="btn-approve" form="desk-form" hx-post="/requests/decide?action=approve" hx-target="#pending" hx-swap="morph" hx-sync="#desk-form:drop" data-bulk="approve" data-dialog="summary" data-cap="10" data-cap-note="You can approve at most 10 requests at once, so playplace decided nothing.">` +
+		`<button type="button" id="desk-approve" class="btn-approve" aria-keyshortcuts="a" form="desk-form" hx-post="/requests/decide?action=approve" hx-target="#pending" hx-swap="morph" hx-sync="#desk-form:drop" data-bulk="approve" data-dialog="summary" data-cap="10" data-cap-note="You can approve at most 10 requests at once, so playplace decided nothing.">` +
 		`<svg class="i" aria-hidden="true" focusable="false"><use href="#i-stamp"></use></svg><span class="word"><span>Approve selected</span><span class="busy">Approving</span></span></button> ` +
-		`<button type="button" id="desk-deny" form="desk-form" hx-post="/requests/decide?action=deny" hx-target="#pending" hx-swap="morph" hx-sync="#desk-form:drop" data-bulk="deny" data-dialog="deny" data-cap="50" data-cap-note="You can deny at most 50 requests at once, so playplace decided nothing.">` +
+		`<button type="button" id="desk-deny" aria-keyshortcuts="d" form="desk-form" hx-post="/requests/decide?action=deny" hx-target="#pending" hx-swap="morph" hx-sync="#desk-form:drop" data-bulk="deny" data-dialog="deny" data-cap="50" data-cap-note="You can deny at most 50 requests at once, so playplace decided nothing.">` +
 		`<span class="word"><span>Deny selected</span><span class="busy">Denying</span></span></button></div>` +
 		emptyRegion + `<div id="pending-error" class="refusal"></div></div><ol class="slips" role="list">`
 	if !strings.Contains(home, head) {
@@ -735,8 +735,8 @@ func TestStaleSlipNamesWhatChanged(t *testing.T) {
 		`<span class="flag flag-changed">changed after you loaded the page</span>`,
 		`<span class="fact-was">was <s>14 days</s>`,
 		`<span class="fact-was">was <s>$20</s>`,
-		`<button type="submit" class="btn-approve" aria-describedby="result-tweak">`,
-		`<button type="submit" aria-describedby="result-tweak">`,
+		`<button type="submit" class="btn-approve" aria-keyshortcuts="a" aria-describedby="result-tweak">`,
+		`<button type="submit" aria-keyshortcuts="d" aria-describedby="result-tweak">`,
 		`</code>, you saw <s><code>` + versionLabel(old.Version) + `</code></s></p>`,
 	} {
 		if !strings.Contains(slip, want) {

@@ -25,19 +25,19 @@ func dialogIn(body, id string) string {
 	return ""
 }
 
-// The home page of an approver holds the deny dialog, the summary dialog
-// and the close dialog once, after the queue and the fleet, so no poll or
-// morph touches them. An htmx answer never carries them, and the page
-// keeps one live region. Someone who is not an approver gets only the
-// close dialog, because anyone can own an account. The ids of the page
-// stay unique.
+// The home page of an approver holds the deny dialog, the summary dialog,
+// the close dialog and the key list once, after the queue and the fleet,
+// so no poll or morph touches them. An htmx answer never carries them, and
+// the page keeps one live region. Someone who is not an approver gets only
+// the close dialog, because anyone can own an account, and the key list.
+// The ids of the page stay unique.
 func TestDialogsRenderOnceOutsideTheMorphTargets(t *testing.T) {
 	d := newDesk(t, nil, nil, nil)
 	d.ask(t, "bobs-box", "bob@example.com")
 	d.ask(t, "carls-box", "carl@example.com")
 	_, home := doAs(t, d.ts, "GET", "/", "lead@example.com", false, true, nil, false)
 
-	for _, id := range []string{"deny-dialog", "summary-dialog", "close-dialog"} {
+	for _, id := range []string{"deny-dialog", "summary-dialog", "close-dialog", "keys-dialog"} {
 		if n := strings.Count(home, `<dialog id="`+id+`"`); n != 1 {
 			t.Errorf("the home page has %d %s, want 1", n, id)
 		}
@@ -73,8 +73,8 @@ func TestDialogsRenderOnceOutsideTheMorphTargets(t *testing.T) {
 		t.Errorf("an htmx answer carries a dialog:\n%s", answer)
 	}
 	_, bobs := do(t, d.ts, "GET", "/", "bob@example.com", false, nil, false)
-	if n := strings.Count(bobs, "<dialog"); n != 1 || strings.Count(bobs, `<dialog id="close-dialog"`) != 1 {
-		t.Errorf("someone who is not an approver gets %d dialogs, want only the close dialog:\n%s", n, bobs)
+	if n := strings.Count(bobs, "<dialog"); n != 2 || strings.Count(bobs, `<dialog id="close-dialog"`) != 1 || strings.Count(bobs, `<dialog id="keys-dialog"`) != 1 {
+		t.Errorf("someone who is not an approver gets %d dialogs, want only the close dialog and the key list:\n%s", n, bobs)
 	}
 }
 
@@ -423,7 +423,7 @@ func TestDenyReasonKeepsItsDescription(t *testing.T) {
 func TestDialogsNeverStack(t *testing.T) {
 	js := staticText(t, "app.js")
 	holdsEach(t, "dialogOpen", funcBody(t, js, "function dialogOpen() {"), `document.querySelector("dialog[open]")`)
-	for _, head := range []string{"function openDeny(elt, names, issue, text, note) {", "function openSummary(elt, names, issue) {", "function openClose(elt, issue) {"} {
+	for _, head := range []string{"function openDeny(elt, names, issue, text, note) {", "function openSummary(elt, names, issue) {", "function openClose(elt, issue) {", "function openKeys() {"} {
 		body := funcBody(t, js, head)
 		if !strings.Contains(body, "dialogOpen()") || strings.Contains(body, "dialog.open") {
 			t.Errorf("%s does not check every dialog before it opens:\n%s", head, body)

@@ -43,6 +43,7 @@ templ layout(pg page, title string) {
 			</main>
 			if !pg.SignedOut {
 				@footer(pg)
+				@keysDialog(pg)
 			}
 		</body>
 	</html>
@@ -59,10 +60,11 @@ templ region() {
 
 // footer is the foot of every page with a viewer. It is a row with room for
 // more controls. On a page that polls, it holds the live line: the dot, the
-// time of the last update and the Pause button. The line needs script, so
-// the stylesheet shows it only under html.js. It is not a live region, so
-// the page keeps its one region. app.js writes the time and the word of the
-// button.
+// time of the last update and the Pause button. Every footer holds the
+// switch of the keys and the Key list button. Both lines need script, so
+// the stylesheet shows them only under html.js. The footer is not a live
+// region, so the page keeps its one region. app.js writes the time, the
+// word of the Pause button and the state of the switch.
 templ footer(pg page) {
 	<footer class="foot">
 		if pg.Polls {
@@ -72,7 +74,46 @@ templ footer(pg page) {
 				<button type="button" id="live-pause" class="live-pause">Pause updates</button>
 			</div>
 		}
+		<div class="keys">
+			<button type="button" id="keys-toggle" class="keys-toggle" aria-pressed="true">Keys on</button>
+			<button type="button" id="keys-show" class="keys-show">Key list<kbd aria-hidden="true">?</kbd></button>
+		</div>
 	</footer>
+}
+
+// keysDialog lists the keys that act on the page: the ? key and the Key
+// list button of the footer open it. It renders once on every page with a
+// viewer, outside the queue and the fleet, so no poll or morph touches it.
+// Close takes the focus. While the keys are off, a note says that only ?
+// works and names the switch.
+templ keysDialog(pg page) {
+	<dialog id="keys-dialog" class="dialog" aria-labelledby="keys-title">
+		<form method="dialog" class="dialog-form">
+			<div class="dialog-head"><h2 id="keys-title">Keys</h2></div>
+			<div class="dialog-body">
+				<dl class="key-list">
+					for _, k := range keyList(pg) {
+						<div>
+							<dt>
+								for i, key := range k.Keys {
+									if i > 0 {
+										<span class="vh">or</span>
+									}
+									<kbd>{ key }</kbd>
+								}
+							</dt>
+							<dd>{ k.Does }</dd>
+						</div>
+					}
+				</dl>
+				<p class="help">The keys never act in a field that takes text.</p>
+				<p class="help keys-off-note">The keys are off, so only ? works. Turn them on with Keys off in the footer.</p>
+			</div>
+			<div class="dialog-foot">
+				<button type="submit" value="cancel" autofocus>Close</button>
+			</div>
+		</form>
+	</dialog>
 }
 
 // shell is the bar on every page. The links depend on the role: engineers
@@ -487,8 +528,8 @@ templ deskControls() {
 	<div class="desk-controls">
 		<label class="check desk-all"><input type="checkbox" id="desk-all"/><span class="vh">Select every request you can decide</span></label>
 		<span id="desk-count" class="desk-count">0 selected</span>
-		<button type="button" id="desk-approve" class="btn-approve" form="desk-form" hx-post={ "/requests/decide?action=" + actionApprove } hx-target="#pending" hx-swap="morph" hx-sync="#desk-form:drop" data-bulk={ actionApprove } data-dialog="summary" data-cap={ strconv.Itoa(maxApprovals) } data-cap-note={ capRefusal(actionApprove, maxApprovals) }>@icon("stamp")@busyWord("Approve selected", "Approving")</button>
-		<button type="button" id="desk-deny" form="desk-form" hx-post={ "/requests/decide?action=" + actionDeny } hx-target="#pending" hx-swap="morph" hx-sync="#desk-form:drop" data-bulk={ actionDeny } data-dialog="deny" data-cap={ strconv.Itoa(maxDenials) } data-cap-note={ capRefusal(actionDeny, maxDenials) }>@busyWord("Deny selected", "Denying")</button>
+		<button type="button" id="desk-approve" class="btn-approve" aria-keyshortcuts="a" form="desk-form" hx-post={ "/requests/decide?action=" + actionApprove } hx-target="#pending" hx-swap="morph" hx-sync="#desk-form:drop" data-bulk={ actionApprove } data-dialog="summary" data-cap={ strconv.Itoa(maxApprovals) } data-cap-note={ capRefusal(actionApprove, maxApprovals) }>@icon("stamp")@busyWord("Approve selected", "Approving")</button>
+		<button type="button" id="desk-deny" aria-keyshortcuts="d" form="desk-form" hx-post={ "/requests/decide?action=" + actionDeny } hx-target="#pending" hx-swap="morph" hx-sync="#desk-form:drop" data-bulk={ actionDeny } data-dialog="deny" data-cap={ strconv.Itoa(maxDenials) } data-cap-note={ capRefusal(actionDeny, maxDenials) }>@busyWord("Deny selected", "Denying")</button>
 	</div>
 }
 
@@ -701,6 +742,7 @@ templ slip(pg page, s slipView) {
 							<button
 								type="submit"
 								class="btn-approve"
+								aria-keyshortcuts="a"
 								if s.Note != "" {
 									aria-describedby={ "result-" + s.Req.Name }
 								}
@@ -714,6 +756,7 @@ templ slip(pg page, s slipView) {
 							<input type="hidden" name="reason" value=""/>
 							<button
 								type="submit"
+								aria-keyshortcuts="d"
 								if s.Note != "" {
 									aria-describedby={ "result-" + s.Req.Name }
 								}
