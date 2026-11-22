@@ -123,7 +123,7 @@ func TestAccountsPageByRole(t *testing.T) {
 				regionStart + `<h1 class="vh">`,
 				`<div id="form-error" class="refusal"></div>`,
 				`id="close-dialog"`,
-				`hx-get="/accounts" hx-trigger="every 15s"`,
+				`hx-get="/accounts" hx-trigger="every 15s, poll-now"`,
 			} {
 				if !strings.Contains(body, w) {
 					t.Errorf("the page lacks %s", w)
@@ -153,7 +153,7 @@ func TestAccountsPageByRole(t *testing.T) {
 
 	// Show closed survives a reload of the page.
 	_, body := do(t, ts, "GET", "/accounts?all=1", "ops@example.com", true, nil, false)
-	if !strings.Contains(body, `name="all" value="1" checked`) || !strings.Contains(body, `hx-get="/accounts?all=1" hx-trigger="every 15s"`) {
+	if !strings.Contains(body, `name="all" value="1" checked`) || !strings.Contains(body, `hx-get="/accounts?all=1" hx-trigger="every 15s, poll-now"`) {
 		t.Errorf("the page with closed accounts does not keep the view:\n%s", body)
 	}
 	// The fragment for htmx says the same.

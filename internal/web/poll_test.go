@@ -232,7 +232,7 @@ func TestFailedPollShowsTheUnavailablePanel(t *testing.T) {
 	}
 	// The page tries again by itself, so the panel never tells the person to
 	// try again.
-	for _, want := range []string{`<div id="accounts-error" class="refusal">`, `<p class="note-title">The account list is unavailable.</p>`, `<p class="note-body">The call to AWS failed. If it keeps failing, ask an admin to read the playplace log. The page tries again every 15 seconds.</p>`} {
+	for _, want := range []string{`<div id="accounts-error" class="refusal" data-stale>`, `<p class="note-title">The account list is unavailable.</p>`, `<p class="note-body">The call to AWS failed. If it keeps failing, ask an admin to read the playplace log. ` + retryNote + `</p>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the failed panel lacks %s:\n%s", want, body)
 		}

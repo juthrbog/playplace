@@ -158,7 +158,7 @@ function keepNode(node) {
     return !(swapSource && node.contains(swapSource));
   }
   if (node.id === "pending-error" && node.firstChild) {
-    return !!swapSource && swapSource.id === "accounts";
+    return !!swapSource && swapSource === poller();
   }
   return false;
 }
@@ -774,6 +774,13 @@ htmx.defineExtension("morph", {
   }
 });
 
+// poller is the element that polls what the page shows, or null on a page
+// that does not poll. The server marks it with data-poll, and a page has at
+// most one.
+function poller() {
+  return document.querySelector("[data-poll]");
+}
+
 // The 15 s poll sends the hash of what the page shows, and the server
 // answers 204 when nothing changed. Only the section's own GET carries it,
 // not the Show closed box or a form.
@@ -801,13 +808,15 @@ function requestRunning() {
   }
   return false;
 }
+// The poll also waits while the viewer paused live updates and while the
+// tab is hidden. A page with no poller counts no action.
 document.addEventListener("htmx:beforeRequest", function (ev) {
-  var accounts = document.getElementById("accounts");
-  if (!accounts) {
+  var poll = poller();
+  if (!poll) {
     return;
   }
-  if (ev.detail.elt === accounts) {
-    if (requestRunning()) {
+  if (ev.detail.elt === poll) {
+    if (requestRunning() || pausedNow || document.hidden) {
       ev.preventDefault();
     }
     return;
@@ -1024,11 +1033,11 @@ function repeatRegion(before) {
 // listener cancels never blocks the poll. A poll notes the latest action
 // it started after.
 document.addEventListener("htmx:beforeSend", function (ev) {
-  var accounts = document.getElementById("accounts");
+  var poll = poller();
   if (!ev.detail.xhr) {
     return;
   }
-  if (accounts && ev.detail.elt === accounts) {
+  if (poll && ev.detail.elt === poll) {
     ev.detail.xhr.pollSeq = actionSeq;
     return;
   }
@@ -1223,6 +1232,11 @@ function forgetAddress() {
 document.addEventListener("DOMContentLoaded", function () {
   watchBar();
   syncPicks();
+  var poll = poller();
+  if (poll && poll.querySelector("[data-stale]")) {
+    updatedAt = null;
+  }
+  liveTick();
   if (openFromAddress(true)) {
     forgetAddress();
   }
@@ -1230,5 +1244,166 @@ document.addEventListener("DOMContentLoaded", function () {
 window.addEventListener("hashchange", function () {
   if (openFromAddress(false)) {
     forgetAddress();
+  }
+});
+
+// The live line in the footer of a page that polls: the dot, the time of
+// the last update and the Pause button. updatedAt is the time of the last
+// poll that the server answered with fresh data, 200 or 204. A poll that
+// failed does not reset it, so the time says how old the data is. It is
+// null while the poller shows no fresh data since the page loaded.
+var updatedAt = Date.now();
+var liveTimer = null;
+
+// pauseKey holds the pause in sessionStorage, so it lasts for the tab and
+// survives a reload. pausedNow is the state itself, so Pause still works
+// when the storage throws, as in some private windows.
+var pauseKey = "playplace.paused";
+var pausedNow = false;
+try {
+  pausedNow = window.sessionStorage.getItem(pauseKey) === "1";
+} catch (err) {
+  pausedNow = false;
+}
+// The class is on <html> before the first paint. The stylesheet hides the
+// dot under it and shows the recovery of an unavailable list that fits a
+// paused page.
+document.documentElement.classList.toggle("poll-paused", pausedNow);
+
+// setPaused pauses or resumes live updates for this tab. Every read and
+// write of the storage sits in try/catch.
+function setPaused(on) {
+  pausedNow = on;
+  try {
+    if (on) {
+      window.sessionStorage.setItem(pauseKey, "1");
+    } else {
+      window.sessionStorage.removeItem(pauseKey);
+    }
+  } catch (err) {
+    // The pause then lasts only until the page reloads.
+  }
+  document.documentElement.classList.toggle("poll-paused", on);
+  liveTick();
+}
+
+// agoText says how long ago ms milliseconds is, in plain words.
+function agoText(ms) {
+  var s = Math.floor(ms / 1000);
+  if (s < 5) {
+    return "just now";
+  }
+  if (s < 60) {
+    return s + " seconds ago";
+  }
+  var m = Math.floor(s / 60);
+  if (m < 60) {
+    return m === 1 ? "1 minute ago" : m + " minutes ago";
+  }
+  var h = Math.floor(m / 60);
+  return h === 1 ? "1 hour ago" : h + " hours ago";
+}
+
+// liveTick writes the live line and the word of the Pause button. In the
+// first minute the time ticks each second, and after it each minute, on
+// the turn of the second or the minute.
+function liveTick() {
+  clearTimeout(liveTimer);
+  liveTimer = null;
+  var line = document.getElementById("live-ago");
+  if (!line) {
+    return;
+  }
+  var button = document.getElementById("live-pause");
+  if (button) {
+    button.textContent = pausedNow ? "Resume updates" : "Pause updates";
+  }
+  var lead = pausedNow ? "Paused. " : "";
+  if (updatedAt === null) {
+    line.textContent = lead + "Not updated yet";
+    return;
+  }
+  var ms = Math.max(0, Date.now() - updatedAt);
+  line.textContent = lead + "Updated " + agoText(ms);
+  var step = ms < 60000 ? 1000 : 60000;
+  liveTimer = setTimeout(liveTick, step - (ms % step));
+}
+
+// pollNow makes the poller poll at once, unless the viewer paused live
+// updates or the tab is hidden. The beforeRequest guard still drops it
+// while another request runs, and the next tick polls.
+function pollNow() {
+  var poll = poller();
+  if (poll && !pausedNow && !document.hidden) {
+    htmx.trigger(poll, "poll-now");
+  }
+}
+
+// blinkDot hides the dot for one 90 ms step. The class comes off and on
+// again, so the next blink starts over. Under prefers-reduced-motion the
+// stylesheet gives it no animation.
+function blinkDot() {
+  var dot = document.querySelector(".live-dot");
+  if (!dot) {
+    return;
+  }
+  dot.classList.remove("blink");
+  void dot.offsetWidth;
+  dot.classList.add("blink");
+}
+
+// tell writes a short message into the live region, as text, with no icon.
+function tell(text) {
+  var region = document.getElementById("notice");
+  if (!region) {
+    return;
+  }
+  var span = document.createElement("span");
+  span.textContent = text;
+  region.replaceChildren(span);
+}
+
+// A poll that the server answered, 200 or 204, resets the Updated time,
+// unless the poller shows no fresh data: an unavailable list carries
+// data-stale. The dot blinks only when new data arrived: a 200 that the
+// page swapped. The beforeSwap listener drops the answer of a poll that
+// started before the latest action.
+document.addEventListener("htmx:afterRequest", function (ev) {
+  var d = ev.detail;
+  var poll = poller();
+  if (!poll || d.elt !== poll || !d.xhr || (d.xhr.status !== 200 && d.xhr.status !== 204)) {
+    return;
+  }
+  if (poll.querySelector("[data-stale]")) {
+    liveTick();
+    return;
+  }
+  updatedAt = Date.now();
+  liveTick();
+  if (d.xhr.status === 200 && d.xhr.pollSeq === actionSeq) {
+    blinkDot();
+  }
+});
+
+// Pause stops the poll, and Resume polls at once. Either press writes one
+// short message into the live region. Actions still answer and update the
+// page while live updates are paused.
+document.addEventListener("click", function (ev) {
+  var button = ev.target && ev.target.closest && ev.target.closest("#live-pause");
+  if (!button) {
+    return;
+  }
+  setPaused(!pausedNow);
+  tell(pausedNow ? "Live updates paused." : "Live updates on.");
+  pollNow();
+});
+
+// A hidden tab does not poll. When it shows again, the line catches up,
+// because the browser slows timers in a hidden tab, and the page polls
+// once at once, unless the viewer paused live updates.
+document.addEventListener("visibilitychange", function () {
+  if (!document.hidden) {
+    liveTick();
+    pollNow();
   }
 });

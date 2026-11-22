@@ -189,6 +189,9 @@ type page struct {
 	// RegionInCard marks the home page, which holds the live region in the
 	// queue panel. The layout then leaves out its own.
 	RegionInCard bool
+	// Polls marks a page whose content polls, the home page and the
+	// accounts page. Its footer then holds the live line.
+	Polls bool
 	// Open names the request whose slip the page renders opened. That is
 	// the request of the address (?req=), the slip that Cancel puts back,
 	// or the request that an admin just saved. Every other slip renders
@@ -242,6 +245,12 @@ func askingPage(r *http.Request) string {
 // onAccounts reports whether the answer goes to the accounts page, which has
 // no queue panel.
 func (pg page) onAccounts() bool { return pg.Asker == pathAccounts }
+
+// polling is pg for the layout of a page that polls.
+func polling(pg page) page {
+	pg.Polls = true
+	return pg
+}
 
 // regionInCard is pg for the home page layout.
 func regionInCard(pg page) page {

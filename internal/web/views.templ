@@ -41,6 +41,9 @@ templ layout(pg page, title string) {
 				}
 				{ children... }
 			</main>
+			if !pg.SignedOut {
+				@footer(pg)
+			}
 		</body>
 	</html>
 }
@@ -52,6 +55,24 @@ templ layout(pg page, title string) {
 // the bulk bar, and anyone else has it under the head of Your requests.
 templ region() {
 	<p id="notice" class="notice" role="status" aria-live="polite"></p>
+}
+
+// footer is the foot of every page with a viewer. It is a row with room for
+// more controls. On a page that polls, it holds the live line: the dot, the
+// time of the last update and the Pause button. The line needs script, so
+// the stylesheet shows it only under html.js. It is not a live region, so
+// the page keeps its one region. app.js writes the time and the word of the
+// button.
+templ footer(pg page) {
+	<footer class="foot">
+		if pg.Polls {
+			<div class="live">
+				<span class="live-dot" aria-hidden="true"></span>
+				<span id="live-ago" class="live-ago">Updated just now</span>
+				<button type="button" id="live-pause" class="live-pause">Pause updates</button>
+			</div>
+		}
+	</footer>
 }
 
 // shell is the bar on every page. The links depend on the role: engineers
@@ -247,7 +268,7 @@ type accountRow struct {
 // indexPage is the home page. The shell is the visible heading, so the page
 // h1 is for screen readers only.
 templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
-	@layout(regionInCard(pg), "Home") {
+	@layout(polling(regionInCard(pg)), "Home") {
 		<h1 class="vh">Home</h1>
 		<section class="panel" id="request" aria-labelledby="request-title">
 			<div class="panel-head"><h2 id="request-title">New request</h2></div>
@@ -874,7 +895,7 @@ templ slipEdit(pg page, q core.Request) {
 // The refusal slot under the h1 holds a refused row action, outside the
 // section that the poll redraws.
 templ accountsPage(pg page, rows []accountRow, errMsg, hash string) {
-	@layout(pg, accountsTitle(pg)) {
+	@layout(polling(pg), accountsTitle(pg)) {
 		<h1 class="vh">{ accountsTitle(pg) }</h1>
 		<div id="form-error" class="refusal"></div>
 		@accountsPanel(pg, rows, errMsg, hash, false)
@@ -895,15 +916,18 @@ templ accountsPage(pg page, rows []accountRow, errMsg, hash string) {
 // with no accounts. The section keeps polling, so the next good poll fills
 // it. oob marks it as an out-of-band part of an htmx answer. hash is the
 // poll hash of this answer. pollHash renders the section with no hash, so
-// the hash never covers itself.
+// the hash never covers itself. data-poll marks the section as the
+// poller of the page for app.js, and poll-now is the event that makes it
+// poll at once: on Resume, and when a hidden tab shows again.
 templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 	<section
 		id="accounts"
 		class="panel"
 		hx-get={ tableURL(pg.ShowAll) }
-		hx-trigger="every 15s"
+		hx-trigger="every 15s, poll-now"
 		hx-swap="morph"
 		aria-labelledby="accounts-title"
+		data-poll
 		if oob {
 			hx-swap-oob="morph"
 		}
@@ -924,9 +948,13 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 		// the error and the recovery. An empty list is one plain line, as in
 		// Your requests. Neither has column heads. The head keeps Show
 		// closed, and the section keeps polling. The error note has an id, so
-		// a morph never pairs it with the table that replaces it.
+		// a morph never pairs it with the table that replaces it. data-stale
+		// tells app.js that the section shows no fresh data, so the Updated
+		// time does not reset. While the viewer paused live updates, the
+		// page does not try again, so the stylesheet shows the other
+		// recovery.
 		if errMsg != "" {
-			<div id="accounts-error" class="refusal">@icon("alert")<div class="note-text"><p class="note-title">The account list is unavailable.</p><p class="note-body">{ errMsg + " The page tries again every 15 seconds." }</p></div></div>
+			<div id="accounts-error" class="refusal" data-stale>@icon("alert")<div class="note-text"><p class="note-title">The account list is unavailable.</p><p class="note-body">{ errMsg + " " }<span class="retry-live">The page tries again every 15 seconds.</span><span class="retry-paused">Live updates are paused. Resume them to try again.</span></p></div></div>
 		} else if len(rows) == 0 {
 			<p class="empty">
 				if pg.ShowAll {

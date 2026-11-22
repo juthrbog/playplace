@@ -1258,7 +1258,7 @@ func TestDecideAnswersWhenTheListFails(t *testing.T) {
 	if got := resultIn(body, "gone-box"); got != goneText("gone-box") {
 		t.Errorf("the reason for gone-box = %q", got)
 	}
-	if !strings.Contains(body, `<div id="accounts-error" class="refusal">`) || holdsRequestID(body) {
+	if !strings.Contains(body, `<div id="accounts-error" class="refusal" data-stale>`) || holdsRequestID(body) {
 		t.Errorf("the accounts section is not the failed panel:\n%s", body)
 	}
 	if d.pending(t, "deny-one") || d.pending(t, "deny-two") {
