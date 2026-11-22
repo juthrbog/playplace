@@ -272,6 +272,10 @@ templ indexPage(pg page, rows []accountRow, errMsg, hash string) {
 		// errMsg is the refusal text of a failed account load. The panel
 		// shows it, so the next good poll clears it.
 		@accountsPanel(pg, rows, errMsg, hash, false)
+		if pg.Viewer.Approver {
+			@denyDialog()
+			@summaryDialog()
+		}
 		<p class="help">
 			if pg.SignIn && !pg.Viewer.Admin {
 				You see the accounts you own.
@@ -367,6 +371,57 @@ templ deskControls() {
 		<button type="button" id="desk-approve" class="btn-approve" form="desk-form" hx-post={ "/requests/decide?action=" + actionApprove } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="#desk-form:drop" data-bulk={ actionApprove } data-dialog="summary" data-cap={ strconv.Itoa(maxApprovals) } data-cap-note={ capRefusal(actionApprove, maxApprovals) }>@icon("stamp")@busyWord("Approve selected", "Approving")</button>
 		<button type="button" id="desk-deny" form="desk-form" hx-post={ "/requests/decide?action=" + actionDeny } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="#desk-form:drop" data-bulk={ actionDeny } data-dialog="deny" data-cap={ strconv.Itoa(maxDenials) } data-cap-note={ capRefusal(actionDeny, maxDenials) }>@busyWord("Deny selected", "Denying")</button>
 	</div>
+}
+
+// denyDialog asks for the reason of a denial: the Deny button of a slip and
+// Deny selected open it. It renders once on the home page, outside the
+// queue and the fleet, so no poll or morph touches it. app.js writes the
+// title, the list of requests and the final button, and on Deny copies the
+// reason into the hidden reason field of the form that posts. The refusal
+// slot is not a live region, because the page keeps one. The reason points
+// to it, so a screen reader reads a refusal with the field.
+templ denyDialog() {
+	<dialog id="deny-dialog" class="dialog" aria-labelledby="deny-title">
+		<form method="dialog" class="dialog-form">
+			<div class="dialog-head"><h2 id="deny-title">Deny requests?</h2></div>
+			<div class="dialog-body">
+				<ul id="deny-list" class="dialog-list"></ul>
+				<label class="field" for="deny-reason">Reason for denying</label>
+				<textarea id="deny-reason" class="dialog-reason" rows="4" maxlength={ strconv.Itoa(maxReason) } required autofocus aria-describedby="deny-help deny-error"></textarea>
+				<p id="deny-help" class="help">{ fmt.Sprintf("1 to %d characters. playplace sends it with the denied notice and keeps it in history.", maxReason) }</p>
+				<div id="deny-error" class="refusal"></div>
+			</div>
+			<div class="dialog-foot">
+				<button type="submit" value="cancel" formnovalidate>Cancel</button>
+				<button type="submit" value="confirm" id="deny-confirm" class="btn-deny">Deny</button>
+			</div>
+		</form>
+	</dialog>
+}
+
+// summaryDialog is the summary of a bulk approval: Approve selected opens
+// it when two or more slips are selected. One line names each request with
+// the facts that its slip shows. Cancel takes the focus first, because the
+// safe button is the default. It renders once on the home page, outside
+// the queue and the fleet, and app.js writes the title, the lines and the
+// final button.
+templ summaryDialog() {
+	<dialog id="summary-dialog" class="dialog" aria-labelledby="summary-title" aria-describedby="summary-facts">
+		<form method="dialog" class="dialog-form">
+			<div class="dialog-head"><h2 id="summary-title">Approve requests?</h2></div>
+			<div class="dialog-body">
+				<ul id="summary-list" class="dialog-list dialog-rows"></ul>
+				<div id="summary-facts" class="dialog-facts">
+					<p>Each new account counts toward the account limit of the organization until 90 days after it closes.</p>
+					<p>An approval cannot be undone.</p>
+				</div>
+			</div>
+			<div class="dialog-foot">
+				<button type="submit" value="cancel" formnovalidate autofocus>Cancel</button>
+				<button type="submit" value="confirm" id="summary-confirm" class="btn-approve">@icon("stamp")<span id="summary-word">Approve</span></button>
+			</div>
+		</form>
+	</dialog>
 }
 
 // slipPick is the checkbox of a slip that the viewer can approve. Its
@@ -500,9 +555,12 @@ templ slip(pg page, s slipView) {
 								}
 							>@icon("stamp")@busyWord("Approve", "Approving")<span class="vh">{ " " + s.Req.Name }</span></button>
 						</form>
-						<form class="inline" hx-post={ "/requests/" + s.Req.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-prompt="Reason for denying, 1 to 500 characters. playplace sends it with the denied notice and keeps it in history." hx-sync="this:drop" data-action="deny">
+						// Deny opens the deny dialog first. app.js copies the
+						// reason from the dialog into the hidden reason field.
+						<form class="inline" hx-post={ "/requests/" + s.Req.Name + "/deny" } hx-target="#pending" hx-swap="morph" hx-include="#show-closed" hx-sync="this:drop" data-dialog="deny" data-request={ s.Req.Name } data-action="deny">
 							@versionField(s.Req)
 							@shownFields(s.Req)
+							<input type="hidden" name="reason" value=""/>
 							<button
 								type="submit"
 								if s.Note != "" {

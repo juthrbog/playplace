@@ -504,3 +504,39 @@ func TestTokensMatchDesignDoc(t *testing.T) {
 		}
 	}
 }
+
+// TestDenyButtonPassesInBothPalettes reads the red Deny button from
+// app.css and checks its word on its fill at rest and on hover, by day and
+// at night. The dialog scrim is ink at 45 percent by day and black at 55
+// percent at night, because night ink is light.
+func TestDenyButtonPassesInBothPalettes(t *testing.T) {
+	top, _ := layerRules(t, "components")
+	token := func(sel, prop string) string {
+		t.Helper()
+		m := varRef.FindStringSubmatch(top[sel][prop])
+		if m == nil {
+			t.Fatalf("%s %s = %q, want var(--token)", sel, prop, top[sel][prop])
+		}
+		return strings.TrimPrefix(m[1], "--")
+	}
+	for _, sel := range []string{".btn-deny", ".btn-deny:hover"} {
+		fgName, bgName := token(sel, "color"), token(sel, "background")
+		for _, p := range palettes(t) {
+			fg, err := p.color(fgName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bg, err := p.color(bgName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r := contrast(fg, bg); r < 4.5 {
+				t.Errorf("%s %s: --%s on --%s is %.3f:1, want at least 4.5:1", sel, p.name, fgName, bgName, r)
+			}
+		}
+	}
+	day, night := tokenRules(t)
+	if day["--scrim"] != "rgba(34, 32, 28, 0.45)" || night["--scrim"] != "rgba(0, 0, 0, 0.55)" {
+		t.Errorf("--scrim = %q by day and %q at night, want rgba(34, 32, 28, 0.45) and rgba(0, 0, 0, 0.55)", day["--scrim"], night["--scrim"])
+	}
+}

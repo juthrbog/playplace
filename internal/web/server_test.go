@@ -472,17 +472,13 @@ func TestRequestApprovalFlow(t *testing.T) {
 		t.Fatal("queue should be empty after approval")
 	}
 
-	// Deny path with a reason from the htmx prompt header; withdraw by requester.
+	// Deny path with a reason from the deny dialog; withdraw by requester.
 	do(t, ts, "POST", "/requests", "carl@example.com", false, url.Values{"name": {"carls-box"}}, true)
 	_, body = doAs(t, ts, "GET", "/", "lead@example.com", false, true, nil, false)
-	req, _ := http.NewRequest("POST", ts.URL+"/requests/carls-box/deny", strings.NewReader(refForm(refIn(t, body, "carls-box")).Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("X-User", "lead@example.com")
-	req.Header.Set("X-Approver", "1")
-	req.Header.Set("HX-Request", "true")
-	req.Header.Set("HX-Prompt", "no capacity")
-	if r2, err := http.DefaultClient.Do(req); err != nil || r2.StatusCode != http.StatusOK {
-		t.Fatalf("deny = %v %v", r2, err)
+	denyForm := refForm(refIn(t, body, "carls-box"))
+	denyForm.Set("reason", "no capacity")
+	if r2, b2 := doAs(t, ts, "POST", "/requests/carls-box/deny", "lead@example.com", false, true, denyForm, true); r2.StatusCode != http.StatusOK || r2.Header.Get("X-Form-Error") != "" {
+		t.Fatalf("deny = %d %v:\n%s", r2.StatusCode, r2.Header, b2)
 	}
 	if _, err := svc.GetRequest(context.Background(), "carls-box"); err == nil {
 		t.Fatal("denied request should be gone")

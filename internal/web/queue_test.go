@@ -115,8 +115,14 @@ func TestQueueIsADeskOfSlips(t *testing.T) {
 	if got := slipForm(t, home, "older-box", "approve"); !reflect.DeepEqual(got, want) {
 		t.Errorf("the approve form posts %v, want %v", got, want)
 	}
-	if got := slipForm(t, home, "older-box", "deny"); !reflect.DeepEqual(got, want) {
-		t.Errorf("the deny form posts %v, want %v", got, want)
+	// The deny form also holds the empty reason field that the deny dialog
+	// fills.
+	denyWant := url.Values{"reason": {""}}
+	for k, v := range want {
+		denyWant[k] = v
+	}
+	if got := slipForm(t, home, "older-box", "deny"); !reflect.DeepEqual(got, denyWant) {
+		t.Errorf("the deny form posts %v, want %v", got, denyWant)
 	}
 	section := between(home, `<section id="pending"`, "</section>")
 	if strings.Contains(home, `<table class="pending">`) || strings.Contains(section, "<td>") {

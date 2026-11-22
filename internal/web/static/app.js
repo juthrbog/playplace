@@ -247,11 +247,264 @@ function overCap(button) {
 }
 
 // htmx asks this listener before each request. A bulk button over its cap
-// sends nothing. Any other request goes on.
+// sends nothing. An element with data-dialog asks in its dialog first, and
+// the dialog sends the request when the viewer confirms. Any other request
+// goes on.
 document.addEventListener("htmx:confirm", function (ev) {
   var elt = ev.detail.elt;
-  if (elt && elt.hasAttribute && elt.hasAttribute("data-bulk") && overCap(elt)) {
+  if (!elt || !elt.hasAttribute) {
+    return;
+  }
+  if (elt.hasAttribute("data-bulk") && overCap(elt)) {
     ev.preventDefault();
+    return;
+  }
+  if (elt.hasAttribute("data-dialog") && askFirst(elt, ev.detail.issueRequest)) {
+    ev.preventDefault();
+  }
+});
+
+// asking is the request that an open dialog holds back: the element that
+// sends it, the kind of dialog, the request names that the dialog shows,
+// and the issueRequest function of htmx. lastDeny is the last denial that
+// a dialog sent, with its reason, so a refused reason opens the dialog
+// again with the same text.
+var asking = null;
+var lastDeny = null;
+
+// pickedNames are the names of the checked slips, in the order of the
+// desk. The value of a box is the name, a space and the version.
+function pickedNames() {
+  var boxes = document.querySelectorAll(deskPicks + ":checked");
+  var names = [];
+  for (var i = 0; i < boxes.length; i++) {
+    names.push(boxes[i].value.split(" ")[0]);
+  }
+  return names;
+}
+
+// askNames are the names of the requests that elt decides: the checked
+// slips for a bulk button, or the request of a slip form.
+function askNames(elt) {
+  if (elt.hasAttribute("data-bulk")) {
+    return pickedNames();
+  }
+  var name = elt.getAttribute("data-request");
+  return name ? [name] : [];
+}
+
+// askFirst opens the dialog of elt and reports whether it did. Then the
+// request waits for the dialog. A bulk button with no checked slip posts,
+// so the server refuses it with its own words. Approve selected asks only
+// for two or more slips, because one slip approves at once. A page with
+// no such dialog posts too, and the server stays the authority.
+function askFirst(elt, issue) {
+  var kind = elt.getAttribute("data-dialog");
+  var names = askNames(elt);
+  if (!names.length) {
+    return false;
+  }
+  if (kind === "summary" && names.length >= 2) {
+    return openSummary(elt, names, issue);
+  }
+  if (kind === "deny") {
+    return openDeny(elt, names, issue, "", "");
+  }
+  return false;
+}
+
+// listInto fills the list of a dialog with one item for each name. The
+// names go in as text, never as markup.
+function listInto(list, names) {
+  var items = [];
+  for (var i = 0; i < names.length; i++) {
+    var li = document.createElement("li");
+    li.textContent = names[i];
+    items.push(li);
+  }
+  list.replaceChildren.apply(list, items);
+}
+
+// openDeny opens the deny dialog for names. text is the reason to show,
+// and note is a refusal or a note for the slot of the dialog. The reason
+// field takes the focus. It returns false when the page has no deny
+// dialog.
+function openDeny(elt, names, issue, text, note) {
+  var dialog = document.getElementById("deny-dialog");
+  var reason = document.getElementById("deny-reason");
+  if (!dialog || !reason || dialog.open) {
+    return false;
+  }
+  var one = names.length === 1;
+  document.getElementById("deny-title").textContent = one ? "Deny " + names[0] + "?" : "Deny " + names.length + " requests?";
+  document.getElementById("deny-confirm").textContent = one ? "Deny" : "Deny " + names.length;
+  listInto(document.getElementById("deny-list"), names);
+  reason.value = text;
+  reason.removeAttribute("aria-invalid");
+  var slot = document.getElementById("deny-error");
+  if (note) {
+    var span = document.createElement("span");
+    span.textContent = note;
+    slot.replaceChildren(alertIcon(), span);
+  } else {
+    slot.replaceChildren();
+  }
+  asking = { elt: elt, kind: "deny", names: names, issue: issue };
+  dialog.returnValue = "";
+  dialog.showModal();
+  reason.focus();
+  return true;
+}
+
+// openSummary opens the summary of a bulk approval. Each line holds the
+// name and the facts that the box of its slip carries, as the slip shows
+// them. Cancel takes the focus, because the safe button is the default.
+function openSummary(elt, names, issue) {
+  var dialog = document.getElementById("summary-dialog");
+  if (!dialog || dialog.open) {
+    return false;
+  }
+  var boxes = document.querySelectorAll(deskPicks + ":checked");
+  var items = [];
+  for (var i = 0; i < boxes.length; i++) {
+    items.push(summaryLine(boxes[i]));
+  }
+  var list = document.getElementById("summary-list");
+  list.replaceChildren.apply(list, items);
+  document.getElementById("summary-title").textContent = "Approve " + names.length + " requests?";
+  document.getElementById("summary-word").textContent = "Approve " + names.length;
+  asking = { elt: elt, kind: "summary", names: names, issue: issue };
+  dialog.returnValue = "";
+  dialog.showModal();
+  var cancel = dialog.querySelector('button[value="cancel"]');
+  if (cancel) {
+    cancel.focus();
+  }
+  return true;
+}
+
+// summaryLine is the line of one checked box in the summary: the name,
+// then the owner, the lifetime and the budget, then the check of the
+// per-owner limit. Every part goes in as text, never as markup.
+function summaryLine(box) {
+  var li = document.createElement("li");
+  var name = document.createElement("span");
+  name.className = "dialog-name";
+  name.textContent = box.value.split(" ")[0];
+  var facts = document.createElement("span");
+  facts.className = "dialog-meta";
+  facts.textContent = [box.getAttribute("data-owner"), box.getAttribute("data-lifetime"), box.getAttribute("data-budget")].join(" \u00b7 ");
+  var limits = document.createElement("span");
+  limits.className = "dialog-meta";
+  limits.textContent = box.getAttribute("data-limits") || "";
+  li.append(name, facts, limits);
+  return li;
+}
+
+// sameNames reports whether two lists of names are equal, in order.
+function sameNames(a, b) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// selectionChanged is the note of a dialog that opens again because a
+// live update cleared a box while it was open.
+var selectionChanged = "A request changed while this dialog was open, so it left the selection. Check the requests again.";
+
+// askAgain opens the dialog of ask again for the selection names, which a
+// live update made smaller, and reports whether it did. A denial keeps the
+// reason that the viewer wrote. A summary of fewer than two requests does
+// not open, and the post then decides only requests that the viewer saw
+// in the summary. With no selection left, the post goes too, and the
+// server refuses it with its own words.
+function askAgain(ask, names, text) {
+  if (!names.length) {
+    return false;
+  }
+  if (ask.kind === "deny") {
+    return openDeny(ask.elt, names, ask.issue, text, selectionChanged);
+  }
+  return names.length >= 2 && openSummary(ask.elt, names, ask.issue);
+}
+
+// confirmAsk sends the request that the dialog held back, after the
+// dialog closed. A live update can change the selection while a dialog is
+// open: a request that changed clears its box. The selection must then be
+// the one that the dialog showed, or the dialog opens again with the new
+// selection, so a decision never acts on requests that the viewer did not
+// see. A denial copies the reason into the hidden reason field of the
+// form that posts: the slip form, or the desk form of a bulk button.
+function confirmAsk(ask, text) {
+  var elt = ask.elt;
+  if (!document.body.contains(elt)) {
+    return;
+  }
+  var now = elt.hasAttribute("data-bulk") ? pickedNames() : ask.names;
+  if (!sameNames(ask.names, now) && askAgain(ask, now, text)) {
+    return;
+  }
+  if (ask.kind === "deny") {
+    var form = elt.tagName === "FORM" ? elt : elt.form;
+    var field = form && form.elements ? form.elements.namedItem("reason") : null;
+    if (field) {
+      field.value = text;
+    }
+    lastDeny = { elt: elt, names: ask.names, issue: ask.issue, text: text };
+  }
+  ask.issue(true);
+}
+
+// The forms of the dialogs use method="dialog". A Cancel button skips the
+// checks of the form and closes the dialog, and so does Escape. The final
+// button submits only when the checks pass, so an empty reason never
+// leaves the deny dialog. The dialog closes before the request starts, so
+// the focus is back on the button that opened it.
+document.addEventListener("submit", function (ev) {
+  var form = ev.target;
+  var dialog = form && form.closest ? form.closest("dialog") : null;
+  if (!dialog || !asking || form.getAttribute("method") !== "dialog") {
+    return;
+  }
+  ev.preventDefault();
+  var ask = asking;
+  asking = null;
+  var confirmed = ev.submitter && ev.submitter.value === "confirm";
+  var reason = document.getElementById("deny-reason");
+  dialog.close(confirmed ? "confirm" : "cancel");
+  if (confirmed) {
+    confirmAsk(ask, ask.kind === "deny" && reason ? reason.value : "");
+  }
+});
+
+// The server refuses a reason that does not pass its rule, names the
+// reason field and writes its refusal into the refusal slot of the queue.
+// The deny dialog then opens again with the text and that refusal, so the
+// viewer fixes the reason where they wrote it. htmx swaps the answer
+// before this event, so the slot holds the refusal already.
+document.addEventListener("htmx:afterRequest", function (ev) {
+  var d = ev.detail;
+  var ask = lastDeny;
+  if (!ask || !d.xhr || !d.requestConfig || d.requestConfig.elt !== ask.elt) {
+    return;
+  }
+  lastDeny = null;
+  if (d.xhr.getResponseHeader("X-Invalid-Field") !== "reason") {
+    return;
+  }
+  var slot = document.getElementById("pending-error");
+  var refusal = slot ? slot.textContent.trim() : "";
+  if (!document.body.contains(ask.elt)) {
+    return;
+  }
+  if (openDeny(ask.elt, ask.names, ask.issue, ask.text, refusal)) {
+    document.getElementById("deny-reason").setAttribute("aria-invalid", "true");
   }
 });
 

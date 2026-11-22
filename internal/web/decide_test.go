@@ -1057,23 +1057,17 @@ func TestDenialsNeedAReason(t *testing.T) {
 		t.Fatal("a refused denial ended a request")
 	}
 
-	// The decide route and the button fold the reason. The button reads the
-	// prompt header when its form has no reason.
+	// The decide route and the button fold the reason. The deny dialog
+	// writes the reason of the button into its reason field.
 	fresh := d.refs(t, "deny-one", "deny-two")
 	res, body := d.decide(t, "lead@example.com", true, actionDeny, decideForm("no\r\n\r\nbudget   left", fresh[0]), true)
 	if got, _ := regionIn(body); res.StatusCode != http.StatusOK || got != checkIcon+"<span>Denied deny-one.</span>" {
 		t.Errorf("decide = %d, region %q", res.StatusCode, got)
 	}
-	req, _ := http.NewRequest("POST", d.ts.URL+"/requests/deny-two/deny", strings.NewReader(refForm(fresh[1]).Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("X-User", "lead@example.com")
-	req.Header.Set("X-Approver", "1")
-	req.Header.Set("HX-Request", "true")
-	req.Header.Set("HX-Prompt", "  too many\tboxes ")
-	if res, err := http.DefaultClient.Do(req); err != nil || res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
-		t.Fatalf("deny with the prompt = %v %v", res, err)
-	} else if err := res.Body.Close(); err != nil {
-		t.Fatal(err)
+	button := refForm(fresh[1])
+	button.Set("reason", "  too many\tboxes ")
+	if res, body := doAs(t, d.ts, "POST", "/requests/deny-two/deny", "lead@example.com", false, true, button, true); res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
+		t.Fatalf("deny with the reason field = %d %v:\n%s", res.StatusCode, res.Header, body)
 	}
 	denied, err := d.hist.Query(context.Background(), audit.Filter{Event: "denied"})
 	if err != nil {
@@ -1088,56 +1082,24 @@ func TestDenialsNeedAReason(t *testing.T) {
 	}
 }
 
-// htmx sends the answer of a prompt as Latin-1 bytes when every character
-// fits in one byte. It sends any other answer as encodeURIComponent writes
-// it, with a second header. Both read back as the approver typed them.
-func TestPromptAnswerReadsWhatHtmxSends(t *testing.T) {
-	for _, c := range []struct {
-		value   string
-		encoded bool
-		want    string
-	}{
-		{"no budget", false, "no budget"},
-		{"caf\xe9 \xfcber se\xf1or Stra\xdfe", false, "café über señor Straße"},
-		// A header without the mark is never unescaped.
-		{"100%25 full", false, "100%25 full"},
-		{"%D0%BD%D0%B5%D1%82%20%F0%9F%93%A6", true, "нет 📦"},
-		// encodeURIComponent writes a space as %20, so a plus stays a plus.
-		{"a+b%20c", true, "a+b c"},
-	} {
-		h := http.Header{}
-		h.Set("HX-Prompt", c.value)
-		if c.encoded {
-			h.Set("HX-Prompt-URI-AutoEncoded", "true")
-		}
-		if got, err := promptAnswer(h); err != nil || got != c.want {
-			t.Errorf("promptAnswer(%q, encoded %v) = %q, %v, want %q", c.value, c.encoded, got, err, c.want)
-		}
-	}
-	for _, bad := range []string{"%zz", "cut %E2%8"} {
-		h := http.Header{}
-		h.Set("HX-Prompt", bad)
-		h.Set("HX-Prompt-URI-AutoEncoded", "true")
-		_, err := promptAnswer(h)
-		var fe fieldError
-		if !errors.As(err, &fe) || fe.field != "reason" || refusal(err, "") != reasonCharacters {
-			t.Errorf("promptAnswer(%q) = %v, want the reason field refused with %q", bad, err, reasonCharacters)
-		}
-	}
-}
-
-// The Deny button of a row sends its reason in the prompt header. A reason
-// with accents and a reason with other scripts reach history as the
-// approver typed them. A bad escape is refused and denies nothing.
-func TestDenyReadsThePromptAsHtmxSendsIt(t *testing.T) {
+// The Deny button of a row sends its reason in its reason field, which
+// the deny dialog fills. A reason with accents and a reason with other
+// scripts reach history as the approver typed them. The HX-Prompt header
+// of the old prompt counts for nothing: a form with no reason is refused,
+// even with the header, and denies nothing.
+func TestDenyReadsOnlyTheReasonField(t *testing.T) {
 	d := newDesk(t, nil, nil, nil)
 	d.ask(t, "latin-box", "bob@example.com")
 	d.ask(t, "other-box", "carl@example.com")
-	d.ask(t, "broken-box", "dana@example.com")
-	refs := d.refs(t, "latin-box", "other-box", "broken-box")
-	deny := func(ref core.RequestRef, value string, encoded bool) (*http.Response, string) {
+	d.ask(t, "prompt-box", "dana@example.com")
+	refs := d.refs(t, "latin-box", "other-box", "prompt-box")
+	deny := func(ref core.RequestRef, reason, prompt string) (*http.Response, string) {
 		t.Helper()
-		req, err := http.NewRequest("POST", d.ts.URL+"/requests/"+ref.Name+"/deny", strings.NewReader(refForm(ref).Encode()))
+		form := refForm(ref)
+		if reason != "" {
+			form.Set("reason", reason)
+		}
+		req, err := http.NewRequest("POST", d.ts.URL+"/requests/"+ref.Name+"/deny", strings.NewReader(form.Encode()))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1145,9 +1107,8 @@ func TestDenyReadsThePromptAsHtmxSendsIt(t *testing.T) {
 		req.Header.Set("X-User", "lead@example.com")
 		req.Header.Set("X-Approver", "1")
 		req.Header.Set("HX-Request", "true")
-		req.Header.Set("HX-Prompt", value)
-		if encoded {
-			req.Header.Set("HX-Prompt-URI-AutoEncoded", "true")
+		if prompt != "" {
+			req.Header.Set("HX-Prompt", prompt)
 		}
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -1160,24 +1121,21 @@ func TestDenyReadsThePromptAsHtmxSendsIt(t *testing.T) {
 		}
 		return res, string(body)
 	}
-	if res, body := deny(refs[0], "Gr\xfc\xdfe, se\xf1or. No caf\xe9 budget", false); res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
-		t.Fatalf("deny with Latin-1 bytes = %d %v:\n%s", res.StatusCode, res.Header, body)
+	if res, body := deny(refs[0], "Grüße, señor. No café budget", ""); res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
+		t.Fatalf("deny with accents = %d %v:\n%s", res.StatusCode, res.Header, body)
 	}
-	if res, body := deny(refs[1], "%D0%BD%D0%B5%D1%82%20%F0%9F%93%A6", true); res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
-		t.Fatalf("deny with an encoded reason = %d %v:\n%s", res.StatusCode, res.Header, body)
+	if res, body := deny(refs[1], "нет 📦", ""); res.StatusCode != http.StatusOK || res.Header.Get("X-Form-Error") != "" {
+		t.Fatalf("deny with other scripts = %d %v:\n%s", res.StatusCode, res.Header, body)
 	}
-	// A bad escape and an escape that is not UTF-8 get the field refusal.
-	for _, bad := range []string{"%zz", "%E2%82"} {
-		res, body := deny(refs[2], bad, true)
-		if res.Header.Get("X-Form-Error") != "1" || res.Header.Get(invalidFieldHeader) != "reason" {
-			t.Errorf("deny with %q = %v, want the reason field refused", bad, res.Header)
-		}
-		if slot := slotPart.FindStringSubmatch(body); slot == nil || slot[2] != reasonCharacters {
-			t.Errorf("deny with %q: want %q in the slot:\n%s", bad, reasonCharacters, body)
-		}
+	res, body := deny(refs[2], "", "no budget")
+	if res.Header.Get("X-Form-Error") != "1" || res.Header.Get(invalidFieldHeader) != "reason" {
+		t.Errorf("deny with only the prompt header = %v, want the reason field refused", res.Header)
 	}
-	if !d.pending(t, "broken-box") {
-		t.Fatal("a refused prompt denied the request")
+	if slot := slotPart.FindStringSubmatch(body); slot == nil || slot[2] != reasonMissing {
+		t.Errorf("deny with only the prompt header: want %q in the slot:\n%s", reasonMissing, body)
+	}
+	if !d.pending(t, "prompt-box") {
+		t.Fatal("the prompt header denied the request")
 	}
 	denied, err := d.hist.Query(context.Background(), audit.Filter{Event: "denied"})
 	if err != nil {
@@ -1187,7 +1145,7 @@ func TestDenyReadsThePromptAsHtmxSendsIt(t *testing.T) {
 	for _, e := range denied {
 		reasons[e.Account] = e.Details["reason"]
 	}
-	if reasons["latin-box"] != "Grüße, señor. No café budget" || reasons["other-box"] != "нет 📦" {
+	if reasons["latin-box"] != "Grüße, señor. No café budget" || reasons["other-box"] != "нет 📦" || len(reasons) != 2 {
 		t.Errorf("history reasons = %q", reasons)
 	}
 }

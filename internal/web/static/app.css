@@ -718,6 +718,19 @@
     border-color: var(--violet-deep);
     color: var(--paper);
   }
+  /* The red Deny button is only the final button of a dialog that denies.
+     Red marks the step that cannot be undone, not the button that opens
+     the dialog. */
+  .btn-deny {
+    background: var(--red-ink);
+    border-color: var(--red-ink);
+    color: var(--paper);
+  }
+  .btn-deny:hover {
+    background: var(--red-deep);
+    border-color: var(--red-deep);
+    color: var(--paper);
+  }
   /* Row buttons stay on one line. A narrow table scrolls instead. */
   .row-actions {
     display: flex;
@@ -960,6 +973,103 @@
   .refusal:empty {
     display: none;
   }
+  /* The dialog is the only raised surface: paper, a 1 px ink border and
+     the scrim behind it, never a shadow. Panel rules close the head and
+     the footer, and the footer is paper tint. The page keeps a 16 px
+     gutter on each side on a phone. */
+  .dialog {
+    width: min(640px, calc(100% - 32px));
+    max-width: none;
+    max-height: calc(100% - 32px);
+    padding: 0;
+    border: 1px solid var(--ink);
+    border-radius: var(--r-panel);
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .dialog::backdrop {
+    background: var(--scrim);
+  }
+  .dialog-head {
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--rule);
+  }
+  .dialog-head > h2 {
+    overflow-wrap: anywhere;
+  }
+  .dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-lg);
+  }
+  .dialog-body > .refusal,
+  .dialog-body > .help {
+    margin-top: 0;
+  }
+  .dialog-foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+    padding: var(--space-md) var(--space-lg);
+    border-top: 1px solid var(--rule);
+    border-radius: 0 0 var(--r-panel) var(--r-panel);
+    background: var(--paper-tint);
+  }
+  .dialog-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    max-height: 40vh;
+    margin: 0 0 var(--space-sm);
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  /* A line of the summary: the name, then its facts in pencil grey, with
+     a soft rule between the lines. */
+  .dialog-rows > li {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: var(--space-xs);
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .dialog-meta {
+    color: var(--ink-2);
+    font-size: 13.5px;
+    font-weight: 400;
+  }
+  .dialog-facts {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    font-size: 13.5px;
+  }
+  .dialog-reason {
+    width: 100%;
+    min-height: 96px;
+    padding: var(--space-sm) 10px;
+    border: 1px solid var(--control-rule);
+    border-radius: var(--r-control);
+    background: var(--paper);
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+    resize: vertical;
+  }
+  .dialog-reason:focus-visible {
+    border-color: var(--violet);
+    outline: 2px solid var(--violet);
+    outline-offset: 1px;
+  }
+  .dialog-reason:user-invalid,
+  .dialog-reason[aria-invalid=true] {
+    border-color: var(--red-ink);
+  }
+
   /* A note with a recovery stacks two lines: the problem in semibold, then
      the recovery as the body. */
   .note-text {
