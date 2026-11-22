@@ -218,6 +218,9 @@ type page struct {
 	Pending []core.Request // requests the viewer may see: their own, or all for approvers
 	Limits  core.Config    // ceilings and defaults shown in the form
 	Path    string         // the request path, so the shell can mark the current page
+	// Now is the service clock when the page was built. Time left on the
+	// page counts from it, not from the wall clock.
+	Now time.Time
 	// SignedOut marks a page for nobody, such as a failed sign-in. The shell
 	// then shows only the brand.
 	SignedOut bool
@@ -299,7 +302,7 @@ func regionInCard(pg page) page {
 func (s *Server) pageFor(r *http.Request) page {
 	// "all" arrives as a query parameter on GET and, thanks to hx-include on
 	// the switch, in the body of every action, so the view survives actions.
-	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), ShowAll: r.FormValue("all") == "1", Limits: s.svc.Config(), Path: r.URL.Path, Asker: askingPage(r), InSlack: s.slack != nil || s.noticesInSlack}
+	pg := page{Viewer: ViewerFrom(r.Context()), SignIn: s.auth.Enabled(), ShowAll: r.FormValue("all") == "1", Limits: s.svc.Config(), Path: r.URL.Path, Asker: askingPage(r), InSlack: s.slack != nil || s.noticesInSlack, Now: s.svc.Now()}
 	// The fleet view of the accounts page comes the same way: in the query
 	// of a GET and in the body of an action. The home page keeps its plain
 	// list.
@@ -395,7 +398,7 @@ func (s *Server) rows(ctx context.Context, pg *page, force bool) ([]accountRow, 
 	now := s.svc.Now()
 	rows := make([]accountRow, 0, len(mine))
 	for _, a := range mine {
-		r := accountRow{Account: a, SpendKnown: a.ProviderID == ""}
+		r := accountRow{Account: a, SpendKnown: a.ProviderID == "", Now: now}
 		if a.ProviderID != "" {
 			if pts, ok := s.svc.CostState(a.ProviderID, 31); ok {
 				r.Spend, r.SpendKnown = core.MonthToDate(pts, now), true

@@ -1098,3 +1098,67 @@ func TestApprovedRecordOfPlacedAccountIsCleaned(t *testing.T) {
 		t.Fatalf("record of a placed account should be dropped after a day: %v", tags)
 	}
 }
+
+// Extend keeps the expiry it replaces in the extended-from tag, written in
+// the same call as the new expiry, and names it in the history. After a
+// second extension the tag holds the expiry just before that one.
+func TestExtendKeepsTheEarlierExpiry(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	a := h.active(t, "renew", "alex", 5*24*time.Hour)
+	if !a.ExtendedFrom.IsZero() {
+		t.Fatalf("a new account has extended-from %s", a.ExtendedFrom)
+	}
+	rec := &recorderAudit{}
+	h.svc.SetAuditor(rec)
+	first := a.ExpiresAt
+	second := first.Add(3 * 24 * time.Hour)
+	a, err := h.svc.Extend(ctx, a.ID, second, "ops@example.com", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.ExtendedFrom.Equal(first) || !a.ExpiresAt.Equal(second) {
+		t.Fatalf("after extend: expires %s, extended from %s", a.ExpiresAt, a.ExtendedFrom)
+	}
+	tags := h.prov.Tags(a.ProviderID)
+	if tags[core.TagExtendedFrom] != first.UTC().Format(time.RFC3339) || tags[core.TagExpires] != second.UTC().Format(time.RFC3339) {
+		t.Fatalf("provider tags after extend = %v", tags)
+	}
+	got, _ := h.svc.Get(ctx, a.ID)
+	if !got.ExtendedFrom.Equal(first) {
+		t.Fatalf("read back extended-from %s, want %s", got.ExtendedFrom, first)
+	}
+
+	third := second.Add(2 * 24 * time.Hour)
+	if _, err := h.svc.Extend(ctx, a.ID, third, "ops@example.com", false); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = h.svc.Get(ctx, a.ID)
+	if !got.ExtendedFrom.Equal(second) || !got.ExpiresAt.Equal(third) {
+		t.Fatalf("after second extend: expires %s, extended from %s", got.ExpiresAt, got.ExtendedFrom)
+	}
+
+	var froms []string
+	for _, e := range rec.events {
+		if e.Event == "extended" {
+			froms = append(froms, e.Details["from"])
+		}
+	}
+	want := []string{first.UTC().Format(time.RFC3339), second.UTC().Format(time.RFC3339)}
+	if len(froms) != 2 || froms[0] != want[0] || froms[1] != want[1] {
+		t.Fatalf("extended history from = %q, want %q", froms, want)
+	}
+}
+
+// A refused extension leaves the extended-from tag as it was.
+func TestRefusedExtendKeepsTheTag(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	a := h.active(t, "steady", "alex", 5*24*time.Hour)
+	if _, err := h.svc.Extend(ctx, a.ID, a.ExpiresAt.Add(-time.Hour), "ops@example.com", false); err == nil {
+		t.Fatal("extend to an earlier date should fail")
+	}
+	if _, ok := h.prov.Tags(a.ProviderID)[core.TagExtendedFrom]; ok {
+		t.Fatal("a refused extension wrote the extended-from tag")
+	}
+}

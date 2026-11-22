@@ -272,6 +272,9 @@ type accountRow struct {
 	// SpendKnown is false when the last cost pull failed or never ran. The
 	// row then shows "unavailable" and no meter, never $0.00.
 	SpendKnown bool
+	// Now is the service clock when the row was read. The due date and the
+	// time left count from it, so a fake clock and the text agree.
+	Now time.Time
 }
 
 
@@ -1178,9 +1181,9 @@ templ accountTR(r accountRow, include string) {
 			}
 		>
 			if r.Account.Status == core.StatusActive || r.Account.Status == core.StatusExpiring || r.Account.Status == core.StatusClosing {
-				{ expiresIn(r.Account.ExpiresAt) }
+				{ expiresIn(r.Account.ExpiresAt, r.Now) }
 			} else if !r.Account.ExpiresAt.IsZero() && r.Account.Status != core.StatusFailed && r.Account.Status != core.StatusClosed {
-				<span class="muted" title="once created">{ expiresIn(r.Account.ExpiresAt) }</span>
+				<span class="muted" title="once created">{ expiresIn(r.Account.ExpiresAt, r.Now) }</span>
 			} else {
 				<span class="muted">—</span>
 			}
@@ -1313,7 +1316,7 @@ templ accountPage(pg page, a *core.Account, costs []core.CostPoint, total float6
 					if a.ProviderID != "" {
 						<dt>expires</dt><dd>{ expiryDate(a.ExpiresAt, "2006-01-02 15:04 MST") }
 							if !a.ExpiresAt.IsZero() {
-								<span class="muted">({ expiresIn(a.ExpiresAt) })</span>
+								<span class="muted">({ expiresIn(a.ExpiresAt, pg.Now) })</span>
 							}
 						</dd>
 					}

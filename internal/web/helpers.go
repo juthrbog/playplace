@@ -73,11 +73,13 @@ func hasAccountsSection(pg page) bool {
 	return pg.Path == "/" || pg.Path == pathAccounts
 }
 
-func expiresIn(t time.Time) string {
+// expiresIn is the time left until t, counted from now. Callers pass the
+// service clock, so a fake clock in tests and the demo moves the text too.
+func expiresIn(t, now time.Time) string {
 	if t.IsZero() {
 		return "unknown"
 	}
-	d := time.Until(t)
+	d := t.Sub(now)
 	switch {
 	case d < 0:
 		return "expired"

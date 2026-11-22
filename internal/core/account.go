@@ -53,6 +53,7 @@ const (
 	TagPurpose        = "playplace:purpose"          // short free text from the request
 	TagJourney        = "playplace:journey"          // stable history identity, not lifecycle authority
 	TagHandoff        = "playplace:handoff"          // placing, pending, complete; absent on legacy accounts
+	TagExtendedFrom   = "playplace:extended-from"    // RFC3339, the expiry just before the last extension
 )
 
 // Account is a playground account as derived from the provider.
@@ -73,6 +74,7 @@ type Account struct {
 	BudgetChecked    string     `json:"budget_checked,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
 	ExpiresAt        time.Time  `json:"expires_at"`
+	ExtendedFrom     time.Time  `json:"extended_from,omitzero"` // expiry before the last extension; zero if never extended or unknown
 	WarnedAt         *time.Time `json:"warned_at,omitempty"`
 	CloseRequestedAt *time.Time `json:"close_requested_at,omitempty"`
 	ClosedAt         *time.Time `json:"closed_at,omitempty"`
@@ -114,6 +116,9 @@ func (a *Account) Tags() map[string]string {
 		if value != "" {
 			t[key] = value
 		}
+	}
+	if !a.ExtendedFrom.IsZero() {
+		t[TagExtendedFrom] = a.ExtendedFrom.UTC().Format(time.RFC3339)
 	}
 	if a.WarnedAt != nil {
 		t[TagWarnedAt] = a.WarnedAt.UTC().Format(time.RFC3339)
@@ -229,6 +234,11 @@ func FromRemote(r RemoteAccount, defaults Config, now time.Time) *Account {
 		a.invalidTag(TagBudget, "is missing or invalid")
 	} else {
 		a.BudgetUSD = defaults.DefaultBudgetUSD
+	}
+	// The earlier expiry is only for display. A missing or bad value reads
+	// as never extended and is not a repair problem.
+	if t, err := time.Parse(time.RFC3339, r.Tags[TagExtendedFrom]); err == nil {
+		a.ExtendedFrom = t
 	}
 	if t, err := time.Parse(time.RFC3339, r.Tags[TagWarnedAt]); err == nil {
 		a.WarnedAt = &t

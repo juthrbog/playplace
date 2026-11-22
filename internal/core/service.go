@@ -860,11 +860,16 @@ func (s *Service) Extend(ctx context.Context, id string, until time.Time, by str
 	if err := s.checkLifetime(a, until, override); err != nil {
 		return nil, err
 	}
-	a.ExpiresAt = until
-	a.WarnedAt = nil
-	if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{TagExpires: until.UTC().Format(time.RFC3339)}); err != nil {
+	from := a.ExpiresAt
+	if err := s.provider.SetTags(ctx, a.ProviderID, map[string]string{
+		TagExpires:      until.UTC().Format(time.RFC3339),
+		TagExtendedFrom: from.UTC().Format(time.RFC3339),
+	}); err != nil {
 		return nil, providerError("tag "+a.Name, err)
 	}
+	a.ExpiresAt = until
+	a.ExtendedFrom = from
+	a.WarnedAt = nil
 	if err := s.provider.RemoveTags(ctx, a.ProviderID, []string{TagWarnedAt}); err != nil {
 		return nil, providerError("untag "+a.Name, err)
 	}
@@ -872,7 +877,7 @@ func (s *Service) Extend(ctx context.Context, id string, until time.Time, by str
 	s.Invalidate()
 	s.log.Info("extended", "account", a.Name, "until", until)
 	s.audit(ctx, "extended", a, by, "", fmt.Sprintf("%s extended %s to %s", by, a.Name, until.Format("2006-01-02")),
-		map[string]string{"expires": until.UTC().Format(time.RFC3339), "override": strconv.FormatBool(override)})
+		map[string]string{"expires": until.UTC().Format(time.RFC3339), "from": from.UTC().Format(time.RFC3339), "override": strconv.FormatBool(override)})
 	return a, nil
 }
 
