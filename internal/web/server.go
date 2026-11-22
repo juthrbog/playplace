@@ -213,12 +213,14 @@ type page struct {
 	// pageFor reads it only for that page. rows sets its Page to the page it
 	// shows, and Total to the number of accounts that pass the filters. On
 	// the home page Total counts the open accounts that the page lists
-	// before the cut to homeFleetSize.
-	Fleet   fleetView
-	Total   int
-	Pending []core.Request // requests the viewer may see: their own, or all for approvers
-	Limits  core.Config    // ceilings and defaults shown in the form
-	Path    string         // the request path, so the shell can mark the current page
+	// before the cut to homeFleetSize, and AllTotal counts what the
+	// accounts page lists by default, which adds the pending requests.
+	Fleet    fleetView
+	Total    int
+	AllTotal int
+	Pending  []core.Request // requests the viewer may see: their own, or all for approvers
+	Limits   core.Config    // ceilings and defaults shown in the form
+	Path     string         // the request path, so the shell can mark the current page
 	// Now is the service clock when the page was built. Time left on the
 	// page counts from it, not from the wall clock.
 	Now time.Time
@@ -423,7 +425,7 @@ func (s *Server) rows(ctx context.Context, pg *page, force bool) ([]accountRow, 
 		pg.Ledger = buildLedger(rows, now)
 	}
 	var shown []accountRow
-	shown, pg.Total = homeRows(rows, pg.Viewer, now)
+	shown, pg.Total, pg.AllTotal = homeRows(rows, pg.Viewer, now)
 	return shown, nil
 }
 
@@ -779,7 +781,6 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 		s.forbid(w, r, "only admins can sync with AWS")
 		return
 	}
-	// the sync form has no fields of its own, so the switch is the only value
 	sum, err := s.svc.Refresh(r.Context())
 	if err != nil {
 		s.failSync(w, r, err)
@@ -958,18 +959,24 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 // refusalSlot is the id of the slot that shows the refusal of an htmx
-// request. On the home page, the New request panel sits below the accounts,
-// so +7d and Close there fill the slot above the accounts section. Every
-// other refusal fills the slot under a form or under the page heading.
+// request. Off the home page it is the slot under a form or under the page
+// heading. On the home page the New request panel comes last, so only New
+// request itself fills the slot under its form. An action on a request
+// fills the slot of the request panel, and every other refusal, such as
+// +7d, Close or Sync, fills the slot above the accounts.
 func refusalSlot(r *http.Request) string {
-	path := r.URL.Path
-	if !strings.HasPrefix(path, pathAccounts+"/") || (!strings.HasSuffix(path, "/extend") && !strings.HasSuffix(path, "/close")) {
+	u, err := url.Parse(r.Header.Get("HX-Current-URL"))
+	if err != nil || u.Path != "/" {
 		return "form-error"
 	}
-	if u, err := url.Parse(r.Header.Get("HX-Current-URL")); err == nil && u.Path == "/" {
+	switch path := r.URL.Path; {
+	case path == "/requests":
+		return "form-error"
+	case strings.HasPrefix(path, "/requests/"):
+		return "pending-error"
+	default:
 		return "account-error"
 	}
-	return "form-error"
 }
 
 // The headers of a refused field. app.js marks the input with aria-invalid

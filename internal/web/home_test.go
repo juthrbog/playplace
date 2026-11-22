@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"playplace/internal/core"
+	"playplace/internal/provider/fake"
 )
 
 // The ledger groups the rows by kind in the order of core, with over budget
@@ -95,6 +96,7 @@ func renderSprite(t *testing.T) string {
 
 // The home page lists the open accounts that are not pending requests, by
 // due date, and cuts the list to homeFleetSize. The count is before the cut.
+// The count of the accounts page adds the pending requests.
 func TestHomeRows(t *testing.T) {
 	var rows []accountRow
 	for i := range homeFleetSize + 5 {
@@ -107,9 +109,14 @@ func TestHomeRows(t *testing.T) {
 		fleetRow("gone", func(r *accountRow) { r.Account.Status = core.StatusClosed }),
 		fleetRow("dead", func(r *accountRow) { r.Account.Status = core.StatusFailed }),
 	)
-	shown, total := homeRows(rows, fleetAdmin, fleetNow)
+	shown, total, all := homeRows(rows, fleetAdmin, fleetNow)
 	if total != homeFleetSize+6 || len(shown) != homeFleetSize {
 		t.Fatalf("homeRows = %d rows of %d, want %d of %d", len(shown), total, homeFleetSize, homeFleetSize+6)
+	}
+	// The link to the accounts page counts what that page lists by
+	// default, so it counts the pending request too.
+	if all != homeFleetSize+7 {
+		t.Errorf("homeRows counts %d rows for the accounts page, want %d", all, homeFleetSize+7)
 	}
 	if shown[0].Account.ID != fmt.Sprintf("%03d", homeFleetSize+4) {
 		t.Errorf("the first row is %s, want the soonest due date", shown[0].Account.ID)
@@ -208,7 +215,7 @@ func TestAdminHomeFleet(t *testing.T) {
 		`<th scope="col">Account</th><th scope="col">Due</th><th scope="col">Spend / Budget</th>`,
 		`<td class="due"><span class="due-date"><time id="stamp-111111111111-`,
 		`class="stamp stamp-date stamp-soon ` + stampTurn("111111111111") + `" datetime="2026-09-18T12:00:00Z" title="2026-09-18 12:00 UTC">SEP 18 2026</time>`,
-		`<p class="panel-foot"><a class="link" href="/accounts">All 2 accounts</a></p>`,
+		`<p class="panel-foot"><a class="link" href="/accounts">All 3 accounts</a></p>`,
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("the admin fleet lacks %s:\n%s", want, section)
@@ -450,8 +457,48 @@ func TestAccountRefusalsOnHomeFillTheSlotAboveTheAccounts(t *testing.T) {
 	}
 }
 
-// The loan card and the due cell are card stock, with card rules. The due
-// cell keeps card stock on hover. The ledger sits on paper.
+// On the home page the New request panel comes last. So only a refused New
+// request fills the slot under its form. A refusal of an action on a
+// request fills the slot of the request panel, and a failed Sync fills the
+// slot above the accounts.
+func TestHomeRefusalsFillTheSlotNearTheirControl(t *testing.T) {
+	ts, _ := newServer(t)
+	if res, body := do(t, ts, "POST", "/requests", "bob@example.com", false, url.Values{"name": {"bobs-box"}}, true); res.Header.Get("X-Form-Error") != "" {
+		t.Fatalf("request = %s", body)
+	}
+	_, home := do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
+	edit := refForm(refIn(t, home, "bobs-box"))
+	edit.Set("budget", "lots")
+	for _, c := range []struct {
+		name, path string
+		form       url.Values
+		slot       string
+	}{
+		{"new request", "/requests", url.Values{"name": {"big-one"}, "budget": {"lots"}}, "form-error"},
+		{"edit a request", "/requests/bobs-box/edit", edit, "pending-error"},
+	} {
+		_, body := fromPage(t, ts, "POST", c.path, "/", "ops@example.com", true, true, c.form, "")
+		if !strings.Contains(body, `<div id="`+c.slot+`" hx-swap-oob="innerHTML">`) {
+			t.Errorf("%s: the refusal does not fill %s:\n%s", c.name, c.slot, body)
+		}
+	}
+	flaky := &flakyList{}
+	failing, _ := newServerOn(t, func(p *fake.Provider) core.Provider { flaky.Provider = p; return flaky })
+	flaky.fail.Store(true)
+	for _, c := range []struct{ from, slot string }{
+		{"/", "account-error"},
+		{"/accounts", "form-error"},
+	} {
+		res, body := fromPage(t, failing, "POST", "/refresh", c.from, "ops@example.com", true, true, url.Values{}, "")
+		if res.Header.Get("X-Form-Error") != "1" || !strings.Contains(body, `<div id="`+c.slot+`" hx-swap-oob="innerHTML">`) {
+			t.Errorf("a failed Sync on %s does not fill %s:\n%s", c.from, c.slot, body)
+		}
+	}
+}
+
+// The loan card and the due cell are card stock, with card rules, and so is
+// the meter track of a loan card. The due cell keeps card stock on hover.
+// The ledger sits on paper. The link of an empty state is a touch target.
 func TestHomeSurfaces(t *testing.T) {
 	top, media := layerRules(t, "components")
 	wantDecls(t, "components", top, ".loan", map[string]string{
@@ -462,13 +509,36 @@ func TestHomeSurfaces(t *testing.T) {
 	})
 	wantDecls(t, "components", top, ".fleet-compact td", map[string]string{"padding-top": "var(--space-xs)", "padding-bottom": "var(--space-xs)"})
 	wantDecls(t, "components", top, ".meter-full", map[string]string{"width": "100%", "height": "6px"})
+	wantDecls(t, "components", top, ".loan .meter-track", map[string]string{"fill": "var(--card-rule)"})
 	if _, ok := top[".ledger"]; ok {
 		t.Error("the ledger has its own surface, but it is a paper panel")
 	}
 	layout, lmedia := layerRules(t, "layout")
 	wantDecls(t, "layout", layout, ".home-top", map[string]string{"display": "grid", "grid-template-columns": "minmax(300px, 384px) minmax(0, 1fr)"})
-	wantDecls(t, "layout (max-width: 1000px)", lmedia["(max-width: 1000px)"], ".home-top", map[string]string{"grid-template-columns": "minmax(0, 1fr)"})
+	wantDecls(t, "layout (max-width: 1200px)", lmedia["(max-width: 1200px)"], ".home-top", map[string]string{"grid-template-columns": "minmax(0, 1fr)"})
 	_ = media
 	_, utilities := layerRules(t, "utilities")
 	wantDecls(t, "utilities (max-width: 640px)", utilities["(max-width: 640px)"], ".loan-name a, .ledger-row", map[string]string{"min-height": "var(--touch)"})
+	wantDecls(t, "utilities (max-width: 640px)", utilities["(max-width: 640px)"], ".empty a", map[string]string{"min-height": "var(--touch)"})
+}
+
+// A focused ledger row that a poll takes away gives the focus to the next
+// row, or else to the Needs attention heading, which takes focus from
+// script only.
+func TestLedgerKeepsTheFocus(t *testing.T) {
+	js := staticText(t, "app.js")
+	holdsEach(t, "notePlace", funcBody(t, js, "function notePlace(xhr, source) {"),
+		`active.closest(ledgerRows)`,
+		`rows: ledgerRows`,
+		`want: "a.ledger-row"`)
+	settle := listeners(js, "htmx:afterSettle")
+	if len(settle) != 1 {
+		t.Fatalf("app.js has %d htmx:afterSettle listeners, want 1", len(settle))
+	}
+	holdsEach(t, "the focus rule", settle[0], `was.rows === ledgerRows`, `document.getElementById("attention-title")`)
+	ts, _ := newServer(t)
+	_, body := do(t, ts, "GET", "/", "ops@example.com", true, nil, false)
+	if !strings.Contains(body, `<h2 id="attention-title" tabindex="-1">Needs attention</h2>`) {
+		t.Errorf("the ledger heading cannot take the focus:\n%s", body)
+	}
 }

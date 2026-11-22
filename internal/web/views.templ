@@ -380,7 +380,9 @@ templ attentionLedger(pg page, errMsg string, oob bool) {
 		}
 		aria-labelledby="attention-title"
 	>
-		<div class="panel-head"><h2 id="attention-title">Needs attention</h2></div>
+		// app.js moves the focus to the heading when the focused row left
+		// and no row is left, so the heading takes focus from script only.
+		<div class="panel-head"><h2 id="attention-title" tabindex="-1">Needs attention</h2></div>
 		if errMsg != "" {
 			<p id="attention-failed" class="ledger-note">@icon("alert")<span>The account list is unavailable, so this list cannot say what needs attention.</span></p>
 		} else if len(pg.Ledger) == 0 {
@@ -1082,7 +1084,7 @@ templ accountsPanel(pg page, rows []accountRow, errMsg, hash string, oob bool) {
 				</table>
 			</div>
 			if !pg.onAccounts() {
-				<p class="panel-foot"><a class="link" href="/accounts">{ allAccounts(pg.Total) }</a></p>
+				<p class="panel-foot"><a class="link" href="/accounts">{ allAccounts(pg.AllTotal) }</a></p>
 			} else if fleetPages(pg.Total) > 1 {
 				@fleetPager(pg.Fleet, pg.Total)
 			}

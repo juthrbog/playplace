@@ -363,14 +363,16 @@
     padding: var(--space-lg) var(--space-xl) var(--space-xxl);
   }
   /* The top row of the admin home: the Needs attention ledger, 300 to
-     384 px, beside the approval desk. At 1000 px and below it stacks. */
+     384 px, beside the approval desk. At 1200 px and below it stacks, so
+     the desk slips keep their width until their own narrow layout at
+     1000 px. */
   .home-top {
     display: grid;
     grid-template-columns: minmax(300px, 384px) minmax(0, 1fr);
     align-items: start;
     gap: var(--space-lg);
   }
-  @media (max-width: 1000px) {
+  @media (max-width: 1200px) {
     .home-top {
       grid-template-columns: minmax(0, 1fr);
     }
@@ -1154,6 +1156,10 @@
     display: block;
     width: 100%;
     height: 6px;
+  }
+  /* A loan card is card stock, so its track takes the card rule. */
+  .loan .meter-track {
+    fill: var(--card-rule);
   }
   .meter-block + .status,
   .loan-spend > .spend + .status {
@@ -2341,6 +2347,12 @@
     .loan-name a {
       display: inline-flex;
       align-items: center;
+    }
+    /* The link of an empty state, such as New request, is a target too. */
+    .empty a {
+      display: inline-flex;
+      align-items: center;
+      min-height: var(--touch);
     }
     summary {
       min-height: var(--touch);

@@ -123,19 +123,25 @@ func nameList(names []string, n int) string {
 // viewer may see: every open account that is not a pending request, by due
 // date, the soonest first. The desk and Your requests show the pending
 // requests already. It also returns how many rows there are before the cut
-// to homeFleetSize.
-func homeRows(rows []accountRow, v Viewer, now time.Time) ([]accountRow, int) {
-	var open []accountRow
+// to homeFleetSize, and how many rows the accounts page lists by default,
+// which counts the pending requests too.
+func homeRows(rows []accountRow, v Viewer, now time.Time) (shown []accountRow, total, all int) {
+	var open, notClosed []accountRow
 	for _, r := range rows {
-		if r.Account.Status != core.StatusPending && r.Account.Status != core.StatusClosed {
+		if r.Account.Status == core.StatusClosed {
+			continue
+		}
+		notClosed = append(notClosed, r)
+		if r.Account.Status != core.StatusPending {
 			open = append(open, r)
 		}
 	}
-	shown, total, _ := defaultFleetView().apply(open, v, now)
+	shown, total, _ = defaultFleetView().apply(open, v, now)
 	if len(shown) > homeFleetSize {
 		shown = shown[:homeFleetSize]
 	}
-	return shown, total
+	_, all, _ = defaultFleetView().apply(notClosed, v, now)
+	return shown, total, all
 }
 
 // limitLine says how the viewer stands against the per-owner limit. It
@@ -164,8 +170,8 @@ func hasLedger(pg page) bool {
 }
 
 // allAccounts is the link under the fleet of the admin home, such as "All
-// 112 accounts". It leads to the accounts page, which lists the same open
-// accounts by default.
+// 112 accounts". It leads to the accounts page, and total is what that page
+// lists by default: the open accounts and the pending requests.
 func allAccounts(total int) string {
 	if total == 1 {
 		return "All 1 account"

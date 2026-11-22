@@ -951,6 +951,8 @@ var focusNext = {
 // the home page. The account link of a row or a card is its name.
 var slipRows = "#pending li.slip";
 var fleetRows = "#accounts tbody > tr, #accounts li.loan";
+// The rows of the Needs attention ledger. A poll can take a row away.
+var ledgerRows = "#attention li";
 
 // focusPlace is where the focus was when an answer started to swap. It
 // holds the slip or the row and its place in the list. It also notes
@@ -977,6 +979,20 @@ function notePlace(xhr, source) {
       xhr: xhr,
       desk: true,
       acted: !!(source && source.hasAttribute && source.hasAttribute("data-bulk")),
+      said: region ? region.lastElementChild : null
+    };
+    return;
+  }
+  // A ledger row decides nothing, so the viewer never acted on it.
+  var line = active && active.closest ? active.closest(ledgerRows) : null;
+  if (line && line.id) {
+    focusPlace = {
+      xhr: xhr,
+      row: line.id,
+      rows: ledgerRows,
+      index: Array.prototype.indexOf.call(line.parentNode.children, line),
+      acted: false,
+      want: "a.ledger-row",
       said: region ? region.lastElementChild : null
     };
     return;
@@ -1023,10 +1039,11 @@ function controlIn(row, want) {
 // longer waits. It then goes to the control of focusPlace in its own
 // slip or row. A slip that no longer waits gives its place to the next
 // slip that waits, then to the one before it. In a queue with no slip
-// that waits, the focus goes to the heading. A bulk control that left
-// gives its place to the name of the first slip that waits, or to the
-// heading. A viewer who moved on keeps their place. Every swap runs this
-// rule, a poll too.
+// that waits, the focus goes to the heading. A ledger row that left
+// gives its place to the next row, then to the one before it, then to
+// the Needs attention heading. A bulk control that left gives its place
+// to the name of the first slip that waits, or to the heading. A viewer
+// who moved on keeps their place. Every swap runs this rule, a poll too.
 document.addEventListener("htmx:afterSettle", function (ev) {
   watchBar();
   syncPicks();
@@ -1061,6 +1078,8 @@ document.addEventListener("htmx:afterSettle", function (ev) {
   }
   if (!target && was.rows === slipRows) {
     target = document.getElementById("pending-title");
+  } else if (!target && was.rows === ledgerRows) {
+    target = document.getElementById("attention-title");
   }
   if (!target) {
     return;
