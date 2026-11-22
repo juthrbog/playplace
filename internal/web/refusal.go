@@ -57,6 +57,7 @@ func refusal(err error, request string) string {
 	var lifetime core.LifetimeLimitError
 	var failed *core.ProviderError
 	var coded awsCoded
+	var problem core.AccountProblemError
 	switch {
 	case request != "" && errors.Is(err, core.ErrRequestChanged):
 		return request + " changed after you loaded the page. Read the new values, then try again."
@@ -84,9 +85,33 @@ func refusal(err error, request string) string {
 			return awsSlow
 		}
 		return awsFailed
+	// The text of an account problem holds the raw LastError, so it gets
+	// the words of the rows.
+	case errors.As(err, &problem):
+		return problemRefusal(err)
 	}
 	// Core writes its refusals for people, for example the checks of a
 	// request and the rules of an extension.
+	return sentences(err.Error())
+}
+
+// problemRefusal is the text of err when it holds account problems. Each
+// account problem in a join gets the words of its row, after the account
+// name. Each other part keeps its words, written as sentences.
+func problemRefusal(err error) string {
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		var parts []string
+		for _, e := range joined.Unwrap() {
+			if e != nil {
+				parts = append(parts, problemRefusal(e))
+			}
+		}
+		return strings.Join(parts, " ")
+	}
+	var problem core.AccountProblemError
+	if errors.As(err, &problem) {
+		return problem.Name + ": " + problemWords(problem.Problem).Text
+	}
 	return sentences(err.Error())
 }
 

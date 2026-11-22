@@ -19,6 +19,7 @@ const (
 	problemUnknown = "Something went wrong with this account. An admin can see the details in the log."
 	stateUnknown   = "AWS reports a state for this account that playplace does not expect. Ask an admin to check it in AWS."
 	createdNoHint  = "An admin can see the reason in the log."
+	createdNoWhy   = "AWS gave no reason. An admin can check the request in AWS."
 )
 
 // stateWords are the AWS account states that a page names, in plain words.
@@ -57,7 +58,11 @@ func problemWords(p core.Problem) problemView {
 		return problemView{Text: "Waiting for AWS to place the account since " + p.Since.UTC().Format(problemTime) + ".", Wait: true}
 	case core.ProblemCreationFailed:
 		advice := core.FailureAdvice(p.Reason)
-		if advice == "" {
+		switch {
+		case advice != "":
+		case p.Reason == "":
+			advice = createdNoWhy
+		default:
 			advice = createdNoHint
 		}
 		return problemView{Text: "AWS could not create the account. " + advice}

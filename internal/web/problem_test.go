@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"errors"
 	"html"
 	"log/slog"
 	"net/url"
@@ -47,7 +48,7 @@ func TestProblemWords(t *testing.T) {
 		{"creation failed with advice", core.FromCreateRequest(core.CreateRequest{RequestID: "car-1", Name: "a", State: core.CreateFailed, FailureReason: "EMAIL_ALREADY_EXISTS"}),
 			problemView{Text: "AWS could not create the account. " + core.FailureAdvice("EMAIL_ALREADY_EXISTS")}},
 		{"creation failed with no reason", core.FromCreateRequest(core.CreateRequest{RequestID: "car-1", Name: "a", State: core.CreateFailed}),
-			problemView{Text: "AWS could not create the account. " + createdNoHint}},
+			problemView{Text: "AWS could not create the account. AWS gave no reason. An admin can check the request in AWS."}},
 		{"creation failed with a reason AWS does not describe", core.FromCreateRequest(core.CreateRequest{RequestID: "car-1", Name: "a", State: core.CreateFailed, FailureReason: "NEW_REASON"}),
 			problemView{Text: "AWS could not create the account. " + createdNoHint}},
 		{"a LastError with no kind", &core.Account{ID: "x", Name: "x", Status: core.StatusUnavailable, LastError: `provider state "WEIRD" since 2026-09-14T11:00:00Z`},
@@ -180,5 +181,76 @@ func TestAccountPageKeepsTheQueueCount(t *testing.T) {
 	_, body := doAs(t, ts, "GET", "/accounts/111111111111", "ops@example.com", true, true, nil, false)
 	if !strings.Contains(body, `<span id="queue-count"><span class="count-pill">1`) {
 		t.Errorf("the account page lost the queue count:\n%s", body)
+	}
+}
+
+// suspendOnClose closes an account, and then AWS reports it as SUSPENDED.
+type suspendOnClose struct{ *fake.Provider }
+
+func (p suspendOnClose) CloseAccount(ctx context.Context, id string) error {
+	if err := p.Provider.CloseAccount(ctx, id); err != nil {
+		return err
+	}
+	r, err := p.GetAccount(ctx, id)
+	if err != nil {
+		return err
+	}
+	r.Status = "SUSPENDED"
+	p.Seed(r)
+	return nil
+}
+
+// The refusals of Close and Sync show account problems in the words of the
+// rows, never the raw LastError, an AWS state or an RFC 3339 time.
+func TestCloseAndSyncRefusalsUseProblemWords(t *testing.T) {
+	ts, prov := newServerLogged(t, func(p *fake.Provider) core.Provider { return suspendOnClose{p} }, slog.New(slog.DiscardHandler))
+	raw := func(name, body string) {
+		t.Helper()
+		text := visibleText(body)
+		if strings.Contains(text, "provider state") || strings.Contains(text, "SUSPENDED") || strings.Contains(text, "ACTIVE") {
+			t.Errorf("%s shows a raw AWS state:\n%s", name, text)
+		}
+		if m := rfc3339.FindString(text); m != "" {
+			t.Errorf("%s shows the RFC 3339 time %s:\n%s", name, m, text)
+		}
+	}
+	_, body := do(t, ts, "POST", "/accounts/111111111111/close", "ops@example.com", true, nil, true)
+	if !strings.Contains(body, "annas-box: AWS reports this account as suspended, not closed. Ask an admin to check it in AWS.") {
+		t.Errorf("the close refusal lacks the problem words:\n%s", body)
+	}
+	raw("close", body)
+
+	prov.Seed(remote("333333333333", "odd-box", "SUSPENDED", nil))
+	prov.AsyncClose = true
+	prov.Seed(remote("444444444444", "late-box", "ACTIVE", map[string]string{core.TagCloseRequested: t0.Add(-25 * time.Hour).Format(time.RFC3339)}))
+	_, body = do(t, ts, "POST", "/refresh", "ops@example.com", true, url.Values{}, true)
+	for _, want := range []string{
+		"odd-box: AWS reports this account as suspended, not closed.",
+		"late-box: AWS has not confirmed the closure since 2026-09-14 11:00 UTC. Charges may continue.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the sync refusal lacks %q:\n%s", want, body)
+		}
+	}
+	raw("sync", body)
+}
+
+// A failed close that is not an account problem keeps its own words, and a
+// join with a failed call to AWS still reads as that failure.
+func TestProblemRefusal(t *testing.T) {
+	suspended := core.AccountProblemError{Name: "a", Problem: core.Problem{Kind: core.ProblemStateUnexpected, State: "SUSPENDED"}}
+	for _, c := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"one", suspended, "a: AWS reports this account as suspended, not closed. Ask an admin to check it in AWS."},
+		{"with another refusal", errors.Join(errors.New("account b is SUSPENDED in the organization root"), errors.Join(nil, suspended)),
+			"Account b is SUSPENDED in the organization root. a: AWS reports this account as suspended, not closed. Ask an admin to check it in AWS."},
+		{"with a failed call", errors.Join(suspended, &core.ProviderError{Op: "tag a", Err: errors.New("RequestID: 1")}), awsFailed},
+	} {
+		if got := refusal(c.err, ""); got != c.want {
+			t.Errorf("%s: refusal = %q, want %q", c.name, got, c.want)
+		}
 	}
 }
