@@ -238,8 +238,8 @@ type page struct {
 	// RegionInCard marks the home page, which holds the live region in the
 	// queue panel. The layout then leaves out its own.
 	RegionInCard bool
-	// Polls marks a page whose content polls, the home page and the
-	// accounts page. Its footer then holds the live line.
+	// Polls marks a page whose content polls: the home page, the accounts
+	// page and the account page. Its footer then holds the live line.
 	Polls bool
 	// Open names the request whose slip the page renders opened. That is
 	// the request of the address (?req=), the slip that Cancel puts back,
@@ -302,8 +302,10 @@ func askingPage(r *http.Request) string {
 
 // accountRefRe is a valid account reference in the address of an account
 // page: an AWS account ID, a creation request ID, a name or an ID prefix,
-// as core.Resolve reads them. Each is letters, digits and dashes.
-var accountRefRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,63}$`)
+// as core.Resolve reads them. Each is letters, digits and dashes. A
+// pending request is an account whose ID is "req:" and the request name, so
+// a colon is valid too.
+var accountRefRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:-]{0,67}$`)
 
 // isAccountPage reports whether path is the address of an account page:
 // /accounts/ and one valid account reference.
@@ -616,6 +618,33 @@ func (s *Server) writeAccount(w http.ResponseWriter, r *http.Request, pg page, a
 	s.render(w, r, templ.Join(append([]templ.Component{main}, after...)...))
 }
 
+// refreshAccount answers the refresh of the account page that asked. An
+// account that is gone, or that the viewer may no longer see, gets the plain
+// notice, which does not poll. An account that did not load gets a section
+// that says so and keeps polling, so the next good poll clears it. A
+// reference that now names an account with another ID, such as a creation
+// request ID after AWS placed the account, moves the page to that ID.
+func (s *Server) refreshAccount(w http.ResponseWriter, r *http.Request, pg page) {
+	v, err := s.accountFor(r.Context(), pg)
+	if err != nil {
+		s.log.Warn("account poll", "path", r.URL.Path, "err", err)
+		hash := s.hashOf(r.Context(), accountStale(pg, "", ""))
+		if hash != "" && r.Header.Get(pollHashHeader) == hash {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		s.render(w, r, accountStale(pg, listFailure(err), hash))
+		return
+	}
+	if v != nil {
+		if id := pathAccounts + "/" + v.Row.Account.ID; id != pg.Asker && isAccountPage(id) {
+			pg.Asker = id
+			w.Header().Set("HX-Replace-Url", id)
+		}
+	}
+	s.pollAccount(w, r, pg, v)
+}
+
 // pollAccount answers the refresh of an account page with the account
 // section, or with 204 when the poll sends the hash of what the page shows.
 func (s *Server) pollAccount(w http.ResponseWriter, r *http.Request, pg page, v *accountView) {
@@ -883,12 +912,7 @@ func (s *Server) table(w http.ResponseWriter, r *http.Request) {
 	// from an account page still gets the answer of that page, so it never
 	// gets a fleet that the page does not show.
 	if pg := s.basePage(r); pg.onAccount() && r.Header.Get("HX-Request") == "true" {
-		v, err := s.accountFor(r.Context(), pg)
-		if err != nil {
-			s.fail(w, r, err)
-			return
-		}
-		s.pollAccount(w, r, pg, v)
+		s.refreshAccount(w, r, pg)
 		return
 	}
 	pg := s.pageFor(r)
@@ -991,20 +1015,27 @@ func (s *Server) owned(w http.ResponseWriter, r *http.Request, ref string) (*cor
 // when the poll sends the hash of what the page shows. The refresh reads
 // spend from the cost cache only and never pulls.
 func (s *Server) show(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("HX-Request") == "true" {
+		// The answer is the section of this address, whatever page sent the
+		// request, so it polls this address again.
+		noCache(w)
+		pg := s.basePage(r)
+		pg.Asker = r.URL.Path
+		s.refreshAccount(w, r, pg)
+		return
+	}
 	a, ok := s.owned(w, r, r.PathValue("id"))
 	if !ok {
 		return
 	}
-	noCache(w)
-	if r.Header.Get("HX-Request") == "true" {
-		// The answer is the section of this address, whatever page sent the
-		// request, so it polls this address again.
-		pg := s.basePage(r)
-		pg.Asker = r.URL.Path
-		v := s.viewOf(pg, a)
-		s.pollAccount(w, r, pg, &v)
+	// The page lives at the ID of the account, so its poll and its actions
+	// never follow a name to a newer account, and a creation request ID
+	// moves to the AWS account ID.
+	if id := pathAccounts + "/" + a.ID; id != r.URL.Path && isAccountPage(id) {
+		http.Redirect(w, r, id, http.StatusFound)
 		return
 	}
+	noCache(w)
 	daily := spendView{Known: a.ProviderID == ""}
 	if a.ProviderID != "" {
 		// Opening the page is a request of a person, so spend that is not

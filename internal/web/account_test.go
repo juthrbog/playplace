@@ -147,8 +147,9 @@ func TestAccountRefreshNeverPullsCosts(t *testing.T) {
 }
 
 // Only the owner and an admin get the account page or its refresh. Anyone
-// else, an approver included, gets 403 with the refusal in the slot of the
-// account and nothing of the account.
+// else, an approver included, gets the 403 page on a visit. The refresh
+// gets the plain notice, which shows nothing of the account and stops the
+// poll, so it does not repeat a refusal every 15 s.
 func TestAccountRefreshIsScoped(t *testing.T) {
 	ts, _ := newServer(t)
 	const page = "/accounts/222222222222"
@@ -160,13 +161,13 @@ func TestAccountRefreshIsScoped(t *testing.T) {
 		{"lead@example.com", true},
 	} {
 		res, body := fromPage(t, ts, "GET", page, page, c.who, false, c.approver, nil, "")
-		if res.StatusCode != http.StatusForbidden {
-			t.Errorf("%s: refresh = %d, want 403", c.who, res.StatusCode)
+		if res.StatusCode != http.StatusOK || res.Header.Get("HX-Reswap") != "" {
+			t.Errorf("%s: refresh = %d, reswap %q, want 200 and a swap", c.who, res.StatusCode, res.Header.Get("HX-Reswap"))
 		}
-		if !strings.Contains(body, `<div id="account-error" hx-swap-oob="innerHTML">`) {
-			t.Errorf("%s: the refusal does not fill the slot of the account:\n%s", c.who, body)
+		if !strings.Contains(body, `<h1 id="account-title" tabindex="-1">Account unavailable</h1>`) {
+			t.Errorf("%s: the refresh is not the plain notice:\n%s", c.who, body)
 		}
-		for _, bad := range []string{`<section id="account"`, "sams-box", "s@example.com", "sam@example.com"} {
+		for _, bad := range []string{"data-poll", "account-error", "sams-box", "s@example.com", "sam@example.com"} {
 			if strings.Contains(body, bad) {
 				t.Errorf("%s: the refusal shows %s:\n%s", c.who, bad, body)
 			}

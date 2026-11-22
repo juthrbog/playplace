@@ -1584,6 +1584,30 @@ templ accountGone() {
 	</section>
 }
 
+// accountStale takes the place of the account section when the account did
+// not load, such as when the call to AWS failed. It keeps polling, and the
+// next good poll replaces it. msg is the refusal text of the error. The
+// poll hash leaves it out, so the same outage answers 204. data-stale tells
+// app.js that the section shows no fresh data, so the Updated time does
+// not reset. The note has an id, so a morph never pairs it with the card
+// that replaces it.
+templ accountStale(pg page, msg, hash string) {
+	<section
+		id="account"
+		class="account"
+		aria-labelledby="account-title"
+		hx-get={ pollURL(pg) }
+		hx-trigger="every 15s, poll-now"
+		hx-swap="morph"
+		data-poll
+		if hash != "" {
+			data-poll-hash={ hash }
+		}
+	>
+		<div id="account-stale" class="refusal" data-stale>@icon("alert")<div class="note-text"><p class="note-title" id="account-title">The account is unavailable right now.</p><p class="note-body">{ msg + " " }<span class="retry-live">The page tries again every 15 seconds.</span><span class="retry-paused">Live updates are paused. Resume them to try again.</span></p></div></div>
+	</section>
+}
+
 // accountSection is the loan card of the account and its facts. It is the
 // poller of the page: data-poll marks it for app.js, and poll-now makes it
 // poll at once. hash is the poll hash of this answer. accountHash renders

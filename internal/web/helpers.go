@@ -310,12 +310,22 @@ func leftThisMonth(spend, budget float64) string {
 }
 
 // lifetime is how long the account lives, from its creation to its due
-// date, such as "3 days". It is empty when either time is unknown.
+// date, such as "3 days". A span of a day or more is in whole days, rounded
+// up, because the creation time and the due date seldom differ by whole
+// days. A shorter span is in hours. It is empty when either time is
+// unknown.
 func lifetime(a *core.Account) string {
 	if a.CreatedAt.IsZero() || a.ExpiresAt.IsZero() || a.ExpiresAt.Before(a.CreatedAt) {
 		return ""
 	}
-	return core.Lifetime(a.ExpiresAt.Sub(a.CreatedAt))
+	d := a.ExpiresAt.Sub(a.CreatedAt)
+	if d < 24*time.Hour {
+		return core.Lifetime(d)
+	}
+	if days := int(math.Ceil(d.Hours() / 24)); days > 1 {
+		return fmt.Sprintf("%d days", days)
+	}
+	return "1 day"
 }
 
 // lifetimeLimit names the lifetime ceiling, such as "the limit is 90
