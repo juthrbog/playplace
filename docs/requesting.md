@@ -118,6 +118,25 @@ after a reload. When you close the tab, the pause ends. Your own actions, such a
 A tab that is in the background does not update. When you come back to it,
 it updates at once, unless you paused it.
 
+## Keys
+
+The web UI has single-key shortcuts. After you sign in, press `?` on any
+page to see the keys that work on that page. **Key list** at the bottom of
+the page shows the same list. On your home page, `j` and `k` move to the
+next or the previous loan card or request, and Enter opens the account of
+a card. Approvers have more keys. See [Approving requests](approving.md#keys) and
+[Finding accounts](finding-accounts.md#keys).
+
+The keys never act while you type in a field, while you hold Ctrl, Alt or
+Command, or while a dialog is open.
+
+The keys are on by default. To turn them off, press **Keys on** at the
+bottom of the page. The button then says **Keys off**. Press it again to
+turn them on. The setting lasts for this browser, in every tab and after a
+reload. While the keys are off, `?` still shows the list, so you can find
+the button again. The keys need JavaScript, so the two buttons show only
+when JavaScript is on.
+
 ## Other ways to ask
 
 Depending on how your organization runs playplace, you may also be able to
