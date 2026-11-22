@@ -39,7 +39,9 @@ indoor playgrounds we grew up with; this is that idea moved to the cloud.
    line. Nobody can approve a request they made or would own.
 3. **Use.** AWS creates the account in one to three minutes. The owner finds
    it in their AWS access portal with the playground permission set, and a
-   budget is set up before owner access is granted. Optional [budget protection](budgets.md)
+   budget is set up before owner access is granted. When the operator sets
+   the portal address, the account card has an **Open AWS access portal**
+   button. Optional [budget protection](budgets.md)
    blocks covered provisioning APIs at the threshold; admins can increase an
    existing budget and lift/rearm its restriction.
 4. **Expire.** Three days before expiry, playplace sends an *expiring*

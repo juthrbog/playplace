@@ -327,6 +327,11 @@ type accountRow struct {
 	// Now is the service clock when the row was read. The due date and the
 	// time left count from it, so a fake clock and the text agree.
 	Now time.Time
+	// Access is where the console access of the account stands, in words.
+	Access accessView
+	// Portal is the address of the AWS access portal button, or empty when
+	// the viewer does not get it (portalLink).
+	Portal string
 }
 
 
@@ -1170,6 +1175,11 @@ templ loanCard(r accountRow, landed bool) {
 // the name is the page heading, which takes the focus after Close, the
 // spend says what is left this month, and the actions answer the account
 // section. The budget protection is then one of the facts.
+//
+// The access state (accessState) shows as the qualifier "getting ready" on
+// a loan card of the home page, and as a full line under the status on the
+// account page. The AWS access portal button comes first in the actions
+// when the row has one (portalLink).
 templ loanBody(r accountRow, landed, onPage bool) {
 	<div class="loan-head">
 		if onPage {
@@ -1184,7 +1194,14 @@ templ loanBody(r accountRow, landed, onPage bool) {
 		}
 	</div>
 	<div class="loan-status">
-		@statusLines(r.Account)
+		@statusLabel(r.Account)
+		if !onPage && r.Access.Kind == accessReady {
+			<span class="qualifier">getting ready</span>
+		}
+		@statusNotes(r.Account)
+		if onPage && r.Access.Kind != accessNone {
+			<div class={ "qualifier", "access", accessClass(r.Access) }>@icon(r.Access.Icon)<span>{ r.Access.Text }</span></div>
+		}
 	</div>
 	<div class="loan-due">
 		@dueStamp(dueFor(r.Account, r.Now), r.Account.ID, true, landed)
@@ -1209,8 +1226,11 @@ templ loanBody(r accountRow, landed, onPage bool) {
 			@budgetLabel(r.Account.BudgetHealth, r.Account.BudgetError)
 		}
 	</div>
-	if cardActions(r.Account) {
+	if r.Portal != "" || cardActions(r.Account) {
 		<div class="loan-actions">
+			if r.Portal != "" {
+				@portalButton(r.Portal)
+			}
 			if onPage {
 				@accountActions(r.Account, "", "#account")
 			} else {
@@ -1218,6 +1238,13 @@ templ loanBody(r accountRow, landed, onPage bool) {
 			}
 		</div>
 	}
+}
+
+// portalButton is the link to the AWS access portal: a primary button on
+// card stock that opens the portal in a new tab, and says so to screen
+// readers. rel keeps the portal from reaching back to this page.
+templ portalButton(url string) {
+	<a class="btn btn-primary portal" href={ templ.SafeURL(url) } rel="noopener noreferrer" target="_blank">Open AWS access portal<span class="vh">{ " (opens in a new tab)" }</span></a>
 }
 
 // fleetBar is the filter bar of the accounts page. It is a form, so a row
@@ -1397,6 +1424,12 @@ templ accountTR(r accountRow, include string, landed bool) {
 // in the log only.
 templ statusLines(a *core.Account) {
 	@statusLabel(a)
+	@statusNotes(a)
+}
+
+// statusNotes are the lines under a status label: a placement wait, a
+// problem and damaged tags, as statusLines describes.
+templ statusNotes(a *core.Account) {
 	if p, ok := accountProblem(a); ok {
 		if p.Wait {
 			<div class="qualifier">@icon("clock")<span>{ p.Text }</span></div>
@@ -1782,7 +1815,7 @@ templ accountExtras(pg page, a *core.Account, spend spendView, history historyVi
 										}
 									</td>
 									<td class="wrap">{ e.Message }
-										if len(e.Details) > 0 {
+										if len(visibleDetails(e)) > 0 {
 											<details><summary>Details</summary><pre>{ historyDetails(e) }</pre></details>
 										}
 									</td>

@@ -141,6 +141,9 @@ func newApp(ctx context.Context, opts *options) (*app, error) {
 			log.Warn("budget notifications disabled: configure --alert-email")
 		}
 	}
+	if cfg.AccessPortalURL != "" && awsCfg.PermissionSet == "" {
+		log.Warn("access-portal-url is set but --permission-set is not, so playplace does not grant owner access; owners still see the portal link")
+	}
 	prov, err := newProvider(ctx, awsCfg)
 	if err != nil {
 		return nil, err

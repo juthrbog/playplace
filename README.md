@@ -68,7 +68,9 @@ credentials are needed:
 1. Open your organization's playplace URL and sign in with your work account.
 2. Fill in the request form and wait for approval.
 3. Once the account is active, open it from your AWS access portal (when
-   Identity Center access is configured).
+   Identity Center access is configured). If the operator set
+   `--access-portal-url`, the **Open AWS access portal** button on the
+   account card opens the portal.
 4. Use **+7d** to extend, **Close** to request early closure, or open the account
    page to see its history.
 

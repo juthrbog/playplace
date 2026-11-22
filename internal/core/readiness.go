@@ -57,12 +57,16 @@ const (
 //
 // An account that finished its handoff gets the empty kind. A legacy account,
 // which has no handoff tag, gets HandoffAccessPending only while playplace
-// manages access, the account can be extended, and no access is granted;
-// readiness still grants access to such an account, but it sends no ready
-// notice.
+// manages access, the account can be extended, and no access is granted,
+// or HandoffOwnerUnknown when its owner is unknown, as then the grant cannot
+// find the owner. Readiness still grants access to such an account, but it
+// sends no ready notice.
 func (a *Account) HandoffBlocker(accessEnabled bool, now time.Time) HandoffBlock {
 	if !a.HandoffPending() {
 		if a.handoff == "" && accessEnabled && a.AccessGrantedTo == "" && a.CanExtend() {
+			if ownerUnknown(a.Owner) {
+				return HandoffOwnerUnknown // the grant cannot find the owner
+			}
 			return HandoffAccessPending
 		}
 		return ""
@@ -102,6 +106,10 @@ func handoffBudgetReady(health string) bool {
 	}
 	return false
 }
+
+// OwnerUnknown reports whether owner names no real person, such as the
+// owner of an adopted account that had no owner tag.
+func OwnerUnknown(owner string) bool { return ownerUnknown(owner) }
 
 // ownerUnknown reports whether owner names no real person.
 func ownerUnknown(owner string) bool {
@@ -182,7 +190,11 @@ func (s *Service) reconcileReadiness(ctx context.Context, a *Account) error {
 	a.handoff = handoffComplete
 	s.Invalidate()
 	body := fmt.Sprintf("Account %s (%s) is ready for %s. It expires %s.", a.Name, a.ProviderID, a.Owner, a.ExpiresAt.Format("2006-01-02"))
-	if a.AccessGrantedTo != "" {
+	// The address goes in whether or not playplace manages access, as the
+	// web UI shows the portal button in both cases.
+	if s.cfg.AccessPortalURL != "" {
+		body += " Sign in at " + s.cfg.AccessPortalURL + "; the account is listed there."
+	} else if a.AccessGrantedTo != "" {
 		body += " Sign in through the access portal; the account is listed there."
 	}
 	s.notify(ctx, a, "Playground account ready", body)

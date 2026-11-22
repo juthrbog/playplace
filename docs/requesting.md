@@ -57,13 +57,36 @@ gives the reason from AWS and the next step. Some reasons need a new request
 with another name. Others need an admin first, for example when the
 organization reached its account limit.
 
-The account is in your AWS access portal under the playground permission
-set. Sign in there to reach the console or to get CLI credentials.
+## Sign in to AWS
 
-An *active* account can still be getting ready. When budget protection is
-on, the budget line of the card shows `setup-pending` until a later refresh sees the
-protection in AWS. This usually takes a few minutes. The *ready* notice says
-when you can sign in.
+The account is in your AWS access portal under the playground permission
+set. Sign in there to reach the console or to get CLI credentials. If your
+operator set the address of the portal, the card of your account has an
+**Open AWS access portal** button. The button opens the portal start page in
+a new tab. The account is listed there. The *ready* notice then also gives
+the address. If no address is set, ask your operator where your organization
+signs in to AWS.
+
+The button shows only when all of these are true:
+
+1. You own the account. An admin who is not the owner sees no button.
+2. The account is *active* or *expiring*.
+3. Your access is granted, or playplace does not manage AWS access for your
+   organization.
+
+An *active* account can still be getting ready. Then the loan card on the
+home page shows "getting ready" under the status. The account page says
+what the account waits for, for example "Getting ready: waiting for budget
+protection to be ready." When budget protection is on, the budget line of
+the card shows `setup-pending` until a later refresh sees the protection in
+AWS. This usually takes a few minutes. The *ready* notice says when you can
+sign in.
+
+When the account is ready and playplace manages AWS access, the account
+page shows "Access granted". If
+playplace does not manage AWS access, the page says "playplace does not
+manage AWS access for this account." Then someone else in your organization
+gives you access. A closed or closing account shows no access line.
 
 ## While you have it
 
@@ -100,6 +123,8 @@ accounts. See
   closes. **Cancel** has the focus. Press **Close account** to close it, or
   **Cancel** to keep it. If the dialog cannot open, nothing is sent, and
   the page says "Reload the page to close this account."
+- **Sign in to AWS.** Press **Open AWS access portal** on the card when it
+  shows. See [Sign in to AWS](#sign-in-to-aws).
 - **See it all.** Press the name of the account on its card to open its
   account page. See [The account page](#the-account-page).
 
@@ -121,15 +146,19 @@ status, the due date stamp and the spend:
 
 - **Status.** If something is wrong with the account, a line under the
   status says what is wrong and what to do. See
-  [Finding accounts](finding-accounts.md#a-line-under-the-status).
+  [Finding accounts](finding-accounts.md#a-line-under-the-status). For an
+  *active* or *expiring* account, a line says where your AWS access stands:
+  "Access granted", "Getting ready" and what the account waits for, or that
+  playplace does not manage AWS access. See
+  [Sign in to AWS](#sign-in-to-aws).
 - **Spend.** The spend this month against the monthly budget, such as
   "$22.50 of $50.00 a month", with a bar under it. A line under the bar
   says what is left, such as "$27.50 left this month", or how far the spend
   is over the budget. The line "Cost data lags about a day." comes last. If
   the spend shows "unavailable", it has no bar. See
   [Finding accounts](finding-accounts.md#spend-shows-unavailable).
-- **Buttons.** **+7d** and **Close** work as on the home page, and Close
-  opens the same dialog. After a close, you stay on the page, and the card
+- **Buttons.** **Open AWS access portal**, **+7d** and **Close** work as on
+  the home page, and Close opens the same dialog. After a close, you stay on the page, and the card
   shows *closing*. If playplace refuses an action, the reason shows above
   the card.
 

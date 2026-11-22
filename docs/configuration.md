@@ -43,6 +43,7 @@ budgets stop provisioning.
 | flag | default | meaning |
 |---|---|---|
 | `--permission-set` | | IAM Identity Center permission set, by name or ARN, granted to owners. Empty disables owner validation and access grants |
+| `--access-portal-url` | | https address of the AWS access portal start page, such as `https://example.awsapps.com/start`. The web UI links to it, and the *ready* notice names it. Empty means no link |
 
 Before you set `--permission-set`, enable IAM Identity Center in the
 management account and create the permission set, for example
@@ -57,6 +58,24 @@ it places the account, and it removes the grant when the account closes.
 
 The Identity Center and identity store calls use the default AWS region, so
 `--aws-region` or the profile must point at the Identity Center home region.
+
+`--access-portal-url` is the start page of the AWS access portal, where
+owners sign in to reach their accounts. Identity Center shows it in its
+settings as the AWS access portal URL. When it is set, an owner gets an
+**Open AWS access portal** button on the loan card and the account page
+after the account is ready. An admin who is not the owner gets no button. The
+*ready* notice then says "Sign in at" and the address, also when playplace
+does not manage access. Without it, the web UI shows no button. If
+playplace granted access, the notice then says "Sign in through the access
+portal".
+
+The address must be a full URL that starts with `https://`, names a host,
+and holds no spaces and no user name or password. If it does not, playplace
+refuses to start and names the flag in the error. The error does not repeat
+the address, so a password in it does not go to the log. If you set `--access-portal-url`
+without `--permission-set`, playplace starts but writes a warning to the
+log. playplace then does not grant owner access, so someone else must give
+owners access to their accounts. Owners still see the button.
 
 ## Web UI and sign-in
 

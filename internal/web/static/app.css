@@ -753,6 +753,18 @@
     border-color: var(--card-rule);
     color: var(--ink);
   }
+  /* The AWS access portal link is a primary button on card stock. Its
+     fill is the card, so the pencil-grey border draws its edge, as on a
+     plain button there. It is never shelf green: green belongs to the
+     shell. It sits in this layer, after .btn-primary, because a rule in
+     the base layer loses to any rule in this one. */
+  :where(.loan) a.btn-primary {
+    border-color: var(--ink-2);
+  }
+  :where(.loan) a.btn-primary:hover {
+    background: var(--card-sel);
+    border-color: var(--ink);
+  }
   .btn-approve {
     background: var(--violet);
     border-color: var(--violet);
@@ -1044,6 +1056,15 @@
   }
   .qualifier .i {
     color: var(--violet);
+  }
+  /* The access line of the account page: granted is a quiet state with
+     the shelf-ink check of active, not managed a pencil-grey minus.
+     Getting ready keeps the violet of a settling qualifier. */
+  .access-granted .i {
+    color: var(--shelf-ink);
+  }
+  .access-unmanaged .i {
+    color: var(--ink-2);
   }
   .muted {
     color: var(--ink-2);
